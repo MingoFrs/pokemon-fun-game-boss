@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Route du Boss</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="bg-glow" aria-hidden="true"></div>
+
+<main class="app">
+
+  <header class="hero">
+    <svg class="hero__path" viewBox="0 0 220 320" fill="none" aria-hidden="true">
+      <circle cx="110" cy="24" r="14" class="node node--boss"/>
+      <path d="M110 38 L110 66" class="edge edge--trunk"/>
+      <circle cx="110" cy="80" r="9" class="node"/>
+      <path d="M110 89 L58 128" class="edge edge--haut"/>
+      <path d="M110 89 L162 128" class="edge edge--bas"/>
+      <circle cx="58" cy="132" r="8" class="node node--haut"/>
+      <circle cx="162" cy="132" r="8" class="node node--bas"/>
+      <path d="M58 140 L58 176" class="edge edge--haut"/>
+      <path d="M162 140 L162 176" class="edge edge--bas"/>
+      <circle cx="58" cy="184" r="7" class="node node--haut"/>
+      <circle cx="162" cy="184" r="7" class="node node--bas"/>
+      <path d="M58 191 L94 224" class="edge edge--haut"/>
+      <path d="M162 191 L126 224" class="edge edge--bas"/>
+      <circle cx="110" cy="232" r="9" class="node"/>
+      <path d="M110 241 L110 268" class="edge edge--trunk"/>
+      <circle cx="110" cy="284" r="12" class="node node--start"/>
+    </svg>
+    <p class="eyebrow">Multijoueur temps réel</p>
+    <h1>Route du Boss</h1>
+    <p class="tagline">Choisis HAUT ou BAS à chaque tour. Capture des Pokémon. Atteins le boss.</p>
+  </header>
+
+  <section id="screen-home" class="screen">
+    <div class="field">
+      <label for="pseudo-input">Pseudo</label>
+      <input id="pseudo-input" type="text" maxlength="16" placeholder="Ton nom de dresseur" autocomplete="off">
+    </div>
+
+    <div class="cards">
+      <div class="card">
+        <h2>Créer une partie</h2>
+        <p class="card__hint">Génère un code et invite tes amis.</p>
+        <button id="btn-create" class="btn btn--haut">Créer une partie</button>
+      </div>
+
+      <div class="card">
+        <h2>Rejoindre une partie</h2>
+        <p class="card__hint">Entre le code reçu de l'hôte.</p>
+        <input id="code-input" type="text" maxlength="6" placeholder="CODE" class="input-code" autocomplete="off">
+        <button id="btn-join" class="btn btn--bas">Rejoindre</button>
+      </div>
+    </div>
+
+    <p id="error-message" class="error-message" role="alert"></p>
+  </section>
+
+  <section id="screen-lobby" class="screen screen--hidden">
+    <div class="lobby-header">
+      <div>
+        <p class="eyebrow">Code de la partie</p>
+        <div class="game-code" id="game-code">------</div>
+      </div>
+      <button id="btn-leave" class="btn btn--ghost">Quitter</button>
+    </div>
+
+    <div class="players-panel">
+      <h2>Joueurs <span id="players-count">(0)</span></h2>
+      <ul id="players-list" class="players-list"></ul>
+    </div>
+
+    <button id="btn-start" class="btn btn--haut btn--block screen--hidden">Démarrer la partie</button>
+    <p class="lobby-status" id="lobby-status">En attente d'autres dresseurs...</p>
+  </section>
+
+  <section id="screen-game" class="screen screen--hidden">
+
+    <div class="boss-panel" id="boss-panel">
+      <p class="eyebrow">Boss de fin</p>
+      <img id="boss-sprite" class="boss-sprite" src="" alt="">
+      <h2 id="boss-name" class="boss-name">ARCEUS</h2>
+      <p class="boss-target">Objectif : <span id="boss-target-value">2500</span> PTS</p>
+      <div class="my-score-row">
+        <span class="my-score-label">Ton score</span>
+        <span class="my-score-value-wrap">
+          <span id="my-score-value" class="my-score-value">0</span>
+          <span id="my-score-popup" class="my-score-popup"></span>
+        </span>
+      </div>
+    </div>
+
+    <div class="route-panel">
+      <p class="eyebrow">Route</p>
+      <div id="route-track" class="route-track"></div>
+    </div>
+
+    <div class="turn-panel">
+      <p class="turn-label">TOUR <span id="turn-current">1</span> / <span id="turn-max">6</span></p>
+      <p id="turn-status" class="turn-status">Choisis ton chemin</p>
+
+      <div class="choice-cards">
+        <button id="btn-haut" type="button" class="choice-card choice-card--haut">
+          <img id="choice-haut-sprite" class="choice-card__sprite" src="" alt="">
+          <p id="choice-haut-name" class="choice-card__name">???</p>
+          <span class="choice-card__label">🔼 HAUT</span>
+        </button>
+        <button id="btn-bas" type="button" class="choice-card choice-card--bas">
+          <img id="choice-bas-sprite" class="choice-card__sprite" src="" alt="">
+          <p id="choice-bas-name" class="choice-card__name">???</p>
+          <span class="choice-card__label">🔽 BAS</span>
+        </button>
+      </div>
+    </div>
+
+    <div id="result-panel" class="result-panel result-panel--hidden">
+      <p class="eyebrow">Résultat</p>
+      <img id="result-sprite" class="result-sprite" src="" alt="">
+      <p id="result-name" class="result-name"></p>
+      <div class="result-breakdown">
+        <p class="result-line">Base : <span id="result-base">0</span> PTS</p>
+        <p class="result-line">Effet : <span id="result-effect">—</span></p>
+        <p class="result-final">Résultat : <span id="result-points">0</span> PTS</p>
+      </div>
+    </div>
+
+    <div class="team-panel">
+      <p class="eyebrow">Ton équipe</p>
+      <div id="team-slots" class="team-slots"></div>
+    </div>
+
+    <div class="players-panel">
+      <h2>Joueurs</h2>
+      <ul id="game-players-list" class="players-list"></ul>
+    </div>
+
+    <button id="btn-leave-game" class="btn btn--ghost">Quitter</button>
+  </section>
+
+  <section id="screen-finished" class="screen screen--hidden">
+    <p id="finished-outcome" class="finished-outcome"></p>
+    <img id="finished-boss-sprite" class="boss-sprite" src="" alt="">
+    <h2 id="finished-boss-name" class="boss-name"></h2>
+
+    <div class="finished-stats">
+      <div class="finished-stat">
+        <p class="eyebrow">Ton score</p>
+        <p id="finished-my-score" class="finished-stat__value">0 PTS</p>
+      </div>
+      <div class="finished-stat">
+        <p class="eyebrow">Objectif</p>
+        <p id="finished-target" class="finished-stat__value finished-stat__value--muted">0 PTS</p>
+      </div>
+    </div>
+
+    <p class="eyebrow finished-ranking-title">Classement</p>
+    <div id="finished-results" class="finished-results"></div>
+
+    <button id="btn-leave-finished" class="btn btn--ghost btn--block">Quitter</button>
+  </section>
+
+</main>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="client.js"></script>
+</body>
+</html>
