@@ -106,7 +106,7 @@ h1 {
 
 /* ---------- Screens ---------- */
 
-.screen--hidden { display: none; }
+.screen--hidden { display: none !important; }
 
 /* ---------- Form fields ---------- */
 
@@ -461,6 +461,10 @@ input:focus {
   animation: scorePopFloat 1.1s ease forwards;
 }
 
+.my-score-popup--negative {
+  color: var(--danger);
+}
+
 @keyframes scorePopFloat {
   0% { opacity: 0; transform: translate(-50%, 6px); }
   20% { opacity: 1; transform: translate(-50%, -6px); }
@@ -537,6 +541,51 @@ input:focus {
   border-radius: 12px;
   padding: 20px;
   margin-bottom: 16px;
+}
+
+.bonus-target-title {
+  font-size: 14px;
+  color: var(--text-muted);
+  margin: 0 0 14px;
+}
+
+.bonus-target-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  gap: 10px;
+}
+
+.bonus-target-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-panel-alt);
+  border: 2px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 6px;
+  cursor: pointer;
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: 11px;
+  transition: border-color 0.15s ease, transform 0.15s ease, opacity 0.15s ease;
+}
+
+.bonus-target-item:hover:not(:disabled) {
+  border-color: var(--accent-haut);
+  transform: translateY(-2px);
+}
+
+.bonus-target-item:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.bonus-target-item img {
+  width: 44px;
+  height: 44px;
+  object-fit: contain;
 }
 
 .turn-label {
@@ -632,6 +681,11 @@ input:focus {
   width: 72px;
   height: 72px;
   object-fit: contain;
+}
+
+.choice-card__icon {
+  font-size: 40px;
+  line-height: 1;
 }
 
 .choice-card__name {
@@ -911,16 +965,47 @@ input:focus {
 }
 .finished-card--rank-3 .finished-card__rank { color: #d69a5c; }
 
+.finished-card__info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.finished-card__name-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
 .finished-card__name {
   font-weight: 600;
   margin: 0;
-  flex: 1;
 }
 
 .finished-card__score {
   font-family: var(--font-mono);
   color: var(--text-muted);
   margin: 0;
+  white-space: nowrap;
+}
+
+.finished-card__team {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.finished-card__team img {
+  width: 26px;
+  height: 26px;
+  object-fit: contain;
+  background: var(--bg-panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 2px;
 }
 
 .finished-card__badge {
@@ -936,6 +1021,61 @@ input:focus {
 
 .finished-card--defeat .finished-card__badge {
   color: var(--danger);
+}
+
+/* ---------- Équipe finale détaillée (résumé du joueur) ---------- */
+
+.finished-my-team {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.finished-team-slot {
+  aspect-ratio: auto;
+  flex-direction: column;
+  padding: 10px 6px;
+  gap: 4px;
+  text-align: center;
+}
+
+.finished-team-slot img {
+  width: 48px;
+  height: 48px;
+  object-fit: contain;
+}
+
+.finished-team-slot__name {
+  font-family: var(--font-display);
+  font-size: 12px;
+  margin: 0;
+}
+
+.finished-team-slot__evo {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--accent-haut);
+  margin: 0;
+  line-height: 1.3;
+}
+
+.finished-team-slot__trait {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  margin: 0;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.finished-team-slot__trait--bonus {
+  color: var(--accent-bas);
+  background: rgba(63, 208, 201, 0.12);
+}
+
+.finished-team-slot__trait--malus {
+  color: var(--danger);
+  background: rgba(232, 97, 93, 0.12);
 }
 
 /* ---------- Responsive : corrections petits écrans ---------- */
@@ -1003,5 +1143,13 @@ input:focus {
 
   .finished-card__name {
     min-width: 100px;
+  }
+
+  .finished-my-team {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .bonus-target-list {
+    grid-template-columns: repeat(auto-fill, minmax(70px, 1fr));
   }
 }

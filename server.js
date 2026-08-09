@@ -180,6 +180,71 @@ function buildPool(rarity, entries) {
   return entries.map(p => ({ ...p, rarity, sprite: spriteUrl(p.id) }));
 }
 
+// -----------------------------------------------------------------
+// Évolutions réelles (forme finale) pour le Bonbon XP. Couvre tous les
+// Pokémon commun/peu commun/rare de base ou intermédiaires qui ont une
+// évolution standard simple (pas d'évolution par échange/objet, pas de
+// branches multiples comme Évoli). Les entrées déjà "finales" (Persian,
+// Dracaufeu, Grolem, etc.) ne sont volontairement pas dans cette table :
+// elles ne sont pas évoluables. Réutilise les points déjà définis dans
+// les pools existants quand la forme finale y figure déjà (cohérence).
+// -----------------------------------------------------------------
+const EVOLUTION_MAP = {
+  1: { id: 3, name: 'Florizarre', points: 380 },
+  4: { id: 6, name: 'Dracaufeu', points: 440 },
+  7: { id: 9, name: 'Tortank', points: 420 },
+  10: { id: 12, name: 'Papilusion', points: 280 },
+  13: { id: 15, name: 'Dardargnan', points: 280 },
+  16: { id: 18, name: 'Roucarnage', points: 300 },
+  17: { id: 18, name: 'Roucarnage', points: 300 },
+  19: { id: 20, name: 'Rattatac', points: 260 },
+  23: { id: 24, name: 'Arbok', points: 230 },
+  27: { id: 28, name: 'Sablaireau', points: 260 },
+  29: { id: 31, name: 'Nidoqueen', points: 340 },
+  30: { id: 31, name: 'Nidoqueen', points: 340 },
+  32: { id: 34, name: 'Nidoking', points: 360 },
+  33: { id: 34, name: 'Nidoking', points: 360 },
+  35: { id: 36, name: 'Mélodelfe', points: 260 },
+  37: { id: 38, name: 'Feunard', points: 300 },
+  39: { id: 40, name: 'Grodoudou', points: 260 },
+  41: { id: 169, name: 'Nostenfer', points: 340 },
+  42: { id: 169, name: 'Nostenfer', points: 340 },
+  43: { id: 45, name: 'Rafflesia', points: 340 },
+  44: { id: 45, name: 'Rafflesia', points: 340 },
+  46: { id: 47, name: 'Parasect', points: 220 },
+  48: { id: 49, name: 'Aéromite', points: 280 },
+  50: { id: 51, name: 'Triopikeur', points: 210 },
+  52: { id: 53, name: 'Persian', points: 260 },
+  54: { id: 55, name: 'Akwakwak', points: 340 },
+  56: { id: 57, name: 'Colossinge', points: 300 },
+  58: { id: 59, name: 'Arcanin', points: 400 },
+  60: { id: 62, name: 'Tartard', points: 320 },
+  63: { id: 65, name: 'Alakazam', points: 460 },
+  66: { id: 68, name: 'Mackogneur', points: 405 },
+  67: { id: 68, name: 'Mackogneur', points: 405 },
+  69: { id: 71, name: 'Empiflor', points: 320 },
+  70: { id: 71, name: 'Empiflor', points: 320 },
+  72: { id: 73, name: 'Tentacruel', points: 340 },
+  74: { id: 76, name: 'Grolem', points: 435 },
+  75: { id: 76, name: 'Grolem', points: 435 },
+  77: { id: 78, name: 'Galopa', points: 340 },
+  79: { id: 80, name: 'Flagadoss', points: 340 },
+  81: { id: 82, name: 'Magnéton', points: 340 },
+  84: { id: 85, name: 'Dodrio', points: 260 },
+  88: { id: 89, name: 'Grotadmorv', points: 300 },
+  92: { id: 94, name: 'Ectoplasma', points: 460 },
+  98: { id: 99, name: 'Krabboss', points: 260 },
+  100: { id: 101, name: 'Électrode', points: 280 },
+  104: { id: 105, name: 'Ossatueur', points: 380 },
+  109: { id: 110, name: 'Smogogo', points: 280 },
+  111: { id: 112, name: 'Rhinoféros', points: 380 },
+  116: { id: 230, name: 'Hyporoi', points: 360 },
+  120: { id: 121, name: 'Staross', points: 280 },
+  129: { id: 130, name: 'Léviator', points: 480 },
+  138: { id: 140, name: 'Kabutops', points: 320 },
+  147: { id: 149, name: 'Dracolosse', points: 735 }
+};
+
 const POKEMON_POOLS = {
   commun: buildPool('commun', COMMON_RAW),
   peu_commun: buildPool('peu_commun', UNCOMMON_RAW),
@@ -201,14 +266,36 @@ const RARITY_TABLE = [
   { rarity: 'legendaire', weight: 0.03 }
 ];
 
-function pickRarity() {
+// Charme Chroma : les raretés "puissantes" voient leur poids multiplié par ×2.5,
+// le reste est renormalisé proportionnellement pour que la somme reste 1 (pas de
+// probabilité invalide, pas de garantie absolue non plus).
+const SHINY_CHARM_MULTIPLIER = 2.5;
+const SHINY_CHARM_BOOSTED_RARITIES = ['epique', 'pseudo_legendaire', 'legendaire'];
+
+const RARITY_TABLE_BOOSTED = (() => {
+  const boostedWeight = RARITY_TABLE
+    .filter(e => SHINY_CHARM_BOOSTED_RARITIES.includes(e.rarity))
+    .reduce((sum, e) => sum + e.weight * SHINY_CHARM_MULTIPLIER, 0);
+  const remainingBudget = 1 - boostedWeight;
+  const originalRemainingWeight = RARITY_TABLE
+    .filter(e => !SHINY_CHARM_BOOSTED_RARITIES.includes(e.rarity))
+    .reduce((sum, e) => sum + e.weight, 0);
+  const scaleFactor = remainingBudget / originalRemainingWeight;
+
+  return RARITY_TABLE.map(entry => SHINY_CHARM_BOOSTED_RARITIES.includes(entry.rarity)
+    ? { rarity: entry.rarity, weight: entry.weight * SHINY_CHARM_MULTIPLIER }
+    : { rarity: entry.rarity, weight: entry.weight * scaleFactor });
+})();
+
+function pickRarity(useCharm) {
+  const table = useCharm ? RARITY_TABLE_BOOSTED : RARITY_TABLE;
   const roll = Math.random();
   let cumulative = 0;
-  for (const entry of RARITY_TABLE) {
+  for (const entry of table) {
     cumulative += entry.weight;
     if (roll < cumulative) return entry.rarity;
   }
-  return RARITY_TABLE[RARITY_TABLE.length - 1].rarity; // filet de sécurité (arrondis flottants)
+  return table[table.length - 1].rarity; // filet de sécurité (arrondis flottants)
 }
 
 // Bonus / malus secrets appliqués au tirage d'un Pokémon.
@@ -272,13 +359,54 @@ function pickRandomBoss() {
   return randomFrom(BOSSES);
 }
 
+// Bonus du tour 4 spécial. Poids = probabilité d'être PROPOSÉ (parmi les 2 options),
+// pas une garantie d'obtention : le joueur choisit ensuite lequel des deux il prend.
+const BONUS_WEIGHTS = {
+  xpCandy: 35,
+  mysteryItem: 35,
+  shinyCharm: 30
+};
+
+const BONUS_LABELS = {
+  xpCandy: 'Bonbon XP',
+  mysteryItem: 'Objet Mystère',
+  shinyCharm: 'Charme Chroma'
+};
+
+function weightedPickKey(entries) {
+  const total = entries.reduce((sum, e) => sum + e.weight, 0);
+  let roll = Math.random() * total;
+  for (const entry of entries) {
+    if (roll < entry.weight) return entry.key;
+    roll -= entry.weight;
+  }
+  return entries[entries.length - 1].key;
+}
+
+// Bonbon XP n'est proposable que si le joueur a au moins un Pokémon évoluable.
+function getAvailableBonusKeys(player) {
+  return Object.keys(BONUS_WEIGHTS).filter(key => {
+    if (key === 'xpCandy') return player.team.some(mon => EVOLUTION_MAP[mon.id]);
+    return true;
+  });
+}
+
+// Tire 2 bonus DIFFÉRENTS parmi ceux réellement disponibles pour ce joueur.
+function pickTwoBonuses(player) {
+  const available = getAvailableBonusKeys(player).map(key => ({ key, weight: BONUS_WEIGHTS[key] }));
+  const first = weightedPickKey(available);
+  const remaining = available.filter(e => e.key !== first);
+  const second = weightedPickKey(remaining);
+  return [first, second];
+}
+
 function randomFrom(list) {
   return list[Math.floor(Math.random() * list.length)];
 }
 
 // Construit une récompense secrète complète (rareté → Pokémon + effet + points calculés).
-function buildRewardOption() {
-  const rarity = pickRarity();
+function buildRewardOption(useCharm) {
+  const rarity = pickRarity(useCharm);
   const pokemon = randomFrom(POKEMON_POOLS[rarity]);
   const effect = pickEffect();
   const finalPoints = Math.round(pokemon.points * effect.multiplier);
@@ -296,13 +424,13 @@ function buildRewardOption() {
 }
 
 // Génère les 2 options HAUT/BAS d'un joueur pour un tour (toujours 2 Pokémon distincts).
-function pickPlayerTurnOptions() {
-  const haut = buildRewardOption();
-  let bas = buildRewardOption();
+function pickPlayerTurnOptions(useCharm) {
+  const haut = buildRewardOption(useCharm);
+  let bas = buildRewardOption(useCharm);
 
   let guard = 0;
   while (bas.pokemonId === haut.pokemonId && guard < 10) {
-    bas = buildRewardOption();
+    bas = buildRewardOption(useCharm);
     guard += 1;
   }
 
@@ -329,7 +457,10 @@ function buildRoute() {
 // }
 // player = {
 //   id, name, score, team, currentChoice,
-//   currentOptions: { haut, bas } (secret, jamais envoyé tel quel au client)
+//   currentOptions: { haut, bas } (secret, jamais envoyé tel quel au client),
+//   hasShinyCharm: bool (Charme Chroma actif, propre au joueur, effet tours 5-6 uniquement),
+//   currentBonusOptions: [keyA, keyB] | null (2 bonus proposés au tour 4, secret intermédiaire),
+//   pendingBonusKey: 'xpCandy' | 'mysteryItem' | null (bonus choisi, en attente de la cible)
 // }
 // ---------------------------------------------------------------
 const games = {};
@@ -345,7 +476,17 @@ function generateGameId() {
 }
 
 function makePlayer(id, name) {
-  return { id, name, score: 0, team: [], currentChoice: null, currentOptions: null };
+  return {
+    id,
+    name,
+    score: 0,
+    team: [],
+    currentChoice: null,
+    currentOptions: null,
+    hasShinyCharm: false,
+    currentBonusOptions: null,
+    pendingBonusKey: null
+  };
 }
 
 // Ne renvoie jamais currentOptions au client (secret tant que le choix n'est pas fait).
@@ -378,9 +519,11 @@ function broadcastGameUpdated(game) {
 }
 
 // Génère et envoie individuellement à chaque joueur ses 2 choix (sprite + nom uniquement).
+// Le Charme Chroma (par joueur) n'améliore les probabilités qu'aux tours 5 et 6.
 function assignTurnOptions(game) {
   game.players.forEach(p => {
-    p.currentOptions = pickPlayerTurnOptions();
+    const useCharm = p.hasShinyCharm && game.turn >= 5;
+    p.currentOptions = pickPlayerTurnOptions(useCharm);
     io.to(p.id).emit('turn_options', {
       haut: { name: p.currentOptions.haut.name, sprite: p.currentOptions.haut.sprite },
       bas: { name: p.currentOptions.bas.name, sprite: p.currentOptions.bas.sprite }
@@ -388,13 +531,31 @@ function assignTurnOptions(game) {
   });
 }
 
+// Démarre un tour pour tous les joueurs. Au tour 4, phase spéciale : on ne révèle
+// rien tout de suite, chaque joueur doit d'abord choisir POKÉMON ou BONUS
+// (cf. socket.on('special_choice')). Tous les autres tours : flux normal inchangé.
+function startTurnForPlayers(game) {
+  if (game.turn === 4) {
+    game.players.forEach(p => {
+      io.to(p.id).emit('advantage_options', {});
+    });
+  } else {
+    assignTurnOptions(game);
+  }
+}
+
 function advanceTurn(game) {
   game.route[game.turn - 1].status = 'done';
   game.turn += 1;
   game.route[game.turn - 1].status = 'current';
-  game.players.forEach(p => { p.currentChoice = null; });
+  game.players.forEach(p => {
+    p.currentChoice = null;
+    p.currentOptions = null;
+    p.currentBonusOptions = null;
+    p.pendingBonusKey = null;
+  });
   broadcastGameUpdated(game);
-  assignTurnOptions(game);
+  startTurnForPlayers(game);
 }
 
 function finishGame(game) {
@@ -416,6 +577,17 @@ function finishGame(game) {
   });
 }
 
+// Résout la transition de tour (avance ou termine la partie). Appelé soit par le
+// timer de révélation (~4s), soit immédiatement par skip_reveal en solo.
+function resolveTurnTransition(game) {
+  game.turnTimer = null;
+  if (game.turn >= game.maxTurns) {
+    finishGame(game);
+  } else {
+    advanceTurn(game);
+  }
+}
+
 // Une fois que tous les joueurs présents ont choisi, laisse ~4s de révélation
 // avant de faire avancer le tour (ou de terminer la partie), pour tout le monde en même temps.
 function maybeScheduleTurnTransition(game) {
@@ -425,14 +597,15 @@ function maybeScheduleTurnTransition(game) {
   const allChosen = game.players.length > 0 && game.players.every(p => p.currentChoice !== null);
   if (!allChosen) return;
 
-  game.turnTimer = setTimeout(() => {
-    game.turnTimer = null;
-    if (game.turn >= game.maxTurns) {
-      finishGame(game);
-    } else {
-      advanceTurn(game);
-    }
-  }, REVEAL_DELAY_MS);
+  game.turnTimer = setTimeout(() => resolveTurnTransition(game), REVEAL_DELAY_MS);
+}
+
+// Point de sortie commun à la fin d'un tour, que le joueur ait choisi POKÉMON (HAUT/BAS)
+// ou BONUS (Bonbon XP / Objet Mystère / Charme Chroma) — un seul chemin de code pour
+// diffuser l'état et planifier la transition, évite toute divergence entre les deux flux.
+function finalizePlayerTurn(game) {
+  broadcastGameUpdated(game);
+  maybeScheduleTurnTransition(game);
 }
 
 function leaveCurrentGame(socket) {
@@ -559,6 +732,9 @@ io.on('connection', (socket) => {
       p.team = [];
       p.currentChoice = null;
       p.currentOptions = null;
+      p.hasShinyCharm = false;
+      p.currentBonusOptions = null;
+      p.pendingBonusKey = null;
     });
 
     io.to(gameId).emit('game_started', {
@@ -571,7 +747,7 @@ io.on('connection', (socket) => {
       players: getPublicPlayers(game)
     });
 
-    assignTurnOptions(game);
+    startTurnForPlayers(game);
   });
 
   // Rejouer avec les mêmes joueurs : crée une partie entièrement neuve (nouveau code,
@@ -666,7 +842,14 @@ io.on('connection', (socket) => {
 
     player.score += reward.finalPoints;
     if (player.team.length < 6) {
-      player.team.push({ id: reward.pokemonId, name: reward.name, sprite: reward.sprite });
+      player.team.push({
+        id: reward.pokemonId,
+        name: reward.name,
+        sprite: reward.sprite,
+        basePoints: reward.basePoints,
+        effectName: reward.effectName,
+        multiplier: reward.multiplier
+      });
     }
 
     socket.emit('choice_result', {
@@ -678,8 +861,235 @@ io.on('connection', (socket) => {
       team: player.team
     });
 
-    broadcastGameUpdated(game);
-    maybeScheduleTurnTransition(game);
+    finalizePlayerTurn(game);
+  });
+
+  // Tour 4 uniquement : le joueur choisit POKÉMON (flux HAUT/BAS normal, révélé seulement
+  // maintenant) ou BONUS (il renonce à son Pokémon du tour, 2 bonus lui sont proposés).
+  socket.on('special_choice', ({ mode } = {}) => {
+    const gameId = socket.data.gameId;
+    const game = games[gameId];
+
+    if (!game) {
+      socket.emit('error_message', 'Partie introuvable.');
+      return;
+    }
+    if (game.status !== 'playing') {
+      socket.emit('error_message', "La partie n'est pas en cours.");
+      return;
+    }
+    if (game.turn !== 4) {
+      socket.emit('error_message', 'Le choix spécial est réservé au tour 4.');
+      return;
+    }
+    if (mode !== 'POKEMON' && mode !== 'BONUS') {
+      socket.emit('error_message', 'Mode invalide.');
+      return;
+    }
+
+    const player = game.players.find(p => p.id === socket.id);
+    if (!player) {
+      socket.emit('error_message', 'Tu ne fais pas partie de cette partie.');
+      return;
+    }
+    if (player.currentChoice !== null || player.currentOptions || player.currentBonusOptions || player.pendingBonusKey) {
+      socket.emit('error_message', 'Choix déjà en cours pour ce tour.');
+      return;
+    }
+
+    if (mode === 'POKEMON') {
+      // Flux identique aux autres tours (charme jamais actif au tour 4, il ne commence qu'au tour 5).
+      player.currentOptions = pickPlayerTurnOptions(false);
+      socket.emit('turn_options', {
+        haut: { name: player.currentOptions.haut.name, sprite: player.currentOptions.haut.sprite },
+        bas: { name: player.currentOptions.bas.name, sprite: player.currentOptions.bas.sprite }
+      });
+      return;
+    }
+
+    // mode === 'BONUS'
+    const [keyA, keyB] = pickTwoBonuses(player);
+    player.currentBonusOptions = [keyA, keyB];
+    socket.emit('bonus_options', {
+      bonuses: [keyA, keyB].map(key => ({ key, label: BONUS_LABELS[key] }))
+    });
+  });
+
+  // Le joueur choisit l'un des deux bonus qui lui ont été proposés. Le serveur vérifie
+  // que ce bonus faisait bien partie des deux options tirées pour LUI (jamais de confiance
+  // aveugle envers une clé envoyée directement par le client).
+  socket.on('bonus_choice', ({ key } = {}) => {
+    const gameId = socket.data.gameId;
+    const game = games[gameId];
+
+    if (!game) {
+      socket.emit('error_message', 'Partie introuvable.');
+      return;
+    }
+    const player = game.players.find(p => p.id === socket.id);
+    if (!player) {
+      socket.emit('error_message', 'Tu ne fais pas partie de cette partie.');
+      return;
+    }
+    if (!player.currentBonusOptions || !player.currentBonusOptions.includes(key)) {
+      socket.emit('error_message', "Ce bonus ne t'a pas été proposé.");
+      return;
+    }
+
+    if (key === 'shinyCharm') {
+      player.hasShinyCharm = true;
+      player.currentBonusOptions = null;
+      player.currentChoice = 'BONUS';
+      socket.emit('bonus_result', {
+        type: 'shinyCharm',
+        score: player.score,
+        team: player.team
+      });
+      finalizePlayerTurn(game);
+      return;
+    }
+
+    if (key === 'xpCandy') {
+      const eligible = player.team
+        .map((mon, index) => ({ index, mon }))
+        .filter(({ mon }) => EVOLUTION_MAP[mon.id]);
+      player.currentBonusOptions = null;
+      player.pendingBonusKey = 'xpCandy';
+      socket.emit('xp_candy_pending', {
+        team: eligible.map(({ index, mon }) => ({ index, id: mon.id, name: mon.name, sprite: mon.sprite }))
+      });
+      return;
+    }
+
+    if (key === 'mysteryItem') {
+      player.currentBonusOptions = null;
+      player.pendingBonusKey = 'mysteryItem';
+      socket.emit('mystery_item_pending', {
+        team: player.team.map((mon, index) => ({ index, id: mon.id, name: mon.name, sprite: mon.sprite }))
+      });
+    }
+  });
+
+  // Bonbon XP : le joueur choisit QUEL Pokémon de son équipe évolue jusqu'à sa forme finale.
+  socket.on('xp_candy_select', ({ index } = {}) => {
+    const gameId = socket.data.gameId;
+    const game = games[gameId];
+
+    if (!game) {
+      socket.emit('error_message', 'Partie introuvable.');
+      return;
+    }
+    const player = game.players.find(p => p.id === socket.id);
+    if (!player) {
+      socket.emit('error_message', 'Tu ne fais pas partie de cette partie.');
+      return;
+    }
+    if (player.pendingBonusKey !== 'xpCandy') {
+      socket.emit('error_message', 'Aucun Bonbon XP en attente.');
+      return;
+    }
+
+    const mon = player.team[index];
+    const evolution = mon && EVOLUTION_MAP[mon.id];
+    if (!mon || !evolution) {
+      socket.emit('error_message', 'Ce Pokémon ne peut pas évoluer.');
+      return;
+    }
+
+    const oldContribution = Math.round(mon.basePoints * mon.multiplier);
+    const fromName = mon.name;
+    mon.id = evolution.id;
+    mon.name = evolution.name;
+    mon.sprite = spriteUrl(evolution.id);
+    mon.basePoints = evolution.points;
+    mon.evolvedFrom = fromName;
+    const newContribution = Math.round(mon.basePoints * mon.multiplier);
+    const scoreDelta = newContribution - oldContribution;
+    player.score += scoreDelta;
+
+    player.pendingBonusKey = null;
+    player.currentBonusOptions = null;
+    player.currentChoice = 'BONUS';
+
+    socket.emit('bonus_result', {
+      type: 'xpCandy',
+      from: fromName,
+      to: mon.name,
+      sprite: mon.sprite,
+      scoreDelta,
+      score: player.score,
+      team: player.team
+    });
+
+    finalizePlayerTurn(game);
+  });
+
+  // Objet Mystère : le joueur choisit QUEL Pokémon reçoit un trait, le trait lui-même
+  // est tiré aléatoirement par le serveur (le joueur ne le choisit jamais).
+  socket.on('mystery_item_select', ({ index } = {}) => {
+    const gameId = socket.data.gameId;
+    const game = games[gameId];
+
+    if (!game) {
+      socket.emit('error_message', 'Partie introuvable.');
+      return;
+    }
+    const player = game.players.find(p => p.id === socket.id);
+    if (!player) {
+      socket.emit('error_message', 'Tu ne fais pas partie de cette partie.');
+      return;
+    }
+    if (player.pendingBonusKey !== 'mysteryItem') {
+      socket.emit('error_message', 'Aucun Objet Mystère en attente.');
+      return;
+    }
+
+    const mon = player.team[index];
+    if (!mon) {
+      socket.emit('error_message', 'Pokémon invalide.');
+      return;
+    }
+
+    const oldContribution = Math.round(mon.basePoints * mon.multiplier);
+    const newEffect = randomFrom(EFFECTS.filter(e => e.name !== 'Neutre'));
+    mon.effectName = newEffect.name;
+    mon.multiplier = newEffect.multiplier;
+    const newContribution = Math.round(mon.basePoints * mon.multiplier);
+    const scoreDelta = newContribution - oldContribution;
+    player.score += scoreDelta;
+
+    player.pendingBonusKey = null;
+    player.currentBonusOptions = null;
+    player.currentChoice = 'BONUS';
+
+    socket.emit('bonus_result', {
+      type: 'mysteryItem',
+      pokemonName: mon.name,
+      sprite: mon.sprite,
+      effect: { name: newEffect.name, multiplier: newEffect.multiplier },
+      scoreDelta,
+      score: player.score,
+      team: player.team
+    });
+
+    finalizePlayerTurn(game);
+  });
+
+  // Solo uniquement : passe immédiatement la pause de révélation en cours. Le serveur
+  // revérifie lui-même qu'il n'y a bien qu'un seul joueur (jamais confiance au client).
+  socket.on('skip_reveal', () => {
+    const gameId = socket.data.gameId;
+    const game = games[gameId];
+
+    if (!game || game.status !== 'playing') return;
+    if (game.players.length !== 1) {
+      socket.emit('error_message', 'Le skip est réservé au mode solo.');
+      return;
+    }
+    if (!game.turnTimer) return; // rien à sauter pour le moment
+
+    clearTimeout(game.turnTimer);
+    resolveTurnTransition(game);
   });
 
   socket.on('get_game_state', ({ gameId } = {}) => {

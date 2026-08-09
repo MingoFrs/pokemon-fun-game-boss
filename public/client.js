@@ -50,12 +50,35 @@ const teamSlotsEl = document.getElementById('team-slots');
 const gamePlayersListEl = document.getElementById('game-players-list');
 const btnLeaveGame = document.getElementById('btn-leave-game');
 
+// ---------- Tour 4 spécial : avantage / bonus ----------
+const choiceCardsEl = document.getElementById('choice-cards');
+const advantagePanelEl = document.getElementById('advantage-panel');
+const btnAdvantagePokemon = document.getElementById('btn-advantage-pokemon');
+const btnAdvantageBonus = document.getElementById('btn-advantage-bonus');
+const bonusPanelEl = document.getElementById('bonus-panel');
+const bonusCardA = document.getElementById('bonus-card-a');
+const bonusCardALabelEl = document.getElementById('bonus-card-a-label');
+const bonusCardADescEl = document.getElementById('bonus-card-a-desc');
+const bonusCardB = document.getElementById('bonus-card-b');
+const bonusCardBLabelEl = document.getElementById('bonus-card-b-label');
+const bonusCardBDescEl = document.getElementById('bonus-card-b-desc');
+const bonusTargetPanelEl = document.getElementById('bonus-target-panel');
+const bonusTargetTitleEl = document.getElementById('bonus-target-title');
+const bonusTargetListEl = document.getElementById('bonus-target-list');
+const bonusResultPanelEl = document.getElementById('bonus-result-panel');
+const bonusResultTitleEl = document.getElementById('bonus-result-title');
+const bonusResultSpriteEl = document.getElementById('bonus-result-sprite');
+const bonusResultDetailEl = document.getElementById('bonus-result-detail');
+const bonusResultFinalEl = document.getElementById('bonus-result-final');
+const btnSkip = document.getElementById('btn-skip');
+
 // ---------- Fin de partie ----------
 const finishedOutcomeEl = document.getElementById('finished-outcome');
 const finishedBossSpriteEl = document.getElementById('finished-boss-sprite');
 const finishedBossNameEl = document.getElementById('finished-boss-name');
 const finishedMyScoreEl = document.getElementById('finished-my-score');
 const finishedTargetEl = document.getElementById('finished-target');
+const finishedMyTeamEl = document.getElementById('finished-my-team');
 const finishedResultsEl = document.getElementById('finished-results');
 const btnReplay = document.getElementById('btn-replay');
 const finishedStatusEl = document.getElementById('finished-status');
@@ -68,6 +91,12 @@ let bossTarget = 2500;
 let hasChosenThisTurn = false;
 let lastTeamSize = 0;
 let lastRenderedTurn = 0;
+
+const BONUS_DESCRIPTIONS = {
+  xpCandy: 'Fait évoluer un Pokémon de ton équipe jusqu\'à sa forme finale.',
+  mysteryItem: 'Applique un trait aléatoire à un Pokémon — quitte ou double.',
+  shinyCharm: 'Améliore tes chances de Pokémon puissants aux tours 5 et 6.'
+};
 
 // ---------- Helpers UI ----------
 function showError(msg) {
@@ -212,9 +241,11 @@ function playRevealAnimation() {
   resultPanelEl.classList.add('result-panel--animate');
 }
 
-function updateMyScore(score, gain) {
-  if (gain) {
-    myScorePopupEl.textContent = `+${gain}`;
+function updateMyScore(score, delta) {
+  if (delta) {
+    const sign = delta > 0 ? '+' : '';
+    myScorePopupEl.textContent = `${sign}${delta}`;
+    myScorePopupEl.classList.toggle('my-score-popup--negative', delta < 0);
     myScorePopupEl.classList.remove('my-score-popup--play');
     myScoreValueEl.classList.remove('my-score-value--pulse');
     void myScorePopupEl.offsetWidth; // force le reflow pour rejouer l'animation
@@ -237,12 +268,143 @@ function updateBossProximity(turn, maxTurns) {
   bossPanelEl.classList.toggle('boss-panel--close', maxTurns - turn <= 1);
 }
 
+// ---------- Tour 4 spécial : avantage / bonus ----------
+
+// Une seule de ces 4 zones est visible à la fois : choix normal HAUT/BAS,
+// choix avantage (tour 4), choix entre 2 bonus, ou choix de la cible du bonus.
+function showTurnPhase(phase) {
+  choiceCardsEl.classList.toggle('screen--hidden', phase !== 'choice');
+  advantagePanelEl.classList.toggle('screen--hidden', phase !== 'advantage');
+  bonusPanelEl.classList.toggle('screen--hidden', phase !== 'bonus-pick');
+  bonusTargetPanelEl.classList.toggle('screen--hidden', phase !== 'bonus-target');
+}
+
+function setAdvantageButtonsEnabled(enabled) {
+  btnAdvantagePokemon.disabled = !enabled;
+  btnAdvantageBonus.disabled = !enabled;
+}
+
+// Liste cible réutilisée par Bonbon XP (Pokémon évoluables uniquement, filtré côté
+// serveur) et Objet Mystère (toute l'équipe). Le client ne renvoie que l'index fourni
+// par le serveur, jamais un choix qu'il aurait inventé lui-même.
+function renderBonusTargetList(team, onSelect) {
+  bonusTargetListEl.innerHTML = '';
+  team.forEach(mon => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'bonus-target-item';
+
+    const img = document.createElement('img');
+    img.src = mon.sprite;
+    img.alt = mon.name;
+
+    const name = document.createElement('span');
+    name.textContent = mon.name;
+
+    btn.appendChild(img);
+    btn.appendChild(name);
+    btn.addEventListener('click', () => {
+      Array.from(bonusTargetListEl.children).forEach(b => { b.disabled = true; });
+      turnStatusEl.textContent = 'Choix enregistré !';
+      onSelect(mon.index);
+    });
+    bonusTargetListEl.appendChild(btn);
+  });
+}
+
+function showBonusResult(data) {
+  const titles = {
+    xpCandy: 'Bonbon XP',
+    mysteryItem: 'Objet Mystère',
+    shinyCharm: 'Charme Chroma'
+  };
+  bonusResultTitleEl.textContent = titles[data.type] || '';
+
+  if (data.type === 'shinyCharm') {
+    bonusResultSpriteEl.classList.add('screen--hidden');
+    bonusResultDetailEl.textContent = 'Activé pour les tours 5 et 6 !';
+    bonusResultFinalEl.textContent = '';
+  } else if (data.type === 'xpCandy') {
+    bonusResultSpriteEl.classList.remove('screen--hidden');
+    bonusResultSpriteEl.src = data.sprite;
+    bonusResultDetailEl.textContent = `${data.from} → ${data.to}`;
+    bonusResultFinalEl.textContent = `${data.scoreDelta >= 0 ? '+' : ''}${data.scoreDelta} PTS`;
+  } else if (data.type === 'mysteryItem') {
+    bonusResultSpriteEl.classList.remove('screen--hidden');
+    bonusResultSpriteEl.src = data.sprite;
+    bonusResultDetailEl.textContent = `${data.pokemonName} — ${data.effect.name} ×${data.effect.multiplier}`;
+    bonusResultFinalEl.textContent = `${data.scoreDelta >= 0 ? '+' : ''}${data.scoreDelta} PTS`;
+  }
+
+  bonusResultPanelEl.classList.remove('result-panel--hidden');
+  bonusResultPanelEl.classList.remove('result-panel--animate');
+  void bonusResultPanelEl.offsetWidth; // force le reflow pour rejouer l'animation
+  bonusResultPanelEl.classList.add('result-panel--animate');
+}
+
+// Le bouton Skip n'existe qu'en solo — le serveur revalide de toute façon ce point.
+function updateSkipButton(players) {
+  btnSkip.classList.toggle('screen--hidden', players.length !== 1);
+}
+
 function resetTurnUI() {
   hasChosenThisTurn = false;
   setChoiceButtonsEnabled(true);
   clearChoiceSelection();
   turnStatusEl.textContent = 'Choisis ton chemin';
   resultPanelEl.classList.add('result-panel--hidden');
+  bonusResultPanelEl.classList.add('result-panel--hidden');
+}
+
+// Nettoyage centralisé de l'écran de jeu. Remet tous les panneaux temporaires
+// (fin de partie, résultats, phases du tour 4) en état caché/inactif, et réinitialise
+// l'état local. Appelé à chaque (re)démarrage de partie pour garantir qu'aucun élément
+// de l'ancienne partie ne persiste visuellement. Ne préjuge jamais du tour serveur :
+// se contente de vider l'affichage, le prochain événement serveur reconstruit l'état réel.
+function resetGameUI() {
+  clearError();
+
+  // Écran de fin
+  screenFinished.classList.add('screen--hidden');
+  finishedResultsEl.innerHTML = '';
+  finishedMyTeamEl.innerHTML = '';
+  finishedOutcomeEl.textContent = '';
+  finishedOutcomeEl.classList.remove('finished-outcome--victory', 'finished-outcome--defeat');
+  btnReplay.classList.add('screen--hidden');
+  finishedStatusEl.textContent = '';
+
+  // Résultats de tour / bonus
+  resultPanelEl.classList.add('result-panel--hidden');
+  resultPanelEl.classList.remove('result-panel--animate');
+  bonusResultPanelEl.classList.add('result-panel--hidden');
+  bonusResultPanelEl.classList.remove('result-panel--animate');
+
+  // Phases du tour : rien de visible tant que le serveur n'en indique pas une
+  // (choice/advantage/bonus-pick/bonus-target sont mutuellement exclusifs).
+  showTurnPhase('none');
+  setAdvantageButtonsEnabled(false);
+  bonusCardA.disabled = true;
+  bonusCardB.disabled = true;
+  bonusTargetListEl.innerHTML = '';
+
+  // Choix HAUT/BAS
+  clearChoiceSelection();
+  setChoiceButtonsEnabled(false);
+  hasChosenThisTurn = false;
+  turnStatusEl.textContent = 'Choisis ton chemin';
+
+  // Skip
+  btnSkip.classList.add('screen--hidden');
+
+  // Équipe / score / route
+  teamSlotsEl.innerHTML = '';
+  routeTrackEl.innerHTML = '';
+  routeStepEls = [];
+  lastTeamSize = 0;
+  lastRenderedTurn = 0;
+  myScoreValueEl.textContent = '0';
+  myScorePopupEl.textContent = '';
+  myScorePopupEl.classList.remove('my-score-popup--play', 'my-score-popup--negative');
 }
 
 function applyGameState({ status, turn, maxTurns, route, players }) {
@@ -251,6 +413,7 @@ function applyGameState({ status, turn, maxTurns, route, players }) {
   turnMaxEl.textContent = maxTurns;
   renderRoute(route);
   updateBossProximity(turn, maxTurns);
+  updateSkipButton(players);
   renderPlayers(gamePlayersListEl, players);
 
   const me = players.find(p => p.id === myId);
@@ -342,13 +505,44 @@ btnBas.addEventListener('click', () => {
   socket.emit('player_choice', { choice: 'BAS' });
 });
 
+// ---------- Actions : tour 4 spécial ----------
+btnAdvantagePokemon.addEventListener('click', () => {
+  setAdvantageButtonsEnabled(false);
+  socket.emit('special_choice', { mode: 'POKEMON' });
+});
+
+btnAdvantageBonus.addEventListener('click', () => {
+  setAdvantageButtonsEnabled(false);
+  socket.emit('special_choice', { mode: 'BONUS' });
+});
+
+bonusCardA.addEventListener('click', () => {
+  bonusCardA.disabled = true;
+  bonusCardB.disabled = true;
+  turnStatusEl.textContent = 'Choix enregistré !';
+  socket.emit('bonus_choice', { key: bonusCardA.dataset.key });
+});
+
+bonusCardB.addEventListener('click', () => {
+  bonusCardA.disabled = true;
+  bonusCardB.disabled = true;
+  turnStatusEl.textContent = 'Choix enregistré !';
+  socket.emit('bonus_choice', { key: bonusCardB.dataset.key });
+});
+
+btnSkip.addEventListener('click', () => {
+  socket.emit('skip_reveal');
+});
+
 btnLeaveGame.addEventListener('click', () => {
   socket.emit('leave_game');
+  resetGameUI();
   showScreen(screenHome);
 });
 
 btnLeaveFinished.addEventListener('click', () => {
   socket.emit('leave_game');
+  resetGameUI();
   showScreen(screenHome);
 });
 
@@ -362,7 +556,7 @@ socket.on('connect', () => {
 });
 
 socket.on('game_created', ({ gameId, players, hostId: hId }) => {
-  clearError();
+  resetGameUI();
   hostId = hId;
   gameCodeEl.textContent = gameId;
   renderLobbyPlayers(players);
@@ -371,7 +565,7 @@ socket.on('game_created', ({ gameId, players, hostId: hId }) => {
 });
 
 socket.on('game_joined', ({ gameId, players, hostId: hId }) => {
-  clearError();
+  resetGameUI();
   hostId = hId;
   gameCodeEl.textContent = gameId;
   renderLobbyPlayers(players);
@@ -380,7 +574,7 @@ socket.on('game_joined', ({ gameId, players, hostId: hId }) => {
 });
 
 socket.on('game_replayed', ({ gameId, players, hostId: hId }) => {
-  clearError();
+  resetGameUI();
   hostId = hId;
   gameCodeEl.textContent = gameId;
   copyFeedbackEl.textContent = '';
@@ -398,16 +592,11 @@ socket.on('players_updated', ({ players, hostId: hId }) => {
 
 // ---------- Événements serveur : jeu ----------
 socket.on('game_started', ({ status, turn, maxTurns, route, boss, players }) => {
-  clearError();
+  resetGameUI(); // aucun résidu de l'ancienne partie ; masque aussi le choix tour 4 par défaut
   bossTarget = boss.requiredPoints;
   bossSpriteEl.src = boss.sprite;
   bossNameEl.textContent = boss.name.toUpperCase();
   bossTargetValueEl.textContent = boss.requiredPoints;
-  lastTeamSize = 0;
-  lastRenderedTurn = 0;
-  routeStepEls = [];
-  setChoiceButtonsEnabled(false); // en attente des options privées (turn_options)
-  resultPanelEl.classList.add('result-panel--hidden');
   applyGameState({ status, turn, maxTurns, route, players });
   showScreen(screenGame);
 });
@@ -418,7 +607,62 @@ socket.on('turn_options', ({ haut, bas }) => {
   choiceHautNameEl.textContent = haut.name.toUpperCase();
   choiceBasSpriteEl.src = bas.sprite;
   choiceBasNameEl.textContent = bas.name.toUpperCase();
+  showTurnPhase('choice');
   resetTurnUI();
+});
+
+// Tour 4 uniquement : "CHOISIS TON AVANTAGE" (POKÉMON ou BONUS).
+socket.on('advantage_options', () => {
+  resultPanelEl.classList.add('result-panel--hidden');
+  bonusResultPanelEl.classList.add('result-panel--hidden');
+  hasChosenThisTurn = false;
+  setAdvantageButtonsEnabled(true);
+  turnStatusEl.textContent = 'Choisis ton avantage';
+  showTurnPhase('advantage');
+});
+
+// Les 2 bonus tirés par le serveur pour ce joueur (jamais choisis par le client).
+socket.on('bonus_options', ({ bonuses }) => {
+  bonusCardA.dataset.key = bonuses[0].key;
+  bonusCardALabelEl.textContent = bonuses[0].label;
+  bonusCardADescEl.textContent = BONUS_DESCRIPTIONS[bonuses[0].key] || '';
+  bonusCardA.disabled = false;
+
+  bonusCardB.dataset.key = bonuses[1].key;
+  bonusCardBLabelEl.textContent = bonuses[1].label;
+  bonusCardBDescEl.textContent = BONUS_DESCRIPTIONS[bonuses[1].key] || '';
+  bonusCardB.disabled = false;
+
+  turnStatusEl.textContent = 'Choisis ton bonus';
+  showTurnPhase('bonus-pick');
+});
+
+// Bonbon XP : uniquement les Pokémon réellement évoluables (filtré côté serveur).
+socket.on('xp_candy_pending', ({ team }) => {
+  bonusTargetTitleEl.textContent = 'Choisis un Pokémon à faire évoluer';
+  renderBonusTargetList(team, (index) => {
+    socket.emit('xp_candy_select', { index });
+  });
+  turnStatusEl.textContent = 'Bonbon XP';
+  showTurnPhase('bonus-target');
+});
+
+// Objet Mystère : toute l'équipe, le trait reste tiré par le serveur ensuite.
+socket.on('mystery_item_pending', ({ team }) => {
+  bonusTargetTitleEl.textContent = 'Choisis un Pokémon';
+  renderBonusTargetList(team, (index) => {
+    socket.emit('mystery_item_select', { index });
+  });
+  turnStatusEl.textContent = 'Objet Mystère';
+  showTurnPhase('bonus-target');
+});
+
+// Résultat final du bonus choisi (quel que soit son type).
+socket.on('bonus_result', (data) => {
+  showTurnPhase('none'); // tour 4 résolu : masque avantage/bonus/cible avant le tour 5
+  showBonusResult(data);
+  if (data.team) renderTeam(data.team);
+  updateMyScore(data.score, data.scoreDelta);
 });
 
 socket.on('choice_result', ({ pokemon, basePoints, effect, pointsGained, score, team }) => {
@@ -440,6 +684,45 @@ socket.on('game_updated', ({ status, turn, maxTurns, route, players, hostId: hId
   applyGameState({ status, turn, maxTurns, route, players });
 });
 
+// Équipe finale détaillée du joueur : sprite + nom + trait (si non neutre) + évolution
+// éventuelle (Bonbon XP). Réutilise la même structure de slot que .team-slot en jeu.
+function renderFinishedTeam(team) {
+  finishedMyTeamEl.innerHTML = '';
+  for (let i = 0; i < 6; i++) {
+    const slot = document.createElement('div');
+    slot.className = 'team-slot finished-team-slot';
+    const mon = team[i];
+
+    if (mon) {
+      const img = document.createElement('img');
+      img.src = mon.sprite;
+      img.alt = mon.name;
+      slot.appendChild(img);
+
+      const label = document.createElement('p');
+      label.className = 'finished-team-slot__name';
+      label.textContent = mon.name;
+      slot.appendChild(label);
+
+      if (mon.evolvedFrom) {
+        const evoTag = document.createElement('p');
+        evoTag.className = 'finished-team-slot__evo';
+        evoTag.textContent = `${mon.evolvedFrom} → ${mon.name} (Bonbon XP)`;
+        slot.appendChild(evoTag);
+      }
+
+      if (mon.effectName && mon.effectName !== 'Neutre') {
+        const traitTag = document.createElement('p');
+        traitTag.className = `finished-team-slot__trait ${mon.multiplier >= 1 ? 'finished-team-slot__trait--bonus' : 'finished-team-slot__trait--malus'}`;
+        traitTag.textContent = `${mon.effectName} ×${mon.multiplier}`;
+        slot.appendChild(traitTag);
+      }
+    }
+
+    finishedMyTeamEl.appendChild(slot);
+  }
+}
+
 function ordinalFr(rank) {
   return rank === 1 ? '1er' : `${rank}e`;
 }
@@ -456,6 +739,8 @@ socket.on('game_finished', ({ boss, players }) => {
   finishedTargetEl.textContent = `${boss.requiredPoints} PTS`;
   finishedMyScoreEl.textContent = `${me ? me.score : 0} PTS`;
 
+  if (me) renderFinishedTeam(me.team);
+
   finishedResultsEl.innerHTML = '';
 
   updateReplayControls();
@@ -471,6 +756,12 @@ socket.on('game_finished', ({ boss, players }) => {
     rankEl.className = 'finished-card__rank';
     rankEl.textContent = ordinalFr(rank);
 
+    const info = document.createElement('div');
+    info.className = 'finished-card__info';
+
+    const nameRow = document.createElement('div');
+    nameRow.className = 'finished-card__name-row';
+
     const name = document.createElement('p');
     name.className = 'finished-card__name';
     name.textContent = p.name;
@@ -479,13 +770,28 @@ socket.on('game_finished', ({ boss, players }) => {
     score.className = 'finished-card__score';
     score.textContent = `${p.score} PTS`;
 
+    nameRow.appendChild(name);
+    nameRow.appendChild(score);
+
+    const teamRow = document.createElement('div');
+    teamRow.className = 'finished-card__team';
+    p.team.forEach(mon => {
+      const img = document.createElement('img');
+      img.src = mon.sprite;
+      img.alt = mon.name;
+      img.title = mon.name;
+      teamRow.appendChild(img);
+    });
+
+    info.appendChild(nameRow);
+    info.appendChild(teamRow);
+
     const badge = document.createElement('p');
     badge.className = 'finished-card__badge';
     badge.textContent = p.result === 'victory' ? 'VICTOIRE !' : 'DÉFAITE';
 
     card.appendChild(rankEl);
-    card.appendChild(name);
-    card.appendChild(score);
+    card.appendChild(info);
     card.appendChild(badge);
     finishedResultsEl.appendChild(card);
   });

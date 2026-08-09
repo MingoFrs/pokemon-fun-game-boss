@@ -109,7 +109,7 @@
       <p class="turn-label">TOUR <span id="turn-current">1</span> / <span id="turn-max">6</span></p>
       <p id="turn-status" class="turn-status">Choisis ton chemin</p>
 
-      <div class="choice-cards">
+      <div id="choice-cards" class="choice-cards">
         <button id="btn-haut" type="button" class="choice-card choice-card--haut">
           <img id="choice-haut-sprite" class="choice-card__sprite" src="" alt="">
           <p id="choice-haut-name" class="choice-card__name">???</p>
@@ -120,6 +120,40 @@
           <p id="choice-bas-name" class="choice-card__name">???</p>
           <span class="choice-card__label">🔽 BAS</span>
         </button>
+      </div>
+
+      <!-- Tour 4 uniquement : POKÉMON (chemin normal) ou BONUS (sacrifie le Pokémon du tour). -->
+      <div id="advantage-panel" class="choice-cards screen--hidden">
+        <button id="btn-advantage-pokemon" type="button" class="choice-card choice-card--haut">
+          <span class="choice-card__icon">🎴</span>
+          <p class="choice-card__name">POKÉMON</p>
+          <span class="choice-card__label">Chemin normal</span>
+        </button>
+        <button id="btn-advantage-bonus" type="button" class="choice-card choice-card--bas">
+          <span class="choice-card__icon">✨</span>
+          <p class="choice-card__name">BONUS</p>
+          <span class="choice-card__label">Sacrifie ce Pokémon</span>
+        </button>
+      </div>
+
+      <!-- Les 2 bonus tirés par le serveur (jamais choisis par le client). -->
+      <div id="bonus-panel" class="choice-cards screen--hidden">
+        <button id="bonus-card-a" type="button" class="choice-card choice-card--haut">
+          <span class="choice-card__icon">🎁</span>
+          <p id="bonus-card-a-label" class="choice-card__name">???</p>
+          <span id="bonus-card-a-desc" class="choice-card__label"></span>
+        </button>
+        <button id="bonus-card-b" type="button" class="choice-card choice-card--bas">
+          <span class="choice-card__icon">🎁</span>
+          <p id="bonus-card-b-label" class="choice-card__name">???</p>
+          <span id="bonus-card-b-desc" class="choice-card__label"></span>
+        </button>
+      </div>
+
+      <!-- Cible du bonus choisi : Pokémon évoluables (Bonbon XP) ou toute l'équipe (Objet Mystère). -->
+      <div id="bonus-target-panel" class="bonus-target-panel screen--hidden">
+        <p id="bonus-target-title" class="bonus-target-title"></p>
+        <div id="bonus-target-list" class="bonus-target-list"></div>
       </div>
     </div>
 
@@ -133,6 +167,16 @@
         <p class="result-final">Résultat : <span id="result-points">0</span> PTS</p>
       </div>
     </div>
+
+    <!-- Résultat d'un bonus (Bonbon XP / Objet Mystère / Charme Chroma) : même style que result-panel. -->
+    <div id="bonus-result-panel" class="result-panel result-panel--hidden">
+      <p class="eyebrow" id="bonus-result-title">Bonus</p>
+      <img id="bonus-result-sprite" class="result-sprite" src="" alt="">
+      <p id="bonus-result-detail" class="result-name"></p>
+      <p id="bonus-result-final" class="result-final"></p>
+    </div>
+
+    <button id="btn-skip" type="button" class="btn btn--ghost btn--block screen--hidden">Skip ⏩</button>
 
     <div class="team-panel">
       <p class="eyebrow">Ton équipe</p>
@@ -162,6 +206,9 @@
         <p id="finished-target" class="finished-stat__value finished-stat__value--muted">0 PTS</p>
       </div>
     </div>
+
+    <p class="eyebrow finished-ranking-title">Ton équipe</p>
+    <div id="finished-my-team" class="finished-my-team"></div>
 
     <p class="eyebrow finished-ranking-title">Classement</p>
     <div id="finished-results" class="finished-results"></div>
