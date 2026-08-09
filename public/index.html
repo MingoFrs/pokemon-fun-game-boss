@@ -66,7 +66,11 @@
     <div class="lobby-header">
       <div>
         <p class="eyebrow">Code de la partie</p>
-        <div class="game-code" id="game-code">------</div>
+        <div class="game-code-row">
+          <div class="game-code" id="game-code">------</div>
+          <button id="btn-copy-code" type="button" class="btn btn--ghost btn--copy">Copier</button>
+        </div>
+        <p id="copy-feedback" class="copy-feedback"></p>
       </div>
       <button id="btn-leave" class="btn btn--ghost">Quitter</button>
     </div>
@@ -162,6 +166,8 @@
     <p class="eyebrow finished-ranking-title">Classement</p>
     <div id="finished-results" class="finished-results"></div>
 
+    <button id="btn-replay" class="btn btn--haut btn--block screen--hidden">Rejouer</button>
+    <p class="lobby-status" id="finished-status"></p>
     <button id="btn-leave-finished" class="btn btn--ghost btn--block">Quitter</button>
   </section>
 

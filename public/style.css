@@ -245,6 +245,38 @@ input:focus {
   color: var(--accent-haut);
 }
 
+.game-code-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.btn--copy {
+  padding: 8px 14px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.copy-feedback {
+  height: 16px;
+  margin: 4px 0 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--accent-bas);
+  opacity: 0;
+}
+
+.copy-feedback--play {
+  animation: copyFeedbackFade 1.6s ease;
+}
+
+@keyframes copyFeedbackFade {
+  0% { opacity: 0; transform: translateY(-2px); }
+  15% { opacity: 1; transform: translateY(0); }
+  75% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
 .players-panel {
   background: var(--bg-panel);
   border: 1px solid var(--border);
@@ -942,13 +974,18 @@ input:focus {
     gap: 6px;
   }
 
+  .game-code {
+    font-size: 22px;
+  }
+
+  .game-code-row {
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
   .lobby-header {
     flex-wrap: wrap;
     gap: 12px;
-  }
-
-  .game-code {
-    font-size: 26px;
   }
 
   .finished-stats {

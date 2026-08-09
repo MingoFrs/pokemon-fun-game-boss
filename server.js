@@ -136,15 +136,21 @@ const EPIC_RAW = [
 ];
 
 // Vrais pseudo-légendaires (évolution 3 stades, très puissants, mais pas légendaires).
+// NERF CIBLÉ (~12%, sur les points déjà nerfés de l'étape précédente) : seuls les Pokémon
+// clairement au-dessus de la moyenne de leur propre palier sont concernés.
+// Moyenne pseudo-légendaire ≈ 818 → Dragapult (890, +8.8%) est le seul net outlier.
 const PSEUDO_LEGENDARY_RAW = [
   { id: 149, name: 'Dracolosse', points: 735 },
   { id: 248, name: 'Tyranocif', points: 775 },
   { id: 445, name: 'Carchacrok', points: 815 },
   { id: 376, name: 'Métalosse', points: 850 },
   { id: 635, name: 'Trioxhydre', points: 850 },
-  { id: 887, name: 'Dragapult', points: 890 }
+  { id: 887, name: 'Dragapult', points: 785 } // nerfé : 890 -> 785 (~-12%)
 ];
 
+// Moyenne légendaire ≈ 1334 → seuls les 5 nettement au-dessus (>+10%) sont nerfés :
+// Arceus (1550, +16%), Koraidon/Miraidon (1510, +13%), Zacian/Zamazenta (1475, +11%).
+// Necrozma (1435, +7.6%) reste inchangé : pas assez d'écart pour être "clairement" trop fort.
 const LEGENDARY_RAW = [
   { id: 249, name: 'Lugia', points: 1160 },
   { id: 250, name: 'Ho-Oh', points: 1160 },
@@ -163,11 +169,11 @@ const LEGENDARY_RAW = [
   { id: 791, name: 'Solgaleo', points: 1355 },
   { id: 792, name: 'Lunala', points: 1355 },
   { id: 800, name: 'Necrozma', points: 1435 },
-  { id: 888, name: 'Zacian', points: 1475 },
-  { id: 889, name: 'Zamazenta', points: 1475 },
-  { id: 1007, name: 'Koraidon', points: 1510 },
-  { id: 1008, name: 'Miraidon', points: 1510 },
-  { id: 493, name: 'Arceus', points: 1550 }
+  { id: 888, name: 'Zacian', points: 1300 },     // nerfé : 1475 -> 1300 (~-12%)
+  { id: 889, name: 'Zamazenta', points: 1300 },  // nerfé : 1475 -> 1300 (~-12%)
+  { id: 1007, name: 'Koraidon', points: 1330 },  // nerfé : 1510 -> 1330 (~-12%)
+  { id: 1008, name: 'Miraidon', points: 1330 },  // nerfé : 1510 -> 1330 (~-12%)
+  { id: 493, name: 'Arceus', points: 1365 }      // nerfé : 1550 -> 1365 (~-12%)
 ];
 
 function buildPool(rarity, entries) {
@@ -206,27 +212,44 @@ function pickRarity() {
 }
 
 // Bonus / malus secrets appliqués au tirage d'un Pokémon.
+// Multiplicateurs inchangés — seule leur fréquence d'apparition change (poids ci-dessous) :
+// ~75% Neutre (aucun modificateur perceptible), ~25% répartis entre les 8 vrais bonus/malus.
 const EFFECTS = [
-  { name: 'Énergétique', multiplier: 1.2 },
-  { name: 'Chanceux', multiplier: 1.3 },
-  { name: 'Motivé', multiplier: 1.1 },
-  { name: 'Concentré', multiplier: 1.15 },
-  { name: 'Neutre', multiplier: 1.0 },
-  { name: 'Fatigué', multiplier: 0.75 },
-  { name: 'Poids lourd', multiplier: 0.8 },
-  { name: 'Malchanceux', multiplier: 0.6 },
-  { name: 'Épine dans le pied', multiplier: 0.7 }
+  { name: 'Neutre', multiplier: 1.0, weight: 75 },
+  { name: 'Énergétique', multiplier: 1.2, weight: 3.125 },
+  { name: 'Chanceux', multiplier: 1.3, weight: 3.125 },
+  { name: 'Motivé', multiplier: 1.1, weight: 3.125 },
+  { name: 'Concentré', multiplier: 1.15, weight: 3.125 },
+  { name: 'Fatigué', multiplier: 0.75, weight: 3.125 },
+  { name: 'Poids lourd', multiplier: 0.8, weight: 3.125 },
+  { name: 'Malchanceux', multiplier: 0.6, weight: 3.125 },
+  { name: 'Épine dans le pied', multiplier: 0.7, weight: 3.125 }
 ];
+
+const EFFECTS_TOTAL_WEIGHT = EFFECTS.reduce((sum, e) => sum + e.weight, 0);
+
+function pickEffect() {
+  let roll = Math.random() * EFFECTS_TOTAL_WEIGHT;
+  for (const effect of EFFECTS) {
+    if (roll < effect.weight) return effect;
+    roll -= effect.weight;
+  }
+  return EFFECTS[0]; // filet de sécurité (arrondis flottants) -> Neutre
+}
 
 // Plusieurs boss légendaires possibles, avec un objectif propre à chacun.
 // Cibles calées sur des percentiles de la distribution réelle des scores (choix aveugle,
 // RNG pure — cf. simulation) plutôt que sur une moyenne : une équipe faible doit pouvoir
 // perdre même contre le boss "facile", et même une excellente RNG (légendaire obtenu) ne
 // garantit pas la victoire contre les boss les plus durs.
-// facile ≈ P40 | moyen ≈ P60 | difficile ≈ P78 | très difficile ≈ P90 | extrême ≈ P97
+// Après le rééquilibrage des modificateurs (75% Neutre), seul "facile" était devenu trop
+// clément (64.7% de victoire en choix aveugle) : buffé de 1450 -> 1650 (~51%). Les autres
+// paliers étaient restés cohérents (moyen 44%, difficile 25%, très difficile 11%, extrême 3%)
+// et n'ont pas été touchés.
+// facile ≈ P50 | moyen ≈ P58 | difficile ≈ P77 | très difficile ≈ P90 | extrême ≈ P97
 const BOSSES = [
-  { id: 249, name: 'Lugia', requiredPoints: 1450, difficulty: 'facile' },
-  { id: 250, name: 'Ho-Oh', requiredPoints: 1450, difficulty: 'facile' },
+  { id: 249, name: 'Lugia', requiredPoints: 1650, difficulty: 'facile' },
+  { id: 250, name: 'Ho-Oh', requiredPoints: 1650, difficulty: 'facile' },
   { id: 384, name: 'Rayquaza', requiredPoints: 1750, difficulty: 'moyen' },
   { id: 383, name: 'Groudon', requiredPoints: 1750, difficulty: 'moyen' },
   { id: 382, name: 'Kyogre', requiredPoints: 1750, difficulty: 'moyen' },
@@ -257,7 +280,7 @@ function randomFrom(list) {
 function buildRewardOption() {
   const rarity = pickRarity();
   const pokemon = randomFrom(POKEMON_POOLS[rarity]);
-  const effect = randomFrom(EFFECTS);
+  const effect = pickEffect();
   const finalPoints = Math.round(pokemon.points * effect.multiplier);
 
   return {
@@ -549,6 +572,61 @@ io.on('connection', (socket) => {
     });
 
     assignTurnOptions(game);
+  });
+
+  // Rejouer avec les mêmes joueurs : crée une partie entièrement neuve (nouveau code,
+  // nouveau boss, nouveaux Pokémon/modificateurs, scores/équipes/route à zéro) et déplace
+  // uniquement les joueurs encore connectés dans ce nouveau salon. L'ancienne partie est
+  // détruite pour éviter toute fuite d'état vers la nouvelle.
+  socket.on('play_again', () => {
+    const oldGameId = socket.data.gameId;
+    const oldGame = games[oldGameId];
+
+    if (!oldGame) {
+      socket.emit('error_message', 'Partie introuvable.');
+      return;
+    }
+    if (oldGame.hostId !== socket.id) {
+      socket.emit('error_message', "Seul l'hôte peut relancer une partie.");
+      return;
+    }
+    if (oldGame.status !== 'finished') {
+      socket.emit('error_message', "La partie n'est pas terminée.");
+      return;
+    }
+
+    const newGameId = generateGameId();
+    const newGame = {
+      id: newGameId,
+      status: 'waiting',
+      turn: 0,
+      maxTurns: MAX_TURNS,
+      hostId: oldGame.hostId,
+      boss: null,
+      route: buildRoute(),
+      turnTimer: null,
+      players: oldGame.players.map(p => makePlayer(p.id, p.name))
+    };
+
+    games[newGameId] = newGame;
+
+    // Déplace chaque joueur encore connecté de l'ancien salon vers le nouveau.
+    newGame.players.forEach(p => {
+      const playerSocket = io.sockets.sockets.get(p.id);
+      if (playerSocket) {
+        playerSocket.leave(oldGameId);
+        playerSocket.join(newGameId);
+        playerSocket.data.gameId = newGameId;
+      }
+    });
+
+    delete games[oldGameId];
+
+    io.to(newGameId).emit('game_replayed', {
+      gameId: newGameId,
+      players: getPublicPlayers(newGame),
+      hostId: newGame.hostId
+    });
   });
 
   socket.on('player_choice', ({ choice } = {}) => {

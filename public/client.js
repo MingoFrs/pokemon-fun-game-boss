@@ -20,6 +20,8 @@ const playersCountEl = document.getElementById('players-count');
 const btnStart = document.getElementById('btn-start');
 const btnLeave = document.getElementById('btn-leave');
 const lobbyStatusEl = document.getElementById('lobby-status');
+const btnCopyCode = document.getElementById('btn-copy-code');
+const copyFeedbackEl = document.getElementById('copy-feedback');
 
 // ---------- Jeu ----------
 const bossPanelEl = document.getElementById('boss-panel');
@@ -55,6 +57,8 @@ const finishedBossNameEl = document.getElementById('finished-boss-name');
 const finishedMyScoreEl = document.getElementById('finished-my-score');
 const finishedTargetEl = document.getElementById('finished-target');
 const finishedResultsEl = document.getElementById('finished-results');
+const btnReplay = document.getElementById('btn-replay');
+const finishedStatusEl = document.getElementById('finished-status');
 const btnLeaveFinished = document.getElementById('btn-leave-finished');
 
 // ---------- État local ----------
@@ -79,12 +83,24 @@ function showScreen(screen) {
   screen.classList.remove('screen--hidden');
 }
 
+function isHost() {
+  return !!(myId && hostId && myId === hostId);
+}
+
 function updateHostControls() {
-  const isHost = myId && hostId && myId === hostId;
-  btnStart.classList.toggle('screen--hidden', !isHost);
-  lobbyStatusEl.textContent = isHost
+  const host = isHost();
+  btnStart.classList.toggle('screen--hidden', !host);
+  lobbyStatusEl.textContent = host
     ? 'Lance la partie quand tout le monde est prêt.'
     : "En attente que l'hôte démarre la partie...";
+}
+
+function updateReplayControls() {
+  const host = isHost();
+  btnReplay.classList.toggle('screen--hidden', !host);
+  finishedStatusEl.textContent = host
+    ? 'Relance une partie quand tu es prêt.'
+    : "En attente que l'hôte relance une partie...";
 }
 
 function renderPlayers(listEl, players) {
@@ -288,6 +304,25 @@ btnLeave.addEventListener('click', () => {
   showScreen(screenHome);
 });
 
+btnCopyCode.addEventListener('click', async () => {
+  const code = gameCodeEl.textContent.trim();
+  try {
+    await navigator.clipboard.writeText(code);
+  } catch (err) {
+    // Solution de repli pour navigateurs sans API Clipboard / contexte non sécurisé
+    const tmpInput = document.createElement('input');
+    tmpInput.value = code;
+    document.body.appendChild(tmpInput);
+    tmpInput.select();
+    document.execCommand('copy');
+    document.body.removeChild(tmpInput);
+  }
+  copyFeedbackEl.textContent = 'Code copié !';
+  copyFeedbackEl.classList.remove('copy-feedback--play');
+  void copyFeedbackEl.offsetWidth;
+  copyFeedbackEl.classList.add('copy-feedback--play');
+});
+
 // ---------- Actions : jeu ----------
 btnHaut.addEventListener('click', () => {
   if (hasChosenThisTurn) return;
@@ -317,6 +352,10 @@ btnLeaveFinished.addEventListener('click', () => {
   showScreen(screenHome);
 });
 
+btnReplay.addEventListener('click', () => {
+  socket.emit('play_again');
+});
+
 // ---------- Événements serveur : lobby ----------
 socket.on('connect', () => {
   myId = socket.id;
@@ -335,6 +374,17 @@ socket.on('game_joined', ({ gameId, players, hostId: hId }) => {
   clearError();
   hostId = hId;
   gameCodeEl.textContent = gameId;
+  renderLobbyPlayers(players);
+  updateHostControls();
+  showScreen(screenLobby);
+});
+
+socket.on('game_replayed', ({ gameId, players, hostId: hId }) => {
+  clearError();
+  hostId = hId;
+  gameCodeEl.textContent = gameId;
+  copyFeedbackEl.textContent = '';
+  copyFeedbackEl.classList.remove('copy-feedback--play');
   renderLobbyPlayers(players);
   updateHostControls();
   showScreen(screenLobby);
@@ -407,6 +457,8 @@ socket.on('game_finished', ({ boss, players }) => {
   finishedMyScoreEl.textContent = `${me ? me.score : 0} PTS`;
 
   finishedResultsEl.innerHTML = '';
+
+  updateReplayControls();
 
   const ranked = [...players].sort((a, b) => b.score - a.score);
   ranked.forEach((p, index) => {
