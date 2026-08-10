@@ -272,23 +272,39 @@ const RARITY_TABLE = [
 const SHINY_CHARM_MULTIPLIER = 2.5;
 const SHINY_CHARM_BOOSTED_RARITIES = ['epique', 'pseudo_legendaire', 'legendaire'];
 
-const RARITY_TABLE_BOOSTED = (() => {
-  const boostedWeight = RARITY_TABLE
-    .filter(e => SHINY_CHARM_BOOSTED_RARITIES.includes(e.rarity))
-    .reduce((sum, e) => sum + e.weight * SHINY_CHARM_MULTIPLIER, 0);
-  const remainingBudget = 1 - boostedWeight;
-  const originalRemainingWeight = RARITY_TABLE
-    .filter(e => !SHINY_CHARM_BOOSTED_RARITIES.includes(e.rarity))
-    .reduce((sum, e) => sum + e.weight, 0);
-  const scaleFactor = remainingBudget / originalRemainingWeight;
+// -----------------------------------------------------------------
+// Anti-RNG / pity, par joueur. N'accorde JAMAIS de légendaire garanti : réduit
+// seulement les séries de malchance extrêmes. "Bonne rareté" = rare et au-dessus
+// (même palier que le boost ci-dessous) ; "mauvaise" = commun/peu_commun.
+// Progressif comme demandé (0 -> normal, 1 très léger, 2 léger, 3-4 supplémentaire,
+// 5+ plus important), plafonné à 5 pour éviter un boost qui grandit indéfiniment.
+// -----------------------------------------------------------------
+const PITY_BOOSTED_RARITIES = ['rare', 'epique', 'pseudo_legendaire', 'legendaire'];
+const PITY_GOOD_RARITIES = PITY_BOOSTED_RARITIES;
+const PITY_MULTIPLIER_BY_LEVEL = [1.0, 1.15, 1.35, 1.6, 1.9, 2.3]; // index = pity (0..5, plafonné)
 
-  return RARITY_TABLE.map(entry => SHINY_CHARM_BOOSTED_RARITIES.includes(entry.rarity)
-    ? { rarity: entry.rarity, weight: entry.weight * SHINY_CHARM_MULTIPLIER }
-    : { rarity: entry.rarity, weight: entry.weight * scaleFactor });
-})();
+function getPityMultiplier(pity) {
+  const level = Math.max(0, Math.min(pity || 0, PITY_MULTIPLIER_BY_LEVEL.length - 1));
+  return PITY_MULTIPLIER_BY_LEVEL[level];
+}
 
-function pickRarity(useCharm) {
-  const table = useCharm ? RARITY_TABLE_BOOSTED : RARITY_TABLE;
+// Applique un ou plusieurs boosts multiplicatifs à une table de poids, PUIS
+// normalise une seule fois à la fin (jamais de "probabilité × pity × 2.5" brut,
+// qui produirait des probabilités absurdes en cas de cumul).
+function buildWeightedRarityTable({ useCharm, pity }) {
+  const pityMultiplier = getPityMultiplier(pity);
+  const weighted = RARITY_TABLE.map(entry => {
+    let weight = entry.weight;
+    if (useCharm && SHINY_CHARM_BOOSTED_RARITIES.includes(entry.rarity)) weight *= SHINY_CHARM_MULTIPLIER;
+    if (PITY_BOOSTED_RARITIES.includes(entry.rarity)) weight *= pityMultiplier;
+    return { rarity: entry.rarity, weight };
+  });
+  const total = weighted.reduce((sum, e) => sum + e.weight, 0);
+  return weighted.map(e => ({ rarity: e.rarity, weight: e.weight / total }));
+}
+
+function pickRarity(useCharm, pity) {
+  const table = buildWeightedRarityTable({ useCharm, pity });
   const roll = Math.random();
   let cumulative = 0;
   for (const entry of table) {
@@ -333,6 +349,16 @@ function pickEffect() {
 // clément (64.7% de victoire en choix aveugle) : buffé de 1450 -> 1650 (~51%). Les autres
 // paliers étaient restés cohérents (moyen 44%, difficile 25%, très difficile 11%, extrême 3%)
 // et n'ont pas été touchés.
+// Regroupe les 5 paliers existants (facile/moyen/difficile/très difficile/extrême)
+// en 4 catégories sélectionnables dans le lobby. Aucun boss supprimé ni renommé.
+const DIFFICULTY_TO_GROUP = {
+  facile: 'easy',
+  moyen: 'medium',
+  difficile: 'hard',
+  'très difficile': 'hard',
+  extrême: 'extreme'
+};
+
 // facile ≈ P50 | moyen ≈ P58 | difficile ≈ P77 | très difficile ≈ P90 | extrême ≈ P97
 const BOSSES = [
   { id: 249, name: 'Lugia', requiredPoints: 1650, difficulty: 'facile' },
@@ -353,10 +379,17 @@ const BOSSES = [
   { id: 1007, name: 'Koraidon', requiredPoints: 3200, difficulty: 'extrême' },
   { id: 1008, name: 'Miraidon', requiredPoints: 3200, difficulty: 'extrême' },
   { id: 493, name: 'Arceus', requiredPoints: 3200, difficulty: 'extrême' }
-].map(b => ({ ...b, sprite: spriteUrl(b.id) }));
+].map(b => ({ ...b, group: DIFFICULTY_TO_GROUP[b.difficulty], sprite: spriteUrl(b.id) }));
 
-function pickRandomBoss() {
-  return randomFrom(BOSSES);
+// 4 groupes de difficulté sélectionnables dans le lobby (feature difficulté du boss).
+// "difficile" et "très difficile" sont fusionnés dans le groupe "hard" : aucun boss
+// supprimé, ils gardent simplement des objectifs différents (2150 et 2600) au sein
+// du même groupe, ce qui est explicitement acceptable.
+const BOSS_GROUPS = ['easy', 'medium', 'hard', 'extreme'];
+
+function pickRandomBoss(group) {
+  const pool = BOSSES.filter(b => b.group === group);
+  return randomFrom(pool.length ? pool : BOSSES); // filet de sécurité si groupe invalide/vide
 }
 
 // Bonus du tour 4 spécial. Poids = probabilité d'être PROPOSÉ (parmi les 2 options),
@@ -405,8 +438,8 @@ function randomFrom(list) {
 }
 
 // Construit une récompense secrète complète (rareté → Pokémon + effet + points calculés).
-function buildRewardOption(useCharm) {
-  const rarity = pickRarity(useCharm);
+function buildRewardOption(useCharm, pity) {
+  const rarity = pickRarity(useCharm, pity);
   const pokemon = randomFrom(POKEMON_POOLS[rarity]);
   const effect = pickEffect();
   const finalPoints = Math.round(pokemon.points * effect.multiplier);
@@ -424,13 +457,13 @@ function buildRewardOption(useCharm) {
 }
 
 // Génère les 2 options HAUT/BAS d'un joueur pour un tour (toujours 2 Pokémon distincts).
-function pickPlayerTurnOptions(useCharm) {
-  const haut = buildRewardOption(useCharm);
-  let bas = buildRewardOption(useCharm);
+function pickPlayerTurnOptions(useCharm, pity) {
+  const haut = buildRewardOption(useCharm, pity);
+  let bas = buildRewardOption(useCharm, pity);
 
   let guard = 0;
   while (bas.pokemonId === haut.pokemonId && guard < 10) {
-    bas = buildRewardOption(useCharm);
+    bas = buildRewardOption(useCharm, pity);
     guard += 1;
   }
 
@@ -485,7 +518,8 @@ function makePlayer(id, name) {
     currentOptions: null,
     hasShinyCharm: false,
     currentBonusOptions: null,
-    pendingBonusKey: null
+    pendingBonusKey: null,
+    pity: 0 // compteur anti-RNG individuel, jamais partagé entre joueurs
   };
 }
 
@@ -523,7 +557,7 @@ function broadcastGameUpdated(game) {
 function assignTurnOptions(game) {
   game.players.forEach(p => {
     const useCharm = p.hasShinyCharm && game.turn >= 5;
-    p.currentOptions = pickPlayerTurnOptions(useCharm);
+    p.currentOptions = pickPlayerTurnOptions(useCharm, p.pity);
     io.to(p.id).emit('turn_options', {
       haut: { name: p.currentOptions.haut.name, sprite: p.currentOptions.haut.sprite },
       bas: { name: p.currentOptions.bas.name, sprite: p.currentOptions.bas.sprite }
@@ -572,6 +606,7 @@ function finishGame(game) {
 
   io.to(game.id).emit('game_finished', {
     boss: game.boss,
+    difficulty: game.selectedDifficulty,
     route: game.route,
     players: results
   });
@@ -655,6 +690,7 @@ io.on('connection', (socket) => {
       maxTurns: MAX_TURNS,
       hostId: socket.id,
       boss: null, // choisi aléatoirement au démarrage (start_game), identique pour tous les joueurs
+      selectedDifficulty: 'medium', // choisi par l'hôte dans le lobby ; défaut = MOYEN
       route: buildRoute(),
       turnTimer: null,
       players: [makePlayer(socket.id, trimmed)]
@@ -666,7 +702,8 @@ io.on('connection', (socket) => {
     socket.emit('game_created', {
       gameId,
       players: getPublicPlayers(games[gameId]),
-      hostId: games[gameId].hostId
+      hostId: games[gameId].hostId,
+      difficulty: games[gameId].selectedDifficulty
     });
   });
 
@@ -696,7 +733,8 @@ io.on('connection', (socket) => {
     socket.emit('game_joined', {
       gameId: id,
       players: getPublicPlayers(game),
-      hostId: game.hostId
+      hostId: game.hostId,
+      difficulty: game.selectedDifficulty
     });
 
     broadcastPlayers(game);
@@ -726,7 +764,7 @@ io.on('connection', (socket) => {
     game.status = 'playing';
     game.turn = 1;
     game.route = buildRoute();
-    game.boss = pickRandomBoss();
+    game.boss = pickRandomBoss(game.selectedDifficulty || 'medium');
     game.players.forEach(p => {
       p.score = 0;
       p.team = [];
@@ -735,6 +773,7 @@ io.on('connection', (socket) => {
       p.hasShinyCharm = false;
       p.currentBonusOptions = null;
       p.pendingBonusKey = null;
+      p.pity = 0; // compteur anti-RNG propre à chaque nouvelle partie
     });
 
     io.to(gameId).emit('game_started', {
@@ -744,6 +783,7 @@ io.on('connection', (socket) => {
       maxTurns: game.maxTurns,
       route: game.route,
       boss: game.boss,
+      difficulty: game.selectedDifficulty,
       players: getPublicPlayers(game)
     });
 
@@ -779,9 +819,10 @@ io.on('connection', (socket) => {
       maxTurns: MAX_TURNS,
       hostId: oldGame.hostId,
       boss: null,
+      selectedDifficulty: oldGame.selectedDifficulty || 'medium', // conservée, modifiable avant le lancement
       route: buildRoute(),
       turnTimer: null,
-      players: oldGame.players.map(p => makePlayer(p.id, p.name))
+      players: oldGame.players.map(p => makePlayer(p.id, p.name)) // pity remis à 0 (cf. makePlayer)
     };
 
     games[newGameId] = newGame;
@@ -801,8 +842,37 @@ io.on('connection', (socket) => {
     io.to(newGameId).emit('game_replayed', {
       gameId: newGameId,
       players: getPublicPlayers(newGame),
-      hostId: newGame.hostId
+      hostId: newGame.hostId,
+      difficulty: newGame.selectedDifficulty
     });
+  });
+
+  // Choix de la difficulté du boss dans le lobby. Réservé à l'hôte, uniquement avant
+  // le lancement. Le client n'envoie qu'une clé parmi BOSS_GROUPS ; le serveur choisit
+  // seul le boss final au démarrage (start_game) — jamais de confiance envers le client.
+  socket.on('set_difficulty', ({ difficulty } = {}) => {
+    const gameId = socket.data.gameId;
+    const game = games[gameId];
+
+    if (!game) {
+      socket.emit('error_message', 'Partie introuvable.');
+      return;
+    }
+    if (game.hostId !== socket.id) {
+      socket.emit('error_message', "Seul l'hôte peut choisir la difficulté.");
+      return;
+    }
+    if (game.status !== 'waiting') {
+      socket.emit('error_message', 'La difficulté ne peut plus être modifiée.');
+      return;
+    }
+    if (!BOSS_GROUPS.includes(difficulty)) {
+      socket.emit('error_message', 'Difficulté invalide.');
+      return;
+    }
+
+    game.selectedDifficulty = difficulty;
+    io.to(gameId).emit('difficulty_updated', { difficulty: game.selectedDifficulty });
   });
 
   socket.on('player_choice', ({ choice } = {}) => {
@@ -840,12 +910,17 @@ io.on('connection', (socket) => {
     const key = choice === 'HAUT' ? 'haut' : 'bas';
     const reward = player.currentOptions[key];
 
+    // Anti-RNG : bonne rareté -> réinitialise le compteur ; mauvaise -> l'incrémente.
+    // Basé UNIQUEMENT sur la rareté effectivement obtenue (pas les 2 options générées).
+    player.pity = PITY_GOOD_RARITIES.includes(reward.rarity) ? 0 : (player.pity || 0) + 1;
+
     player.score += reward.finalPoints;
     if (player.team.length < 6) {
       player.team.push({
         id: reward.pokemonId,
         name: reward.name,
         sprite: reward.sprite,
+        rarity: reward.rarity,
         basePoints: reward.basePoints,
         effectName: reward.effectName,
         multiplier: reward.multiplier
@@ -854,6 +929,7 @@ io.on('connection', (socket) => {
 
     socket.emit('choice_result', {
       pokemon: { name: reward.name, sprite: reward.sprite },
+      rarity: reward.rarity,
       basePoints: reward.basePoints,
       effect: { name: reward.effectName, multiplier: reward.multiplier },
       pointsGained: reward.finalPoints,
@@ -899,7 +975,7 @@ io.on('connection', (socket) => {
 
     if (mode === 'POKEMON') {
       // Flux identique aux autres tours (charme jamais actif au tour 4, il ne commence qu'au tour 5).
-      player.currentOptions = pickPlayerTurnOptions(false);
+      player.currentOptions = pickPlayerTurnOptions(false, player.pity);
       socket.emit('turn_options', {
         haut: { name: player.currentOptions.haut.name, sprite: player.currentOptions.haut.sprite },
         bas: { name: player.currentOptions.bas.name, sprite: player.currentOptions.bas.sprite }

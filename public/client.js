@@ -22,6 +22,7 @@ const btnLeave = document.getElementById('btn-leave');
 const lobbyStatusEl = document.getElementById('lobby-status');
 const btnCopyCode = document.getElementById('btn-copy-code');
 const copyFeedbackEl = document.getElementById('copy-feedback');
+const difficultyButtons = Array.from(document.querySelectorAll('.difficulty-btn'));
 
 // ---------- Jeu ----------
 const bossPanelEl = document.getElementById('boss-panel');
@@ -41,6 +42,7 @@ const choiceHautNameEl = document.getElementById('choice-haut-name');
 const choiceBasSpriteEl = document.getElementById('choice-bas-sprite');
 const choiceBasNameEl = document.getElementById('choice-bas-name');
 const resultPanelEl = document.getElementById('result-panel');
+const resultRarityEl = document.getElementById('result-rarity');
 const resultSpriteEl = document.getElementById('result-sprite');
 const resultNameEl = document.getElementById('result-name');
 const resultBaseEl = document.getElementById('result-base');
@@ -83,6 +85,7 @@ const finishedResultsEl = document.getElementById('finished-results');
 const btnReplay = document.getElementById('btn-replay');
 const finishedStatusEl = document.getElementById('finished-status');
 const btnLeaveFinished = document.getElementById('btn-leave-finished');
+const finishedDifficultyEl = document.getElementById('finished-difficulty');
 
 // ---------- État local ----------
 let myId = null;
@@ -91,6 +94,23 @@ let bossTarget = 2500;
 let hasChosenThisTurn = false;
 let lastTeamSize = 0;
 let lastRenderedTurn = 0;
+let currentDifficulty = 'medium'; // reflet local de la difficulté choisie par l'hôte (le serveur reste source de vérité)
+
+const RARITY_LABELS = {
+  commun: 'Commun',
+  peu_commun: 'Peu commun',
+  rare: 'Rare',
+  epique: 'Épique',
+  pseudo_legendaire: 'Pseudo-légendaire',
+  legendaire: 'Légendaire'
+};
+
+const DIFFICULTY_LABELS = {
+  easy: 'FACILE',
+  medium: 'MOYEN',
+  hard: 'DIFFICILE',
+  extreme: 'EXTRÊME'
+};
 
 const BONUS_DESCRIPTIONS = {
   xpCandy: 'Fait évoluer un Pokémon de ton équipe jusqu\'à sa forme finale.',
@@ -119,9 +139,19 @@ function isHost() {
 function updateHostControls() {
   const host = isHost();
   btnStart.classList.toggle('screen--hidden', !host);
+  difficultyButtons.forEach(btn => { btn.disabled = !host; });
   lobbyStatusEl.textContent = host
     ? 'Lance la partie quand tout le monde est prêt.'
     : "En attente que l'hôte démarre la partie...";
+}
+
+// Met à jour l'affichage de la difficulté (mise en évidence du choix actuel).
+// N'émet jamais rien : uniquement du rendu à partir de ce que le serveur a confirmé.
+function renderDifficulty(difficulty) {
+  currentDifficulty = difficulty || 'medium';
+  difficultyButtons.forEach(btn => {
+    btn.classList.toggle('difficulty-btn--selected', btn.dataset.difficulty === currentDifficulty);
+  });
 }
 
 function updateReplayControls() {
@@ -353,6 +383,7 @@ function resetTurnUI() {
   clearChoiceSelection();
   turnStatusEl.textContent = 'Choisis ton chemin';
   resultPanelEl.classList.add('result-panel--hidden');
+  resultPanelEl.removeAttribute('data-rarity');
   bonusResultPanelEl.classList.add('result-panel--hidden');
 }
 
@@ -370,12 +401,15 @@ function resetGameUI() {
   finishedMyTeamEl.innerHTML = '';
   finishedOutcomeEl.textContent = '';
   finishedOutcomeEl.classList.remove('finished-outcome--victory', 'finished-outcome--defeat');
+  finishedDifficultyEl.textContent = '';
+  finishedDifficultyEl.classList.remove('finished-difficulty-badge--easy', 'finished-difficulty-badge--medium', 'finished-difficulty-badge--hard', 'finished-difficulty-badge--extreme');
   btnReplay.classList.add('screen--hidden');
   finishedStatusEl.textContent = '';
 
   // Résultats de tour / bonus
   resultPanelEl.classList.add('result-panel--hidden');
   resultPanelEl.classList.remove('result-panel--animate');
+  resultPanelEl.removeAttribute('data-rarity');
   bonusResultPanelEl.classList.add('result-panel--hidden');
   bonusResultPanelEl.classList.remove('result-panel--animate');
 
@@ -467,6 +501,16 @@ btnLeave.addEventListener('click', () => {
   showScreen(screenHome);
 });
 
+// Un seul jeu de listeners pour les 4 boutons de difficulté, enregistrés une seule fois
+// au chargement (comme tous les autres listeners du fichier). Le serveur revalide de
+// toute façon que l'émetteur est bien l'hôte : ce garde-fou côté client n'est qu'un confort.
+difficultyButtons.forEach(btn => {
+  btn.addEventListener('click', () => {
+    if (!isHost()) return;
+    socket.emit('set_difficulty', { difficulty: btn.dataset.difficulty });
+  });
+});
+
 btnCopyCode.addEventListener('click', async () => {
   const code = gameCodeEl.textContent.trim();
   try {
@@ -555,33 +599,42 @@ socket.on('connect', () => {
   myId = socket.id;
 });
 
-socket.on('game_created', ({ gameId, players, hostId: hId }) => {
+socket.on('game_created', ({ gameId, players, hostId: hId, difficulty }) => {
   resetGameUI();
   hostId = hId;
   gameCodeEl.textContent = gameId;
   renderLobbyPlayers(players);
+  renderDifficulty(difficulty);
   updateHostControls();
   showScreen(screenLobby);
 });
 
-socket.on('game_joined', ({ gameId, players, hostId: hId }) => {
+socket.on('game_joined', ({ gameId, players, hostId: hId, difficulty }) => {
   resetGameUI();
   hostId = hId;
   gameCodeEl.textContent = gameId;
   renderLobbyPlayers(players);
+  renderDifficulty(difficulty);
   updateHostControls();
   showScreen(screenLobby);
 });
 
-socket.on('game_replayed', ({ gameId, players, hostId: hId }) => {
+socket.on('game_replayed', ({ gameId, players, hostId: hId, difficulty }) => {
   resetGameUI();
   hostId = hId;
   gameCodeEl.textContent = gameId;
   copyFeedbackEl.textContent = '';
   copyFeedbackEl.classList.remove('copy-feedback--play');
   renderLobbyPlayers(players);
+  renderDifficulty(difficulty);
   updateHostControls();
   showScreen(screenLobby);
+});
+
+// Un invité voit la difficulté changer en direct quand l'hôte la modifie (source de
+// vérité = serveur ; ce n'est jamais le client qui décide ce qui s'affiche ici).
+socket.on('difficulty_updated', ({ difficulty }) => {
+  renderDifficulty(difficulty);
 });
 
 socket.on('players_updated', ({ players, hostId: hId }) => {
@@ -665,7 +718,9 @@ socket.on('bonus_result', (data) => {
   updateMyScore(data.score, data.scoreDelta);
 });
 
-socket.on('choice_result', ({ pokemon, basePoints, effect, pointsGained, score, team }) => {
+socket.on('choice_result', ({ pokemon, rarity, basePoints, effect, pointsGained, score, team }) => {
+  resultPanelEl.dataset.rarity = rarity || 'commun'; // rareté fournie par le serveur, jamais déterminée ici
+  resultRarityEl.textContent = RARITY_LABELS[rarity] || '';
   resultSpriteEl.src = pokemon.sprite;
   resultNameEl.textContent = pokemon.name.toUpperCase();
   resultBaseEl.textContent = basePoints;
@@ -727,7 +782,7 @@ function ordinalFr(rank) {
   return rank === 1 ? '1er' : `${rank}e`;
 }
 
-socket.on('game_finished', ({ boss, players }) => {
+socket.on('game_finished', ({ boss, difficulty, players }) => {
   const me = players.find(p => p.id === myId);
 
   finishedOutcomeEl.textContent = me && me.result === 'victory' ? 'VICTOIRE !' : 'DÉFAITE';
@@ -736,6 +791,10 @@ socket.on('game_finished', ({ boss, players }) => {
 
   finishedBossSpriteEl.src = boss.sprite;
   finishedBossNameEl.textContent = boss.name.toUpperCase();
+  finishedDifficultyEl.textContent = DIFFICULTY_LABELS[difficulty] || '';
+  ['easy', 'medium', 'hard', 'extreme'].forEach(d => {
+    finishedDifficultyEl.classList.toggle(`finished-difficulty-badge--${d}`, d === difficulty);
+  });
   finishedTargetEl.textContent = `${boss.requiredPoints} PTS`;
   finishedMyScoreEl.textContent = `${me ? me.score : 0} PTS`;
 

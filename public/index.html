@@ -80,6 +80,16 @@
       <ul id="players-list" class="players-list"></ul>
     </div>
 
+    <div class="difficulty-panel">
+      <p class="eyebrow">Difficulté du boss</p>
+      <div id="difficulty-options" class="difficulty-options">
+        <button type="button" class="difficulty-btn" data-difficulty="easy">Facile</button>
+        <button type="button" class="difficulty-btn" data-difficulty="medium">Moyen</button>
+        <button type="button" class="difficulty-btn" data-difficulty="hard">Difficile</button>
+        <button type="button" class="difficulty-btn" data-difficulty="extreme">Extrême</button>
+      </div>
+    </div>
+
     <button id="btn-start" class="btn btn--haut btn--block screen--hidden">Démarrer la partie</button>
     <p class="lobby-status" id="lobby-status">En attente d'autres dresseurs...</p>
   </section>
@@ -159,6 +169,7 @@
 
     <div id="result-panel" class="result-panel result-panel--hidden">
       <p class="eyebrow">Résultat</p>
+      <p id="result-rarity" class="result-rarity"></p>
       <img id="result-sprite" class="result-sprite" src="" alt="">
       <p id="result-name" class="result-name"></p>
       <div class="result-breakdown">
@@ -195,6 +206,7 @@
     <p id="finished-outcome" class="finished-outcome"></p>
     <img id="finished-boss-sprite" class="boss-sprite" src="" alt="">
     <h2 id="finished-boss-name" class="boss-name"></h2>
+    <p id="finished-difficulty" class="finished-difficulty-badge"></p>
 
     <div class="finished-stats">
       <div class="finished-stat">
