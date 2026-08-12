@@ -87,6 +87,12 @@ const finishedStatusEl = document.getElementById('finished-status');
 const btnLeaveFinished = document.getElementById('btn-leave-finished');
 const finishedDifficultyEl = document.getElementById('finished-difficulty');
 
+// ---------- Événements rares ----------
+const eventOverlayEl = document.getElementById('event-overlay');
+const eventModalEl = document.getElementById('event-modal');
+const eventTitleEl = document.getElementById('event-title');
+const eventBodyEl = document.getElementById('event-body');
+
 // ---------- État local ----------
 let myId = null;
 let hostId = null;
@@ -104,6 +110,13 @@ const RARITY_LABELS = {
   pseudo_legendaire: 'Pseudo-légendaire',
   legendaire: 'Légendaire'
 };
+
+// État de l'overlay événements rares. activeEventType = type actuellement affiché
+// (start ou result) ; eventQueue = résultats reçus pendant qu'un AUTRE événement est
+// affiché (ex: notification CROSSED_FATES arrivant pendant un choix DOUBLE_ENCOUNTER) —
+// jamais perdus, simplement affichés à la suite une fois l'overlay refermé.
+let activeEventType = null;
+let eventQueue = [];
 
 const DIFFICULTY_LABELS = {
   easy: 'FACILE',
@@ -342,6 +355,433 @@ function renderBonusTargetList(team, onSelect) {
   });
 }
 
+// ---------- Événements rares ----------
+
+function sendEventAction(action) {
+  socket.emit('rare_event_action', action);
+}
+
+function showEventOverlay(title) {
+  if (title) eventTitleEl.textContent = title;
+  eventOverlayEl.classList.remove('screen--hidden');
+}
+
+function hideEventOverlay() {
+  eventOverlayEl.classList.add('screen--hidden');
+  eventBodyEl.innerHTML = '';
+  eventModalEl.removeAttribute('data-event-type');
+  eventModalEl.removeAttribute('data-outcome');
+  eventModalEl.removeAttribute('data-rarity');
+  activeEventType = null;
+  if (eventQueue.length > 0) {
+    const next = eventQueue.shift();
+    renderEventResult(next);
+  }
+}
+
+function buildEventCloseButton(label) {
+  const wrap = document.createElement('div');
+  wrap.className = 'event-modal__actions';
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'btn btn--haut btn--block';
+  btn.textContent = label || 'Continuer';
+  btn.addEventListener('click', hideEventOverlay);
+  wrap.appendChild(btn);
+  return wrap;
+}
+
+function buildDeltaLine(delta) {
+  const el = document.createElement('p');
+  const value = delta || 0;
+  el.className = 'event-result__delta ' + (
+    value > 0 ? 'event-result__delta--positive' : value < 0 ? 'event-result__delta--negative' : 'event-result__delta--neutral'
+  );
+  el.textContent = value === 0 ? '± 0 PT' : `${value > 0 ? '+' : ''}${value} PTS`;
+  return el;
+}
+
+function buildEventPokemonCard(opt, onClick) {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'choice-card event-card';
+  btn.dataset.rarity = opt.rarity || '';
+
+  const img = document.createElement('img');
+  img.className = 'choice-card__sprite';
+  img.src = opt.sprite;
+  img.alt = opt.name;
+
+  const name = document.createElement('p');
+  name.className = 'choice-card__name';
+  name.textContent = opt.name;
+
+  const rarity = document.createElement('span');
+  rarity.className = 'event-card__rarity';
+  rarity.textContent = RARITY_LABELS[opt.rarity] || '';
+
+  const points = document.createElement('span');
+  points.className = 'event-card__points';
+  points.textContent = `${opt.finalPoints ?? opt.basePoints} PTS`;
+
+  btn.appendChild(img);
+  btn.appendChild(name);
+  btn.appendChild(rarity);
+  btn.appendChild(points);
+  btn.addEventListener('click', onClick);
+  return btn;
+}
+
+function buildEventChoiceButton(label, tone, onClick) {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = `choice-card choice-card--${tone}`;
+  const text = document.createElement('p');
+  text.className = 'choice-card__name';
+  text.textContent = label;
+  btn.appendChild(text);
+  btn.addEventListener('click', onClick);
+  return btn;
+}
+
+function buildEventSprite(src, alt) {
+  const img = document.createElement('img');
+  img.className = 'event-result__sprite';
+  img.src = src;
+  img.alt = alt || '';
+  return img;
+}
+
+function buildEventText(text, className) {
+  const p = document.createElement('p');
+  p.className = className || 'event-modal__text';
+  p.textContent = text;
+  return p;
+}
+
+// Liste de sélection dans l'équipe, réutilisée par HIDDEN_TALENT et INSTANT_EVOLUTION
+// (même forme d'action : { index }).
+function renderEventTeamPicker(payload, hintText) {
+  eventBodyEl.appendChild(buildEventText(hintText, 'event-modal__hint'));
+  const list = document.createElement('div');
+  list.className = 'bonus-target-list';
+  payload.team.forEach(mon => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'bonus-target-item';
+    const img = document.createElement('img');
+    img.src = mon.sprite;
+    img.alt = mon.name;
+    const name = document.createElement('span');
+    name.textContent = mon.name;
+    btn.appendChild(img);
+    btn.appendChild(name);
+    btn.addEventListener('click', () => {
+      Array.from(list.children).forEach(b => { b.disabled = true; });
+      sendEventAction({ index: mon.index });
+    });
+    list.appendChild(btn);
+  });
+  eventBodyEl.appendChild(list);
+}
+
+// ---- Démarrage (choix interactifs) ----
+
+function renderDoubleEncounterStart(payload) {
+  eventBodyEl.appendChild(buildEventText("Choisis le Pokémon à garder — l'autre disparaît.", 'event-modal__hint'));
+  const row = document.createElement('div');
+  row.className = 'choice-cards';
+  payload.options.forEach((opt, index) => {
+    row.appendChild(buildEventPokemonCard(opt, () => {
+      Array.from(row.children).forEach(c => { c.disabled = true; });
+      sendEventAction({ index });
+    }));
+  });
+  eventBodyEl.appendChild(row);
+}
+
+function renderDoubleOrNothingStart(payload) {
+  const info = document.createElement('div');
+  info.className = 'event-result';
+  info.appendChild(buildEventSprite(payload.pokemon.sprite, payload.pokemon.name));
+  info.appendChild(buildEventText(`${payload.pokemon.name} — ${payload.currentPoints} PTS`));
+  eventBodyEl.appendChild(info);
+  eventBodyEl.appendChild(buildEventText('Risquer ce Pokémon ? Succès = ×2, échec = 0 point.', 'event-modal__hint'));
+
+  const row = document.createElement('div');
+  row.className = 'choice-cards';
+  row.appendChild(buildEventChoiceButton('RISQUER', 'bas', () => {
+    Array.from(row.children).forEach(b => { b.disabled = true; });
+    sendEventAction({ risk: true });
+  }));
+  row.appendChild(buildEventChoiceButton('GARDER', 'haut', () => {
+    Array.from(row.children).forEach(b => { b.disabled = true; });
+    sendEventAction({ risk: false });
+  }));
+  eventBodyEl.appendChild(row);
+}
+
+function renderSecondChanceStart() {
+  eventBodyEl.appendChild(buildEventText("Refais ton choix — le nouveau résultat remplace l'ancien.", 'event-modal__hint'));
+  const row = document.createElement('div');
+  row.className = 'choice-cards';
+  row.appendChild(buildEventChoiceButton('🔼 HAUT', 'haut', () => {
+    Array.from(row.children).forEach(b => { b.disabled = true; });
+    sendEventAction({ choice: 'HAUT' });
+  }));
+  row.appendChild(buildEventChoiceButton('🔽 BAS', 'bas', () => {
+    Array.from(row.children).forEach(b => { b.disabled = true; });
+    sendEventAction({ choice: 'BAS' });
+  }));
+  eventBodyEl.appendChild(row);
+}
+
+function renderLotteryStart(payload) {
+  eventBodyEl.appendChild(buildEventText('Choisis une carte — son contenu est un mystère.', 'event-modal__hint'));
+  const row = document.createElement('div');
+  row.className = 'choice-cards';
+  for (let i = 0; i < payload.cardCount; i++) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'choice-card';
+    const mark = document.createElement('span');
+    mark.className = 'choice-card__icon';
+    mark.textContent = '❓';
+    btn.appendChild(mark);
+    btn.addEventListener('click', () => {
+      Array.from(row.children).forEach(b => { b.disabled = true; });
+      sendEventAction({ index: i });
+    });
+    row.appendChild(btn);
+  }
+  eventBodyEl.appendChild(row);
+}
+
+function renderDuelStart(payload) {
+  eventBodyEl.appendChild(buildEventText(
+    `Face à ${payload.opponentName} — HAUT bat BAS, à choix égal c'est 50/50.`,
+    'event-modal__hint'
+  ));
+  const row = document.createElement('div');
+  row.className = 'choice-cards';
+  row.appendChild(buildEventChoiceButton('🔼 HAUT', 'haut', () => {
+    Array.from(row.children).forEach(b => { b.disabled = true; });
+    sendEventAction({ choice: 'HAUT' });
+  }));
+  row.appendChild(buildEventChoiceButton('🔽 BAS', 'bas', () => {
+    Array.from(row.children).forEach(b => { b.disabled = true; });
+    sendEventAction({ choice: 'BAS' });
+  }));
+  eventBodyEl.appendChild(row);
+}
+
+function renderEventStart(payload) {
+  activeEventType = payload.type;
+  eventBodyEl.innerHTML = '';
+  eventModalEl.dataset.eventType = payload.type;
+  showEventOverlay(payload.label);
+
+  switch (payload.type) {
+    case 'DOUBLE_ENCOUNTER': renderDoubleEncounterStart(payload); break;
+    case 'DOUBLE_OR_NOTHING': renderDoubleOrNothingStart(payload); break;
+    case 'HIDDEN_TALENT': renderEventTeamPicker(payload, 'Choisis le Pokémon qui reçoit le talent.'); break;
+    case 'SECOND_CHANCE': renderSecondChanceStart(); break;
+    case 'INSTANT_EVOLUTION': renderEventTeamPicker(payload, 'Choisis le Pokémon qui évolue.'); break;
+    case 'LOTTERY': renderLotteryStart(payload); break;
+    case 'DUEL': renderDuelStart(payload); break;
+    default: hideEventOverlay(); // type inconnu : ne jamais bloquer l'UI
+  }
+}
+
+// ---- Résolution (résultats) ----
+
+function renderDoubleEncounterResult(payload) {
+  const wrap = document.createElement('div');
+  wrap.className = 'event-result';
+  wrap.appendChild(buildEventSprite(payload.pokemon.sprite, payload.pokemon.name));
+  wrap.appendChild(buildEventText(`${payload.pokemon.name} rejoint ton équipe !`));
+  wrap.appendChild(buildDeltaLine(payload.pointsGained));
+  eventBodyEl.appendChild(wrap);
+  eventBodyEl.appendChild(buildEventCloseButton());
+  updateMyScore(payload.score, payload.pointsGained);
+}
+
+function renderDoubleOrNothingResult(payload) {
+  eventModalEl.dataset.outcome = payload.outcome;
+  const wrap = document.createElement('div');
+  wrap.className = 'event-result';
+  let text = 'Tu gardes ton Pokémon tel quel.';
+  if (payload.outcome === 'success') text = `${payload.pokemon.name} voit ses points doublés !`;
+  else if (payload.outcome === 'fail') text = `${payload.pokemon.name} ne rapporte plus rien ce tour...`;
+  wrap.appendChild(buildEventText(text));
+  wrap.appendChild(buildDeltaLine(payload.scoreDelta));
+  eventBodyEl.appendChild(wrap);
+  eventBodyEl.appendChild(buildEventCloseButton());
+  updateMyScore(payload.score, payload.scoreDelta);
+}
+
+function renderHiddenTalentResult(payload) {
+  const wrap = document.createElement('div');
+  wrap.className = 'event-result';
+  wrap.appendChild(buildEventSprite(payload.sprite, payload.pokemonName));
+  wrap.appendChild(buildEventText(`${payload.pokemonName} reçoit : ${payload.effect.name} (×${payload.effect.multiplier})`));
+  wrap.appendChild(buildDeltaLine(payload.scoreDelta));
+  eventBodyEl.appendChild(wrap);
+  eventBodyEl.appendChild(buildEventCloseButton());
+  updateMyScore(payload.score, payload.scoreDelta);
+}
+
+function renderSecondChanceResult(payload) {
+  const wrap = document.createElement('div');
+  wrap.className = 'event-result';
+  wrap.appendChild(buildEventSprite(payload.pokemon.sprite, payload.pokemon.name));
+  wrap.appendChild(buildEventText(`Nouveau résultat : ${payload.pokemon.name} !`));
+  const netDelta = payload.pointsGained - payload.previousPointsRemoved;
+  wrap.appendChild(buildDeltaLine(netDelta));
+  eventBodyEl.appendChild(wrap);
+  eventBodyEl.appendChild(buildEventCloseButton());
+  updateMyScore(payload.score, netDelta);
+}
+
+function renderInstantEvolutionResult(payload) {
+  const wrap = document.createElement('div');
+  wrap.className = 'event-result';
+  wrap.appendChild(buildEventSprite(payload.sprite, payload.to));
+  wrap.appendChild(buildEventText(`${payload.from} évolue en ${payload.to} !`));
+  wrap.appendChild(buildDeltaLine(payload.scoreDelta));
+  eventBodyEl.appendChild(wrap);
+  eventBodyEl.appendChild(buildEventCloseButton());
+  updateMyScore(payload.score, payload.scoreDelta);
+}
+
+function renderShinyResult(payload) {
+  const wrap = document.createElement('div');
+  wrap.className = 'event-result';
+  const img = buildEventSprite(payload.pokemon.shinySprite || payload.pokemon.sprite, payload.pokemon.name);
+  img.onerror = () => { img.src = payload.pokemon.sprite; }; // filet si le sprite shiny est indisponible
+  wrap.appendChild(img);
+  wrap.appendChild(buildEventText(`✨ ${payload.pokemon.name} devient chromatique !`));
+  wrap.appendChild(buildDeltaLine(payload.scoreDelta));
+  eventBodyEl.appendChild(wrap);
+  eventBodyEl.appendChild(buildEventCloseButton());
+  updateMyScore(payload.score, payload.scoreDelta);
+}
+
+function renderLuckyTurnResult(payload) {
+  const label = RARITY_LABELS[payload.floorRarity] || payload.floorRarity;
+  eventBodyEl.appendChild(buildEventText(`Ton prochain Pokémon sera au moins ${label} !`));
+  eventBodyEl.appendChild(buildEventCloseButton());
+}
+
+function renderLotteryResult(payload) {
+  const wrap = document.createElement('div');
+  wrap.className = 'event-result';
+  let text = '';
+  let delta = 0;
+
+  if (payload.kind === 'pokemon') {
+    wrap.appendChild(buildEventSprite(payload.pokemon.sprite, payload.pokemon.name));
+    text = `${payload.pokemon.name} rejoint ton équipe !`;
+    delta = payload.pointsGained;
+  } else if (payload.kind === 'points') {
+    text = 'Bonus de points !';
+    delta = payload.pointsGained;
+  } else if (payload.kind === 'trait') {
+    wrap.appendChild(buildEventSprite(payload.sprite, payload.pokemonName));
+    text = `${payload.pokemonName} reçoit : ${payload.effect.name} (×${payload.effect.multiplier})`;
+    delta = payload.scoreDelta;
+  } else if (payload.kind === 'evolution') {
+    wrap.appendChild(buildEventSprite(payload.sprite, payload.to));
+    text = `${payload.from} évolue en ${payload.to} !`;
+    delta = payload.scoreDelta;
+  }
+
+  wrap.appendChild(buildEventText(text));
+  wrap.appendChild(buildDeltaLine(delta));
+  eventBodyEl.appendChild(wrap);
+  eventBodyEl.appendChild(buildEventCloseButton());
+  updateMyScore(payload.score, delta);
+}
+
+function renderTimeRiftResult(payload) {
+  const wrap = document.createElement('div');
+  wrap.className = 'event-result';
+  wrap.appendChild(buildEventText("Une faille spatio-temporelle s'ouvre...", 'event-modal__hint'));
+  wrap.appendChild(buildEventSprite(payload.pokemon.sprite, payload.pokemon.name));
+  wrap.appendChild(buildEventText(payload.pokemon.name));
+  wrap.appendChild(buildDeltaLine(payload.pointsGained));
+  eventBodyEl.appendChild(wrap);
+  eventBodyEl.appendChild(buildEventCloseButton());
+  updateMyScore(payload.score, payload.pointsGained);
+}
+
+function renderMirrorResult(payload) {
+  const wrap = document.createElement('div');
+  wrap.className = 'event-result';
+  wrap.appendChild(buildEventSprite(payload.pokemon.sprite, payload.pokemon.name));
+  wrap.appendChild(buildEventText(`Toi et ${payload.opponentName} recevez ${payload.pokemon.name} !`));
+  wrap.appendChild(buildDeltaLine(payload.pointsGained));
+  eventBodyEl.appendChild(wrap);
+  eventBodyEl.appendChild(buildEventCloseButton());
+  updateMyScore(payload.score, payload.pointsGained);
+}
+
+function renderCrossedFatesResult(payload) {
+  const text = payload.subtype === 'linked'
+    ? `Ton destin se lie à celui de ${payload.linkedPlayerName} pour le prochain tour.`
+    : `${payload.linkedPlayerName} a joué son tour : tu reçois un petit bonus de rareté au prochain tirage !`;
+  eventBodyEl.appendChild(buildEventText(text));
+  eventBodyEl.appendChild(buildEventCloseButton());
+}
+
+function renderDuelResult(payload) {
+  eventModalEl.dataset.outcome = payload.won ? 'won' : 'lost';
+  const wrap = document.createElement('div');
+  wrap.className = 'event-result';
+  wrap.appendChild(buildEventText(payload.won ? 'Tu remportes le duel !' : 'Tu perds le duel (mais rien à perdre).'));
+  wrap.appendChild(buildEventText(`Toi : ${payload.yourChoice} — Adversaire : ${payload.opponentChoice}`, 'event-result__line'));
+  wrap.appendChild(buildDeltaLine(payload.pointsGained));
+  eventBodyEl.appendChild(wrap);
+  eventBodyEl.appendChild(buildEventCloseButton());
+  updateMyScore(payload.score, payload.pointsGained);
+}
+
+function renderEventResult(payload) {
+  const overlayOpen = !eventOverlayEl.classList.contains('screen--hidden');
+  if (overlayOpen && activeEventType && activeEventType !== payload.type) {
+    eventQueue.push(payload); // un autre événement est déjà affiché : jamais perdu, juste différé
+    return;
+  }
+
+  activeEventType = payload.type;
+  eventBodyEl.innerHTML = '';
+  eventModalEl.dataset.eventType = payload.type;
+  if (payload.rarity) eventModalEl.dataset.rarity = payload.rarity;
+  else eventModalEl.removeAttribute('data-rarity');
+  showEventOverlay(payload.label);
+
+  switch (payload.type) {
+    case 'DOUBLE_ENCOUNTER': renderDoubleEncounterResult(payload); break;
+    case 'DOUBLE_OR_NOTHING': renderDoubleOrNothingResult(payload); break;
+    case 'HIDDEN_TALENT': renderHiddenTalentResult(payload); break;
+    case 'SECOND_CHANCE': renderSecondChanceResult(payload); break;
+    case 'INSTANT_EVOLUTION': renderInstantEvolutionResult(payload); break;
+    case 'SHINY_POKEMON': renderShinyResult(payload); break;
+    case 'LUCKY_TURN': renderLuckyTurnResult(payload); break;
+    case 'LOTTERY': renderLotteryResult(payload); break;
+    case 'TIME_RIFT': renderTimeRiftResult(payload); break;
+    case 'MIRROR': renderMirrorResult(payload); break;
+    case 'CROSSED_FATES': renderCrossedFatesResult(payload); break;
+    case 'DUEL': renderDuelResult(payload); break;
+    default: eventBodyEl.appendChild(buildEventCloseButton());
+  }
+
+  // Le score est géré par chaque renderXxxResult (le calcul du delta net diffère selon
+  // le type, ex: SECOND_CHANCE). L'équipe, elle, suit toujours la même règle.
+  if (payload.team) renderTeam(payload.team);
+}
+
+
 function showBonusResult(data) {
   const titles = {
     xpCandy: 'Bonbon XP',
@@ -429,6 +869,16 @@ function resetGameUI() {
 
   // Skip
   btnSkip.classList.add('screen--hidden');
+
+  // Événements rares : jamais de résidu d'une ancienne partie (nettoyage direct,
+  // sans passer par hideEventOverlay() pour ne pas re-déclencher la file d'attente).
+  eventOverlayEl.classList.add('screen--hidden');
+  eventBodyEl.innerHTML = '';
+  eventModalEl.removeAttribute('data-event-type');
+  eventModalEl.removeAttribute('data-outcome');
+  eventModalEl.removeAttribute('data-rarity');
+  activeEventType = null;
+  eventQueue = [];
 
   // Équipe / score / route
   teamSlotsEl.innerHTML = '';
@@ -856,6 +1306,31 @@ socket.on('game_finished', ({ boss, difficulty, players }) => {
   });
 
   showScreen(screenFinished);
+});
+
+// ---------- Événements serveur : événements rares ----------
+// Peuvent arriver à tout moment pendant screen-game, indépendamment du flux de tour
+// normal (le serveur ne bloque jamais la progression des autres joueurs pour ça).
+socket.on('rare_event_start', (payload) => {
+  renderEventStart(payload);
+});
+
+socket.on('rare_event_result', (payload) => {
+  renderEventResult(payload);
+});
+
+// DUEL : l'autre joueur n'a pas encore répondu. Rien de nouveau à choisir ici.
+socket.on('rare_event_waiting', () => {
+  eventBodyEl.innerHTML = '';
+  eventBodyEl.appendChild(buildEventText('En attente de la réponse de ton adversaire...', 'event-modal__hint'));
+});
+
+// L'adversaire d'un DUEL a quitté avant la résolution : on ne laisse jamais l'overlay
+// bloqué indéfiniment.
+socket.on('rare_event_cancelled', () => {
+  eventBodyEl.innerHTML = '';
+  eventBodyEl.appendChild(buildEventText("L'autre joueur a quitté la partie. Événement annulé."));
+  eventBodyEl.appendChild(buildEventCloseButton());
 });
 
 socket.on('error_message', (msg) => {
