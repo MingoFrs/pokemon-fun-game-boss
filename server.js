@@ -459,6 +459,60 @@ function randomFrom(list) {
   return list[Math.floor(Math.random() * list.length)];
 }
 
+// ---- Helpers de mutation d'un Pokémon d'équipe (factorisent un pattern répété par
+// tous les événements rares qui modifient un Pokémon existant : talent caché, évolution
+// instantanée, double ou rien, shiny, loterie, Bonbon XP, Objet Mystère). ----
+
+// Contribution actuelle d'un Pokémon au score (arrondie, jamais stockée : recalculée
+// à chaque fois à partir de basePoints/multiplier, seule source de vérité).
+function monContribution(mon) {
+  return Math.round(mon.basePoints * mon.multiplier);
+}
+
+// Applique une mutation à un Pokémon puis répercute la différence de contribution sur
+// le score du joueur. `mutate` reçoit le Pokémon et le modifie en place. Retourne le
+// scoreDelta appliqué.
+function applyMonMutation(player, mon, mutate) {
+  const before = monContribution(mon);
+  mutate(mon);
+  const after = monContribution(mon);
+  const scoreDelta = after - before;
+  player.score += scoreDelta;
+  return scoreDelta;
+}
+
+// Fait évoluer un Pokémon vers sa forme finale (EVOLUTION_MAP). Mutation en place,
+// retourne le nom d'origine (utile pour l'affichage "from -> to").
+function evolveMon(mon, evolution) {
+  const fromName = mon.name;
+  mon.id = evolution.id;
+  mon.name = evolution.name;
+  mon.sprite = spriteUrl(evolution.id);
+  mon.basePoints = evolution.points;
+  mon.evolvedFrom = fromName;
+  return fromName;
+}
+
+// Assigne un trait/effet à un Pokémon. Mutation en place.
+function assignEffect(mon, effect) {
+  mon.effectName = effect.name;
+  mon.multiplier = effect.multiplier;
+}
+
+// Construit un Pokémon d'équipe prêt à être poussé dans player.team, à partir d'une
+// récompense tirée par buildRewardOption (ou d'un objet de même forme, ex. carte loterie).
+function teamMonFromReward(reward) {
+  return {
+    id: reward.pokemonId,
+    name: reward.name,
+    sprite: reward.sprite,
+    rarity: reward.rarity,
+    basePoints: reward.basePoints,
+    effectName: reward.effectName,
+    multiplier: reward.multiplier
+  };
+}
+
 // Construit une récompense secrète complète (rareté → Pokémon + effet + points calculés).
 // floorRarity est optionnel (LUCKY_TURN, TIME_RIFT) ; extraBoost aussi (CROSSED_FATES) :
 // undefined pour les deux = comportement inchangé.
@@ -578,7 +632,9 @@ const EVENT_DEFINITIONS = [
     probability: 0.02,
     scope: 'duo',
     implemented: true,
-    condition: (game, player) => player.team.length < 6 && !!pickEventOpponent(game, player)
+    // Les deux équipes doivent avoir de la place : sinon l'événement se déclencherait
+    // pour ne rien donner à personne (cooldown consommé pour rien).
+    condition: (game, player) => player.team.length < 6 && !!pickEventOpponent(game, player, p => p.team.length < 6)
   },
   {
     id: EVENT_TYPES.CROSSED_FATES,
@@ -707,17 +763,8 @@ function resolveDoubleEncounter(game, player, action) {
   if (optionIndex === null || !replacedMon) return { error: 'Choix invalide.' };
 
   const chosen = options[optionIndex];
-  const oldContribution = Math.round(replacedMon.basePoints * replacedMon.multiplier);
-  player.team[replaceIndex] = {
-    id: chosen.pokemonId,
-    name: chosen.name,
-    sprite: chosen.sprite,
-    rarity: chosen.rarity,
-    basePoints: chosen.basePoints,
-    effectName: chosen.effectName,
-    multiplier: chosen.multiplier
-  };
-  const scoreDelta = chosen.finalPoints - oldContribution;
+  const scoreDelta = chosen.finalPoints - monContribution(replacedMon);
+  player.team[replaceIndex] = teamMonFromReward(chosen);
   player.score += scoreDelta;
 
   return {
@@ -745,7 +792,7 @@ function startDoubleOrNothing(game, player) {
     type: EVENT_TYPES.DOUBLE_OR_NOTHING,
     label: 'Double ou rien',
     pokemon: { name: mon.name, sprite: mon.sprite },
-    currentPoints: Math.round(mon.basePoints * mon.multiplier)
+    currentPoints: monContribution(mon)
   });
   return player.activeEvent;
 }
@@ -779,12 +826,8 @@ function resolveDoubleOrNothing(game, player, action) {
     };
   }
 
-  const oldContribution = Math.round(mon.basePoints * mon.multiplier);
   const success = Math.random() < 0.5; // 50/50 côté serveur, jamais le client
-  mon.multiplier = success ? mon.multiplier * 2 : 0;
-  const newContribution = Math.round(mon.basePoints * mon.multiplier);
-  const scoreDelta = newContribution - oldContribution;
-  player.score += scoreDelta;
+  const scoreDelta = applyMonMutation(player, mon, m => { m.multiplier = success ? m.multiplier * 2 : 0; });
 
   return {
     result: {
@@ -821,13 +864,8 @@ function resolveHiddenTalent(game, player, action) {
   const mon = index !== null ? player.team[index] : null;
   if (!mon) return { error: 'Pokémon invalide.' };
 
-  const oldContribution = Math.round(mon.basePoints * mon.multiplier);
   const newEffect = randomFrom(EFFECTS.filter(e => e.name !== 'Neutre'));
-  mon.effectName = newEffect.name;
-  mon.multiplier = newEffect.multiplier;
-  const newContribution = Math.round(mon.basePoints * mon.multiplier);
-  const scoreDelta = newContribution - oldContribution;
-  player.score += scoreDelta;
+  const scoreDelta = applyMonMutation(player, mon, m => assignEffect(m, newEffect));
 
   return {
     result: {
@@ -865,16 +903,8 @@ function resolveInstantEvolution(game, player, action) {
   const evolution = mon && EVOLUTION_MAP[mon.id];
   if (!mon || !evolution) return { error: 'Ce Pokémon ne peut pas évoluer.' };
 
-  const oldContribution = Math.round(mon.basePoints * mon.multiplier);
-  const fromName = mon.name;
-  mon.id = evolution.id;
-  mon.name = evolution.name;
-  mon.sprite = spriteUrl(evolution.id);
-  mon.basePoints = evolution.points;
-  mon.evolvedFrom = fromName;
-  const newContribution = Math.round(mon.basePoints * mon.multiplier);
-  const scoreDelta = newContribution - oldContribution;
-  player.score += scoreDelta;
+  let fromName;
+  const scoreDelta = applyMonMutation(player, mon, m => { fromName = evolveMon(m, evolution); });
 
   return {
     result: {
@@ -898,13 +928,11 @@ function startShinyPokemon(game, player) {
   const mon = player.team[player.team.length - 1];
   if (!mon) return null;
 
-  const oldContribution = Math.round(mon.basePoints * mon.multiplier);
-  mon.shiny = true;
-  mon.shinySprite = shinySpriteUrl(mon.id);
-  mon.multiplier = mon.multiplier * SHINY_BONUS_MULTIPLIER;
-  const newContribution = Math.round(mon.basePoints * mon.multiplier);
-  const scoreDelta = newContribution - oldContribution;
-  player.score += scoreDelta;
+  const scoreDelta = applyMonMutation(player, mon, m => {
+    m.shiny = true;
+    m.shinySprite = shinySpriteUrl(m.id);
+    m.multiplier = m.multiplier * SHINY_BONUS_MULTIPLIER;
+  });
 
   broadcastGameUpdated(game); // score/équipe changés hors du flux de tour déjà diffusé par finalizePlayerTurn
   io.to(player.id).emit('rare_event_result', {
@@ -989,15 +1017,7 @@ function resolveLottery(game, player, action) {
   if (card.kind === 'pokemon') {
     player.score += card.pokemon.finalPoints;
     if (player.team.length < 6) {
-      player.team.push({
-        id: card.pokemon.pokemonId,
-        name: card.pokemon.name,
-        sprite: card.pokemon.sprite,
-        rarity: card.pokemon.rarity,
-        basePoints: card.pokemon.basePoints,
-        effectName: card.pokemon.effectName,
-        multiplier: card.pokemon.multiplier
-      });
+      player.team.push(teamMonFromReward(card.pokemon));
     }
     result.pokemon = { name: card.pokemon.name, sprite: card.pokemon.sprite };
     result.rarity = card.pokemon.rarity;
@@ -1008,12 +1028,7 @@ function resolveLottery(game, player, action) {
   } else if (card.kind === 'trait') {
     const mon = player.team[card.teamIndex];
     if (mon) {
-      const oldContribution = Math.round(mon.basePoints * mon.multiplier);
-      mon.effectName = card.effect.name;
-      mon.multiplier = card.effect.multiplier;
-      const newContribution = Math.round(mon.basePoints * mon.multiplier);
-      result.scoreDelta = newContribution - oldContribution;
-      player.score += result.scoreDelta;
+      result.scoreDelta = applyMonMutation(player, mon, m => assignEffect(m, card.effect));
       result.pokemonName = mon.name;
       result.sprite = mon.sprite;
       result.effect = { name: card.effect.name, multiplier: card.effect.multiplier };
@@ -1022,16 +1037,8 @@ function resolveLottery(game, player, action) {
     const mon = player.team[card.teamIndex];
     const evolution = mon && EVOLUTION_MAP[mon.id];
     if (mon && evolution) {
-      const oldContribution = Math.round(mon.basePoints * mon.multiplier);
-      const fromName = mon.name;
-      mon.id = evolution.id;
-      mon.name = evolution.name;
-      mon.sprite = spriteUrl(evolution.id);
-      mon.basePoints = evolution.points;
-      mon.evolvedFrom = fromName;
-      const newContribution = Math.round(mon.basePoints * mon.multiplier);
-      result.scoreDelta = newContribution - oldContribution;
-      player.score += result.scoreDelta;
+      let fromName;
+      result.scoreDelta = applyMonMutation(player, mon, m => { fromName = evolveMon(m, evolution); });
       result.from = fromName;
       result.to = mon.name;
       result.sprite = mon.sprite;
@@ -1075,17 +1082,8 @@ function resolveTimeRift(game, player, action) {
   const replacedMon = replaceIndex !== null ? player.team[replaceIndex] : null;
   if (!replacedMon) return { error: 'Choix invalide.' };
 
-  const oldContribution = Math.round(replacedMon.basePoints * replacedMon.multiplier);
-  player.team[replaceIndex] = {
-    id: reward.pokemonId,
-    name: reward.name,
-    sprite: reward.sprite,
-    rarity: reward.rarity,
-    basePoints: reward.basePoints,
-    effectName: reward.effectName,
-    multiplier: reward.multiplier
-  };
-  const scoreDelta = reward.finalPoints - oldContribution;
+  const scoreDelta = reward.finalPoints - monContribution(replacedMon);
+  player.team[replaceIndex] = teamMonFromReward(reward);
   player.score += scoreDelta;
 
   return {
@@ -1115,8 +1113,10 @@ function resolveTimeRift(game, player, action) {
 // événement actif (jamais interrompre quelqu'un d'autre en pleine résolution). Fonction
 // pure (aucun effet de bord) : utilisée à la fois pour vérifier la condition de
 // déclenchement et pour le tirage réel au démarrage de l'événement.
-function pickEventOpponent(game, player) {
-  const candidates = game.players.filter(p => p.id !== player.id && !p.activeEvent);
+function pickEventOpponent(game, player, extraFilter) {
+  const candidates = game.players.filter(p =>
+    p.id !== player.id && !p.activeEvent && (!extraFilter || extraFilter(p))
+  );
   if (candidates.length === 0) return null;
   return randomFrom(candidates);
 }
@@ -1205,8 +1205,8 @@ function resolveDuel(game, player, action) {
 // ---- MIROIR : un seul Pokémon généré, donné TEL QUEL aux deux joueurs (même espèce,
 // même rareté, mêmes points, même trait), chacun l'ajoute à sa PROPRE équipe. Instantané. ----
 function startMirror(game, player) {
-  const opponent = pickEventOpponent(game, player);
-  if (!opponent || player.team.length >= 6 || opponent.team.length >= 6) return null;
+  const opponent = pickEventOpponent(game, player, p => p.team.length < 6);
+  if (!opponent || player.team.length >= 6) return null;
 
   const useCharm = player.hasShinyCharm && game.turn >= 5;
   const reward = buildRewardOption(useCharm, player.pity);
@@ -1214,15 +1214,7 @@ function startMirror(game, player) {
   [player, opponent].forEach(p => {
     p.score += reward.finalPoints;
     if (p.team.length < 6) {
-      p.team.push({
-        id: reward.pokemonId,
-        name: reward.name,
-        sprite: reward.sprite,
-        rarity: reward.rarity,
-        basePoints: reward.basePoints,
-        effectName: reward.effectName,
-        multiplier: reward.multiplier
-      });
+      p.team.push(teamMonFromReward(reward));
     }
   });
   opponent.eventCooldown = EVENT_COOLDOWN_TURNS;
@@ -1569,6 +1561,11 @@ io.on('connection', (socket) => {
       return;
     }
 
+    // Si ce socket était déjà dans une autre partie (ex. retour en arrière du
+    // navigateur), on le retire proprement avant d'en créer une nouvelle : sinon son
+    // ancienne entrée reste orpheline dans games[oldId], qui n'avance plus jamais.
+    leaveCurrentGame(socket);
+
     const gameId = generateGameId();
 
     games[gameId] = {
@@ -1611,6 +1608,22 @@ io.on('connection', (socket) => {
     if (game.status !== 'waiting') {
       socket.emit('error_message', 'Partie déjà commencée.');
       return;
+    }
+
+    // Même précaution que create_game : quitte proprement toute AUTRE partie précédente
+    // avant de rejoindre celle-ci. Si c'est déjà cette partie-là, ne pas dupliquer
+    // l'entrée joueur : renvoyer simplement l'état actuel.
+    if (socket.data.gameId === id) {
+      socket.emit('game_joined', {
+        gameId: id,
+        players: getPublicPlayers(game),
+        hostId: game.hostId,
+        difficulty: game.selectedDifficulty
+      });
+      return;
+    }
+    if (socket.data.gameId) {
+      leaveCurrentGame(socket);
     }
 
     game.players.push(makePlayer(socket.id, trimmedName));
@@ -1705,6 +1718,10 @@ io.on('connection', (socket) => {
     }
 
     const newGameId = generateGameId();
+    // Ne conserve que les joueurs dont le socket est encore réellement connecté :
+    // un joueur resté dans oldGame.players sans socket actif deviendrait un "fantôme"
+    // qui ne rejoint jamais le nouveau salon mais y bloquerait "allReady" pour toujours.
+    const connectedOldPlayers = oldGame.players.filter(p => io.sockets.sockets.has(p.id));
     const newGame = {
       id: newGameId,
       status: 'waiting',
@@ -1715,7 +1732,7 @@ io.on('connection', (socket) => {
       selectedDifficulty: oldGame.selectedDifficulty || 'medium', // conservée, modifiable avant le lancement
       route: buildRoute(),
       turnTimer: null,
-      players: oldGame.players.map(p => makePlayer(p.id, p.name)) // pity remis à 0 (cf. makePlayer)
+      players: connectedOldPlayers.map(p => makePlayer(p.id, p.name)) // pity remis à 0 (cf. makePlayer)
     };
 
     games[newGameId] = newGame;
@@ -1809,15 +1826,7 @@ io.on('connection', (socket) => {
 
     player.score += reward.finalPoints;
     if (player.team.length < 6) {
-      player.team.push({
-        id: reward.pokemonId,
-        name: reward.name,
-        sprite: reward.sprite,
-        rarity: reward.rarity,
-        basePoints: reward.basePoints,
-        effectName: reward.effectName,
-        multiplier: reward.multiplier
-      });
+      player.team.push(teamMonFromReward(reward));
     }
 
     socket.emit('choice_result', {
@@ -1897,6 +1906,10 @@ io.on('connection', (socket) => {
       socket.emit('error_message', 'Partie introuvable.');
       return;
     }
+    if (game.status !== 'playing') {
+      socket.emit('error_message', "La partie n'est pas en cours.");
+      return;
+    }
     const player = game.players.find(p => p.id === socket.id);
     if (!player) {
       socket.emit('error_message', 'Tu ne fais pas partie de cette partie.');
@@ -1950,6 +1963,10 @@ io.on('connection', (socket) => {
       socket.emit('error_message', 'Partie introuvable.');
       return;
     }
+    if (game.status !== 'playing') {
+      socket.emit('error_message', "La partie n'est pas en cours.");
+      return;
+    }
     const player = game.players.find(p => p.id === socket.id);
     if (!player) {
       socket.emit('error_message', 'Tu ne fais pas partie de cette partie.');
@@ -1967,16 +1984,8 @@ io.on('connection', (socket) => {
       return;
     }
 
-    const oldContribution = Math.round(mon.basePoints * mon.multiplier);
-    const fromName = mon.name;
-    mon.id = evolution.id;
-    mon.name = evolution.name;
-    mon.sprite = spriteUrl(evolution.id);
-    mon.basePoints = evolution.points;
-    mon.evolvedFrom = fromName;
-    const newContribution = Math.round(mon.basePoints * mon.multiplier);
-    const scoreDelta = newContribution - oldContribution;
-    player.score += scoreDelta;
+    let fromName;
+    const scoreDelta = applyMonMutation(player, mon, m => { fromName = evolveMon(m, evolution); });
 
     player.pendingBonusKey = null;
     player.currentBonusOptions = null;
@@ -2005,6 +2014,10 @@ io.on('connection', (socket) => {
       socket.emit('error_message', 'Partie introuvable.');
       return;
     }
+    if (game.status !== 'playing') {
+      socket.emit('error_message', "La partie n'est pas en cours.");
+      return;
+    }
     const player = game.players.find(p => p.id === socket.id);
     if (!player) {
       socket.emit('error_message', 'Tu ne fais pas partie de cette partie.');
@@ -2021,13 +2034,8 @@ io.on('connection', (socket) => {
       return;
     }
 
-    const oldContribution = Math.round(mon.basePoints * mon.multiplier);
     const newEffect = randomFrom(EFFECTS.filter(e => e.name !== 'Neutre'));
-    mon.effectName = newEffect.name;
-    mon.multiplier = newEffect.multiplier;
-    const newContribution = Math.round(mon.basePoints * mon.multiplier);
-    const scoreDelta = newContribution - oldContribution;
-    player.score += scoreDelta;
+    const scoreDelta = applyMonMutation(player, mon, m => assignEffect(m, newEffect));
 
     player.pendingBonusKey = null;
     player.currentBonusOptions = null;
@@ -2058,6 +2066,10 @@ io.on('connection', (socket) => {
 
     if (!game) {
       socket.emit('error_message', 'Partie introuvable.');
+      return;
+    }
+    if (game.status !== 'playing') {
+      socket.emit('error_message', "La partie n'est pas en cours.");
       return;
     }
     const player = game.players.find(p => p.id === socket.id);

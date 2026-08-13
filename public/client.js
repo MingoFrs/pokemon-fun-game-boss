@@ -338,26 +338,34 @@ function setAdvantageButtonsEnabled(enabled) {
   btnAdvantageBonus.disabled = !enabled;
 }
 
+// Bouton "cible" (sprite + nom) pour choisir un Pokémon de l'équipe. Réutilisé par
+// renderBonusTargetList (Bonbon XP / Objet Mystère, tour 4) et renderEventTeamPicker
+// (HIDDEN_TALENT / INSTANT_EVOLUTION, événements rares).
+function buildTeamTargetButton(mon, onClick) {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'bonus-target-item';
+
+  const img = document.createElement('img');
+  img.src = mon.sprite;
+  img.alt = mon.name;
+
+  const name = document.createElement('span');
+  name.textContent = mon.name;
+
+  btn.appendChild(img);
+  btn.appendChild(name);
+  btn.addEventListener('click', onClick);
+  return btn;
+}
+
 // Liste cible réutilisée par Bonbon XP (Pokémon évoluables uniquement, filtré côté
 // serveur) et Objet Mystère (toute l'équipe). Le client ne renvoie que l'index fourni
 // par le serveur, jamais un choix qu'il aurait inventé lui-même.
 function renderBonusTargetList(team, onSelect) {
   bonusTargetListEl.innerHTML = '';
   team.forEach(mon => {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'bonus-target-item';
-
-    const img = document.createElement('img');
-    img.src = mon.sprite;
-    img.alt = mon.name;
-
-    const name = document.createElement('span');
-    name.textContent = mon.name;
-
-    btn.appendChild(img);
-    btn.appendChild(name);
-    btn.addEventListener('click', () => {
+    const btn = buildTeamTargetButton(mon, () => {
       Array.from(bonusTargetListEl.children).forEach(b => { b.disabled = true; });
       turnStatusEl.textContent = 'Choix enregistré !';
       onSelect(mon.index);
@@ -483,17 +491,7 @@ function renderEventTeamPicker(payload, hintText, options) {
   const list = document.createElement('div');
   list.className = 'bonus-target-list';
   payload.team.forEach(mon => {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'bonus-target-item';
-    const img = document.createElement('img');
-    img.src = mon.sprite;
-    img.alt = mon.name;
-    const name = document.createElement('span');
-    name.textContent = mon.name;
-    btn.appendChild(img);
-    btn.appendChild(name);
-    btn.addEventListener('click', () => {
+    const btn = buildTeamTargetButton(mon, () => {
       Array.from(list.children).forEach(b => { b.disabled = true; });
       if (skipBtn) skipBtn.disabled = true;
       (opts.onPick || (index => sendEventAction({ index })))(mon.index);
