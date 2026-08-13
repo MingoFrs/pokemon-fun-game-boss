@@ -1003,6 +1003,21 @@ input:focus {
   animation: teamSlotGlow 0.9s ease;
 }
 
+.team-slot--shiny {
+  border-color: var(--rarity-legendaire);
+  box-shadow: 0 0 10px rgba(255, 213, 74, 0.35);
+  position: relative;
+}
+
+.team-slot--shiny::after {
+  content: '✨';
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  font-size: 12px;
+  line-height: 1;
+}
+
 @keyframes teamSlotPop {
   0% { transform: scale(0.4); opacity: 0; }
   60% { transform: scale(1.15); opacity: 1; }
@@ -1217,6 +1232,21 @@ input:focus {
   width: 48px;
   height: 48px;
   object-fit: contain;
+}
+
+.finished-team-slot--shiny {
+  border-color: var(--rarity-legendaire);
+  box-shadow: 0 0 10px rgba(255, 213, 74, 0.35);
+  position: relative;
+}
+
+.finished-team-slot--shiny::after {
+  content: '✨';
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  font-size: 12px;
+  line-height: 1;
 }
 
 .finished-team-slot__name {

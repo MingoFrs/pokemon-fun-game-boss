@@ -244,6 +244,13 @@ function renderRoute(route) {
   });
 }
 
+// Sprite à afficher pour un Pokémon de l'équipe : shiny si le joueur l'a obtenu via
+// l'événement POKÉMON SHINY, sinon le sprite normal. Repli automatique si l'image
+// shiny est indisponible (même logique que la révélation de l'événement lui-même).
+function pokemonSprite(mon) {
+  return (mon && mon.shiny && mon.shinySprite) ? mon.shinySprite : (mon ? mon.sprite : '');
+}
+
 function renderTeam(team) {
   teamSlotsEl.innerHTML = '';
   for (let i = 0; i < 6; i++) {
@@ -252,8 +259,12 @@ function renderTeam(team) {
     const pokemon = team[i];
     if (pokemon) {
       const img = document.createElement('img');
-      img.src = pokemon.sprite;
+      img.src = pokemonSprite(pokemon);
       img.alt = pokemon.name;
+      if (pokemon.shiny) {
+        img.onerror = () => { img.src = pokemon.sprite; };
+        slot.classList.add('team-slot--shiny');
+      }
       slot.appendChild(img);
       if (i === team.length - 1 && team.length > lastTeamSize) {
         slot.classList.add('team-slot--new');
@@ -461,8 +472,14 @@ function buildEventText(text, className) {
 
 // Liste de sélection dans l'équipe, réutilisée par HIDDEN_TALENT et INSTANT_EVOLUTION
 // (même forme d'action : { index }).
-function renderEventTeamPicker(payload, hintText) {
+// options.allowSkip : ajoute un bouton "Passer" qui envoie { skip: true }.
+// options.onPick : callback custom(index) — par défaut envoie { index }.
+function renderEventTeamPicker(payload, hintText, options) {
+  const opts = options || {};
+  let skipBtn = null;
+
   eventBodyEl.appendChild(buildEventText(hintText, 'event-modal__hint'));
+
   const list = document.createElement('div');
   list.className = 'bonus-target-list';
   payload.team.forEach(mon => {
@@ -478,26 +495,67 @@ function renderEventTeamPicker(payload, hintText) {
     btn.appendChild(name);
     btn.addEventListener('click', () => {
       Array.from(list.children).forEach(b => { b.disabled = true; });
-      sendEventAction({ index: mon.index });
+      if (skipBtn) skipBtn.disabled = true;
+      (opts.onPick || (index => sendEventAction({ index })))(mon.index);
     });
     list.appendChild(btn);
   });
   eventBodyEl.appendChild(list);
+
+  if (opts.allowSkip) {
+    const wrap = document.createElement('div');
+    wrap.className = 'event-modal__actions';
+    skipBtn = document.createElement('button');
+    skipBtn.type = 'button';
+    skipBtn.className = 'btn btn--ghost btn--block';
+    skipBtn.textContent = 'Passer';
+    skipBtn.addEventListener('click', () => {
+      Array.from(list.children).forEach(b => { b.disabled = true; });
+      skipBtn.disabled = true;
+      sendEventAction({ skip: true });
+    });
+    wrap.appendChild(skipBtn);
+    eventBodyEl.appendChild(wrap);
+  }
 }
 
 // ---- Démarrage (choix interactifs) ----
 
 function renderDoubleEncounterStart(payload) {
-  eventBodyEl.appendChild(buildEventText("Choisis le Pokémon à garder — l'autre disparaît.", 'event-modal__hint'));
+  eventBodyEl.appendChild(buildEventText('Choisis le Pokémon à garder, ou passe ton tour.', 'event-modal__hint'));
   const row = document.createElement('div');
   row.className = 'choice-cards';
-  payload.options.forEach((opt, index) => {
+  payload.options.forEach((opt, optionIndex) => {
     row.appendChild(buildEventPokemonCard(opt, () => {
-      Array.from(row.children).forEach(c => { c.disabled = true; });
-      sendEventAction({ index });
+      renderDoubleEncounterReplaceStep(payload, optionIndex);
     }));
   });
   eventBodyEl.appendChild(row);
+
+  const wrap = document.createElement('div');
+  wrap.className = 'event-modal__actions';
+  const skipBtn = document.createElement('button');
+  skipBtn.type = 'button';
+  skipBtn.className = 'btn btn--ghost btn--block';
+  skipBtn.textContent = 'Passer';
+  skipBtn.addEventListener('click', () => {
+    Array.from(row.children).forEach(c => { c.disabled = true; });
+    skipBtn.disabled = true;
+    sendEventAction({ skip: true });
+  });
+  wrap.appendChild(skipBtn);
+  eventBodyEl.appendChild(wrap);
+}
+
+// Étape locale (aucun aller-retour serveur) : une fois le Pokémon choisi, il faut
+// dire lequel de l'équipe actuelle il remplace — l'équipe ne dépasse jamais 6.
+function renderDoubleEncounterReplaceStep(payload, optionIndex) {
+  eventBodyEl.innerHTML = '';
+  renderEventTeamPicker(
+    { team: payload.team },
+    'Quel Pokémon de ton équipe remplacer ?',
+    { onPick: replaceIndex => sendEventAction({ index: optionIndex, replaceIndex }) }
+  );
 }
 
 function renderDoubleOrNothingStart(payload) {
@@ -517,21 +575,6 @@ function renderDoubleOrNothingStart(payload) {
   row.appendChild(buildEventChoiceButton('GARDER', 'haut', () => {
     Array.from(row.children).forEach(b => { b.disabled = true; });
     sendEventAction({ risk: false });
-  }));
-  eventBodyEl.appendChild(row);
-}
-
-function renderSecondChanceStart() {
-  eventBodyEl.appendChild(buildEventText("Refais ton choix — le nouveau résultat remplace l'ancien.", 'event-modal__hint'));
-  const row = document.createElement('div');
-  row.className = 'choice-cards';
-  row.appendChild(buildEventChoiceButton('🔼 HAUT', 'haut', () => {
-    Array.from(row.children).forEach(b => { b.disabled = true; });
-    sendEventAction({ choice: 'HAUT' });
-  }));
-  row.appendChild(buildEventChoiceButton('🔽 BAS', 'bas', () => {
-    Array.from(row.children).forEach(b => { b.disabled = true; });
-    sendEventAction({ choice: 'BAS' });
   }));
   eventBodyEl.appendChild(row);
 }
@@ -584,10 +627,16 @@ function renderEventStart(payload) {
   switch (payload.type) {
     case 'DOUBLE_ENCOUNTER': renderDoubleEncounterStart(payload); break;
     case 'DOUBLE_OR_NOTHING': renderDoubleOrNothingStart(payload); break;
-    case 'HIDDEN_TALENT': renderEventTeamPicker(payload, 'Choisis le Pokémon qui reçoit le talent.'); break;
-    case 'SECOND_CHANCE': renderSecondChanceStart(); break;
+    case 'HIDDEN_TALENT':
+      renderEventTeamPicker(
+        payload,
+        "Choisis le Pokémon qui reçoit le talent — c'est quitte ou double : le trait tiré au hasard peut être un bonus... ou un malus !",
+        { allowSkip: true }
+      );
+      break;
     case 'INSTANT_EVOLUTION': renderEventTeamPicker(payload, 'Choisis le Pokémon qui évolue.'); break;
     case 'LOTTERY': renderLotteryStart(payload); break;
+    case 'TIME_RIFT': renderTimeRiftStart(payload); break;
     case 'DUEL': renderDuelStart(payload); break;
     default: hideEventOverlay(); // type inconnu : ne jamais bloquer l'UI
   }
@@ -596,14 +645,19 @@ function renderEventStart(payload) {
 // ---- Résolution (résultats) ----
 
 function renderDoubleEncounterResult(payload) {
+  if (payload.skipped) {
+    eventBodyEl.appendChild(buildEventText('Tu passes — rien ne change.'));
+    eventBodyEl.appendChild(buildEventCloseButton());
+    return;
+  }
   const wrap = document.createElement('div');
   wrap.className = 'event-result';
   wrap.appendChild(buildEventSprite(payload.pokemon.sprite, payload.pokemon.name));
-  wrap.appendChild(buildEventText(`${payload.pokemon.name} rejoint ton équipe !`));
-  wrap.appendChild(buildDeltaLine(payload.pointsGained));
+  wrap.appendChild(buildEventText(`${payload.pokemon.name} remplace ${payload.replacedName} !`));
+  wrap.appendChild(buildDeltaLine(payload.scoreDelta));
   eventBodyEl.appendChild(wrap);
   eventBodyEl.appendChild(buildEventCloseButton());
-  updateMyScore(payload.score, payload.pointsGained);
+  updateMyScore(payload.score, payload.scoreDelta);
 }
 
 function renderDoubleOrNothingResult(payload) {
@@ -621,6 +675,11 @@ function renderDoubleOrNothingResult(payload) {
 }
 
 function renderHiddenTalentResult(payload) {
+  if (payload.skipped) {
+    eventBodyEl.appendChild(buildEventText('Tu passes — rien ne change.'));
+    eventBodyEl.appendChild(buildEventCloseButton());
+    return;
+  }
   const wrap = document.createElement('div');
   wrap.className = 'event-result';
   wrap.appendChild(buildEventSprite(payload.sprite, payload.pokemonName));
@@ -629,18 +688,6 @@ function renderHiddenTalentResult(payload) {
   eventBodyEl.appendChild(wrap);
   eventBodyEl.appendChild(buildEventCloseButton());
   updateMyScore(payload.score, payload.scoreDelta);
-}
-
-function renderSecondChanceResult(payload) {
-  const wrap = document.createElement('div');
-  wrap.className = 'event-result';
-  wrap.appendChild(buildEventSprite(payload.pokemon.sprite, payload.pokemon.name));
-  wrap.appendChild(buildEventText(`Nouveau résultat : ${payload.pokemon.name} !`));
-  const netDelta = payload.pointsGained - payload.previousPointsRemoved;
-  wrap.appendChild(buildDeltaLine(netDelta));
-  eventBodyEl.appendChild(wrap);
-  eventBodyEl.appendChild(buildEventCloseButton());
-  updateMyScore(payload.score, netDelta);
 }
 
 function renderInstantEvolutionResult(payload) {
@@ -703,16 +750,36 @@ function renderLotteryResult(payload) {
   updateMyScore(payload.score, delta);
 }
 
-function renderTimeRiftResult(payload) {
+function renderTimeRiftStart(payload) {
+  eventModalEl.dataset.rarity = payload.pokemon.rarity;
   const wrap = document.createElement('div');
   wrap.className = 'event-result';
   wrap.appendChild(buildEventText("Une faille spatio-temporelle s'ouvre...", 'event-modal__hint'));
   wrap.appendChild(buildEventSprite(payload.pokemon.sprite, payload.pokemon.name));
-  wrap.appendChild(buildEventText(payload.pokemon.name));
-  wrap.appendChild(buildDeltaLine(payload.pointsGained));
+  wrap.appendChild(buildEventText(`${payload.pokemon.name} — ${payload.pokemon.finalPoints} PTS`));
+  eventBodyEl.appendChild(wrap);
+
+  renderEventTeamPicker(
+    payload,
+    'Quel Pokémon de ton équipe remplacer ? (ou passe)',
+    { allowSkip: true, onPick: replaceIndex => sendEventAction({ replaceIndex }) }
+  );
+}
+
+function renderTimeRiftResult(payload) {
+  if (payload.skipped) {
+    eventBodyEl.appendChild(buildEventText('Tu passes — rien ne change.'));
+    eventBodyEl.appendChild(buildEventCloseButton());
+    return;
+  }
+  const wrap = document.createElement('div');
+  wrap.className = 'event-result';
+  wrap.appendChild(buildEventSprite(payload.pokemon.sprite, payload.pokemon.name));
+  wrap.appendChild(buildEventText(`${payload.pokemon.name} remplace ${payload.replacedName} !`));
+  wrap.appendChild(buildDeltaLine(payload.scoreDelta));
   eventBodyEl.appendChild(wrap);
   eventBodyEl.appendChild(buildEventCloseButton());
-  updateMyScore(payload.score, payload.pointsGained);
+  updateMyScore(payload.score, payload.scoreDelta);
 }
 
 function renderMirrorResult(payload) {
@@ -764,7 +831,6 @@ function renderEventResult(payload) {
     case 'DOUBLE_ENCOUNTER': renderDoubleEncounterResult(payload); break;
     case 'DOUBLE_OR_NOTHING': renderDoubleOrNothingResult(payload); break;
     case 'HIDDEN_TALENT': renderHiddenTalentResult(payload); break;
-    case 'SECOND_CHANCE': renderSecondChanceResult(payload); break;
     case 'INSTANT_EVOLUTION': renderInstantEvolutionResult(payload); break;
     case 'SHINY_POKEMON': renderShinyResult(payload); break;
     case 'LUCKY_TURN': renderLuckyTurnResult(payload); break;
@@ -777,7 +843,7 @@ function renderEventResult(payload) {
   }
 
   // Le score est géré par chaque renderXxxResult (le calcul du delta net diffère selon
-  // le type, ex: SECOND_CHANCE). L'équipe, elle, suit toujours la même règle.
+  // le type, ex: skip = aucun changement). L'équipe, elle, suit toujours la même règle.
   if (payload.team) renderTeam(payload.team);
 }
 
@@ -1200,8 +1266,12 @@ function renderFinishedTeam(team) {
 
     if (mon) {
       const img = document.createElement('img');
-      img.src = mon.sprite;
+      img.src = pokemonSprite(mon);
       img.alt = mon.name;
+      if (mon.shiny) {
+        img.onerror = () => { img.src = mon.sprite; };
+        slot.classList.add('finished-team-slot--shiny');
+      }
       slot.appendChild(img);
 
       const label = document.createElement('p');
@@ -1286,9 +1356,10 @@ socket.on('game_finished', ({ boss, difficulty, players }) => {
     teamRow.className = 'finished-card__team';
     p.team.forEach(mon => {
       const img = document.createElement('img');
-      img.src = mon.sprite;
+      img.src = pokemonSprite(mon);
       img.alt = mon.name;
-      img.title = mon.name;
+      img.title = mon.shiny ? `${mon.name} ✨` : mon.name;
+      if (mon.shiny) img.onerror = () => { img.src = mon.sprite; };
       teamRow.appendChild(img);
     });
 

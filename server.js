@@ -302,12 +302,15 @@ const RARITY_ORDER = ['commun', 'peu_commun', 'rare', 'epique', 'pseudo_legendai
 // Applique un ou plusieurs boosts multiplicatifs à une table de poids, PUIS
 // normalise une seule fois à la fin (jamais de "probabilité × pity × 2.5" brut,
 // qui produirait des probabilités absurdes en cas de cumul).
-function buildWeightedRarityTable({ useCharm, pity, floorRarity }) {
+// extraBoost est optionnel (CROSSED_FATES) : un petit bonus supplémentaire sur les mêmes
+// raretés que le pity, cumulable avec pity/Charme mais toujours renormalisé une seule fois.
+function buildWeightedRarityTable({ useCharm, pity, floorRarity, extraBoost }) {
   const pityMultiplier = getPityMultiplier(pity);
+  const boost = extraBoost || 1;
   let weighted = RARITY_TABLE.map(entry => {
     let weight = entry.weight;
     if (useCharm && SHINY_CHARM_BOOSTED_RARITIES.includes(entry.rarity)) weight *= SHINY_CHARM_MULTIPLIER;
-    if (PITY_BOOSTED_RARITIES.includes(entry.rarity)) weight *= pityMultiplier;
+    if (PITY_BOOSTED_RARITIES.includes(entry.rarity)) weight *= pityMultiplier * boost;
     return { rarity: entry.rarity, weight };
   });
 
@@ -322,8 +325,8 @@ function buildWeightedRarityTable({ useCharm, pity, floorRarity }) {
   return weighted.map(e => ({ rarity: e.rarity, weight: total > 0 ? e.weight / total : 0 }));
 }
 
-function pickRarity(useCharm, pity, floorRarity) {
-  const table = buildWeightedRarityTable({ useCharm, pity, floorRarity });
+function pickRarity(useCharm, pity, floorRarity, extraBoost) {
+  const table = buildWeightedRarityTable({ useCharm, pity, floorRarity, extraBoost });
   const roll = Math.random();
   let cumulative = 0;
   for (const entry of table) {
@@ -457,9 +460,10 @@ function randomFrom(list) {
 }
 
 // Construit une récompense secrète complète (rareté → Pokémon + effet + points calculés).
-// floorRarity est optionnel (LUCKY_TURN, TIME_RIFT) : undefined = comportement inchangé.
-function buildRewardOption(useCharm, pity, floorRarity) {
-  const rarity = pickRarity(useCharm, pity, floorRarity);
+// floorRarity est optionnel (LUCKY_TURN, TIME_RIFT) ; extraBoost aussi (CROSSED_FATES) :
+// undefined pour les deux = comportement inchangé.
+function buildRewardOption(useCharm, pity, floorRarity, extraBoost) {
+  const rarity = pickRarity(useCharm, pity, floorRarity, extraBoost);
   const pokemon = randomFrom(POKEMON_POOLS[rarity]);
   const effect = pickEffect();
   const finalPoints = Math.round(pokemon.points * effect.multiplier);
@@ -477,13 +481,13 @@ function buildRewardOption(useCharm, pity, floorRarity) {
 }
 
 // Génère les 2 options HAUT/BAS d'un joueur pour un tour (toujours 2 Pokémon distincts).
-function pickPlayerTurnOptions(useCharm, pity, floorRarity) {
-  const haut = buildRewardOption(useCharm, pity, floorRarity);
-  let bas = buildRewardOption(useCharm, pity, floorRarity);
+function pickPlayerTurnOptions(useCharm, pity, floorRarity, extraBoost) {
+  const haut = buildRewardOption(useCharm, pity, floorRarity, extraBoost);
+  let bas = buildRewardOption(useCharm, pity, floorRarity, extraBoost);
 
   let guard = 0;
   while (bas.pokemonId === haut.pokemonId && guard < 10) {
-    bas = buildRewardOption(useCharm, pity, floorRarity);
+    bas = buildRewardOption(useCharm, pity, floorRarity, extraBoost);
     guard += 1;
   }
 
@@ -505,7 +509,6 @@ function pickPlayerTurnOptions(useCharm, pity, floorRarity) {
 // -----------------------------------------------------------------
 const EVENT_TYPES = {
   DOUBLE_ENCOUNTER: 'DOUBLE_ENCOUNTER',
-  SECOND_CHANCE: 'SECOND_CHANCE',
   DOUBLE_OR_NOTHING: 'DOUBLE_OR_NOTHING',
   INSTANT_EVOLUTION: 'INSTANT_EVOLUTION',
   HIDDEN_TALENT: 'HIDDEN_TALENT',
@@ -527,15 +530,7 @@ const EVENT_DEFINITIONS = [
     probability: 0.03,
     scope: 'solo',
     implemented: true,
-    condition: (game, player) => player.team.length < 6 // il faut une place libre pour le Pokémon gagné
-  },
-  {
-    id: EVENT_TYPES.SECOND_CHANCE,
-    label: 'Deuxième chance',
-    probability: 0.03,
-    scope: 'solo',
-    implemented: true,
-    condition: (game, player) => !!player.currentOptions && (player.currentChoice === 'HAUT' || player.currentChoice === 'BAS')
+    condition: (game, player) => player.team.length > 0 // remplace un Pokémon existant, ou skip
   },
   {
     id: EVENT_TYPES.DOUBLE_OR_NOTHING,
@@ -574,24 +569,24 @@ const EVENT_DEFINITIONS = [
     label: 'Duel',
     probability: 0.03,
     scope: 'duo',
-    implemented: false, // étape 4
-    condition: (game) => game.players.length >= 2
+    implemented: true,
+    condition: (game, player) => !!pickEventOpponent(game, player)
   },
   {
     id: EVENT_TYPES.MIRROR,
     label: 'Miroir',
     probability: 0.02,
     scope: 'duo',
-    implemented: false, // étape 4
-    condition: (game) => game.players.length >= 2
+    implemented: true,
+    condition: (game, player) => player.team.length < 6 && !!pickEventOpponent(game, player)
   },
   {
     id: EVENT_TYPES.CROSSED_FATES,
     label: 'Destins croisés',
     probability: 0.02,
     scope: 'duo',
-    implemented: false, // étape 4
-    condition: (game) => game.players.length >= 2
+    implemented: true,
+    condition: (game, player) => !!pickEventOpponent(game, player)
   },
   {
     id: EVENT_TYPES.LUCKY_TURN,
@@ -615,7 +610,7 @@ const EVENT_DEFINITIONS = [
     probability: 0.01,
     scope: 'solo',
     implemented: true,
-    condition: (game, player) => player.team.length < 6
+    condition: (game, player) => player.team.length > 0 // remplace un Pokémon existant, ou skip
   }
 ];
 
@@ -654,13 +649,15 @@ function startEvent(game, player, def) {
     case EVENT_TYPES.DOUBLE_ENCOUNTER: return startDoubleEncounter(game, player);
     case EVENT_TYPES.DOUBLE_OR_NOTHING: return startDoubleOrNothing(game, player);
     case EVENT_TYPES.HIDDEN_TALENT: return startHiddenTalent(game, player);
-    case EVENT_TYPES.SECOND_CHANCE: return startSecondChance(game, player);
     case EVENT_TYPES.INSTANT_EVOLUTION: return startInstantEvolution(game, player);
     case EVENT_TYPES.SHINY_POKEMON: return startShinyPokemon(game, player);
     case EVENT_TYPES.LUCKY_TURN: return startLuckyTurn(game, player);
     case EVENT_TYPES.LOTTERY: return startLottery(game, player);
     case EVENT_TYPES.TIME_RIFT: return startTimeRift(game, player);
-    default: return null; // événements pas encore implémentés (étape 4 : duo)
+    case EVENT_TYPES.DUEL: return startDuel(game, player);
+    case EVENT_TYPES.MIRROR: return startMirror(game, player);
+    case EVENT_TYPES.CROSSED_FATES: return startCrossedFates(game, player);
+    default: return null;
   }
 }
 
@@ -689,36 +686,47 @@ function startDoubleEncounter(game, player) {
       effectName: o.effectName,
       multiplier: o.multiplier,
       finalPoints: o.finalPoints
-    }))
+    })),
+    team: player.team.map((mon, index) => ({ index, id: mon.id, name: mon.name, sprite: mon.sprite }))
   });
   return player.activeEvent;
 }
 
+// Ne grossit JAMAIS l'équipe au-delà de 6 : le joueur choisit un Pokémon parmi les 2
+// proposés, PUIS lequel de ses Pokémon actuels il remplace — ou skip entièrement, ce
+// qui ne change rien. { skip: true } court-circuite tout le reste.
 function resolveDoubleEncounter(game, player, action) {
-  const options = player.activeEvent.options;
-  const index = action && (action.index === 0 || action.index === 1) ? action.index : null;
-  if (index === null) return { error: 'Choix invalide.' };
-
-  const chosen = options[index];
-  player.score += chosen.finalPoints;
-  if (player.team.length < 6) {
-    player.team.push({
-      id: chosen.pokemonId,
-      name: chosen.name,
-      sprite: chosen.sprite,
-      rarity: chosen.rarity,
-      basePoints: chosen.basePoints,
-      effectName: chosen.effectName,
-      multiplier: chosen.multiplier
-    });
+  if (action && action.skip === true) {
+    return { result: { type: EVENT_TYPES.DOUBLE_ENCOUNTER, skipped: true, score: player.score, team: player.team } };
   }
+
+  const options = player.activeEvent.options;
+  const optionIndex = action && (action.index === 0 || action.index === 1) ? action.index : null;
+  const replaceIndex = action && Number.isInteger(action.replaceIndex) ? action.replaceIndex : null;
+  const replacedMon = replaceIndex !== null ? player.team[replaceIndex] : null;
+  if (optionIndex === null || !replacedMon) return { error: 'Choix invalide.' };
+
+  const chosen = options[optionIndex];
+  const oldContribution = Math.round(replacedMon.basePoints * replacedMon.multiplier);
+  player.team[replaceIndex] = {
+    id: chosen.pokemonId,
+    name: chosen.name,
+    sprite: chosen.sprite,
+    rarity: chosen.rarity,
+    basePoints: chosen.basePoints,
+    effectName: chosen.effectName,
+    multiplier: chosen.multiplier
+  };
+  const scoreDelta = chosen.finalPoints - oldContribution;
+  player.score += scoreDelta;
 
   return {
     result: {
       type: EVENT_TYPES.DOUBLE_ENCOUNTER,
       pokemon: { name: chosen.name, sprite: chosen.sprite },
       rarity: chosen.rarity,
-      pointsGained: chosen.finalPoints,
+      replacedName: replacedMon.name,
+      scoreDelta,
       score: player.score,
       team: player.team
     }
@@ -805,6 +813,10 @@ function startHiddenTalent(game, player) {
 }
 
 function resolveHiddenTalent(game, player, action) {
+  if (action && action.skip === true) {
+    return { result: { type: EVENT_TYPES.HIDDEN_TALENT, skipped: true, score: player.score, team: player.team } };
+  }
+
   const index = action && Number.isInteger(action.index) ? action.index : null;
   const mon = index !== null ? player.team[index] : null;
   if (!mon) return { error: 'Pokémon invalide.' };
@@ -824,61 +836,6 @@ function resolveHiddenTalent(game, player, action) {
       sprite: mon.sprite,
       effect: { name: newEffect.name, multiplier: newEffect.multiplier },
       scoreDelta,
-      score: player.score,
-      team: player.team
-    }
-  };
-}
-
-// ---- DEUXIÈME CHANCE : refaire le choix HAUT/BAS de CE tour, le 2e résultat remplace le 1er. ----
-// Les deux résultats originaux (player.currentOptions) sont déjà conservés côté serveur
-// depuis le tirage du tour ; on les réutilise tels quels, on ne retire rien tant que le
-// joueur n'a pas re-choisi. Ne se déclenche que juste après un vrai choix HAUT/BAS (cf.
-// condition dans EVENT_DEFINITIONS) : jamais après un tour 4 → BONUS.
-function startSecondChance(game, player) {
-  if (!player.currentOptions) return null;
-  player.activeEvent = { type: EVENT_TYPES.SECOND_CHANCE };
-  io.to(player.id).emit('rare_event_start', {
-    type: EVENT_TYPES.SECOND_CHANCE,
-    label: 'Deuxième chance'
-  });
-  return player.activeEvent;
-}
-
-function resolveSecondChance(game, player, action) {
-  const choice = action && (action.choice === 'HAUT' || action.choice === 'BAS') ? action.choice : null;
-  if (!choice || !player.currentOptions) return { error: 'Choix invalide.' };
-
-  // Retire la contribution du Pokémon obtenu par le 1er choix (le tout dernier ajouté ce tour).
-  const previousMon = player.team[player.team.length - 1];
-  let previousPointsRemoved = 0;
-  if (previousMon) {
-    previousPointsRemoved = Math.round(previousMon.basePoints * previousMon.multiplier);
-    player.team.pop();
-    player.score -= previousPointsRemoved;
-  }
-
-  const reward = player.currentOptions[choice === 'HAUT' ? 'haut' : 'bas'];
-  player.score += reward.finalPoints;
-  if (player.team.length < 6) {
-    player.team.push({
-      id: reward.pokemonId,
-      name: reward.name,
-      sprite: reward.sprite,
-      rarity: reward.rarity,
-      basePoints: reward.basePoints,
-      effectName: reward.effectName,
-      multiplier: reward.multiplier
-    });
-  }
-
-  return {
-    result: {
-      type: EVENT_TYPES.SECOND_CHANCE,
-      pokemon: { name: reward.name, sprite: reward.sprite },
-      rarity: reward.rarity,
-      pointsGained: reward.finalPoints,
-      previousPointsRemoved,
       score: player.score,
       team: player.team
     }
@@ -949,6 +906,7 @@ function startShinyPokemon(game, player) {
   const scoreDelta = newContribution - oldContribution;
   player.score += scoreDelta;
 
+  broadcastGameUpdated(game); // score/équipe changés hors du flux de tour déjà diffusé par finalizePlayerTurn
   io.to(player.id).emit('rare_event_result', {
     type: EVENT_TYPES.SHINY_POKEMON,
     label: 'Pokémon shiny',
@@ -1090,33 +1048,251 @@ function resolveLottery(game, player, action) {
 // Instantané, comme SHINY_POKEMON/LUCKY_TURN : aucun choix décrit pour cet événement. ----
 const TIME_RIFT_FLOOR_RARITY = 'pseudo_legendaire'; // uniquement pseudo-légendaire ou légendaire, jamais garanti lequel
 
+// Ne grossit JAMAIS l'équipe au-delà de 6 : le tirage spécial est proposé, mais le
+// joueur doit choisir lequel de ses Pokémon actuels il remplace, ou skip (rien ne change).
 function startTimeRift(game, player) {
   const useCharm = player.hasShinyCharm && game.turn >= 5;
   const reward = buildRewardOption(useCharm, player.pity, TIME_RIFT_FLOOR_RARITY);
 
-  player.score += reward.finalPoints;
-  if (player.team.length < 6) {
-    player.team.push({
-      id: reward.pokemonId,
-      name: reward.name,
-      sprite: reward.sprite,
-      rarity: reward.rarity,
-      basePoints: reward.basePoints,
-      effectName: reward.effectName,
-      multiplier: reward.multiplier
-    });
-  }
+  player.activeEvent = { type: EVENT_TYPES.TIME_RIFT, reward };
 
-  io.to(player.id).emit('rare_event_result', {
+  io.to(player.id).emit('rare_event_start', {
     type: EVENT_TYPES.TIME_RIFT,
     label: 'Faille spatio-temporelle',
-    pokemon: { name: reward.name, sprite: reward.sprite },
-    rarity: reward.rarity,
-    pointsGained: reward.finalPoints,
-    score: player.score,
-    team: player.team
+    pokemon: { name: reward.name, sprite: reward.sprite, rarity: reward.rarity, finalPoints: reward.finalPoints },
+    team: player.team.map((mon, index) => ({ index, id: mon.id, name: mon.name, sprite: mon.sprite }))
   });
-  return null; // instantané, aucun choix à faire
+  return player.activeEvent;
+}
+
+function resolveTimeRift(game, player, action) {
+  if (action && action.skip === true) {
+    return { result: { type: EVENT_TYPES.TIME_RIFT, skipped: true, score: player.score, team: player.team } };
+  }
+
+  const reward = player.activeEvent.reward;
+  const replaceIndex = action && Number.isInteger(action.replaceIndex) ? action.replaceIndex : null;
+  const replacedMon = replaceIndex !== null ? player.team[replaceIndex] : null;
+  if (!replacedMon) return { error: 'Choix invalide.' };
+
+  const oldContribution = Math.round(replacedMon.basePoints * replacedMon.multiplier);
+  player.team[replaceIndex] = {
+    id: reward.pokemonId,
+    name: reward.name,
+    sprite: reward.sprite,
+    rarity: reward.rarity,
+    basePoints: reward.basePoints,
+    effectName: reward.effectName,
+    multiplier: reward.multiplier
+  };
+  const scoreDelta = reward.finalPoints - oldContribution;
+  player.score += scoreDelta;
+
+  return {
+    result: {
+      type: EVENT_TYPES.TIME_RIFT,
+      pokemon: { name: reward.name, sprite: reward.sprite },
+      rarity: reward.rarity,
+      replacedName: replacedMon.name,
+      scoreDelta,
+      score: player.score,
+      team: player.team
+    }
+  };
+}
+
+// -----------------------------------------------------------------
+// ÉVÉNEMENTS À DEUX JOUEURS (DUEL, MIRROR, CROSSED_FATES)
+//
+// Contrairement aux événements solo, ceux-ci concernent deux joueurs de la même partie.
+// Le serveur choisit lui-même un adversaire valide ; jamais le client. Seuls les deux
+// joueurs concernés sont bloqués le temps de la résolution (activeEvent posé sur les
+// deux) — les autres continuent normalement, le flux de tour global n'attend jamais un
+// événement (cf. finalizePlayerTurn, qui ne bloque jamais la transition de tour).
+// -----------------------------------------------------------------
+
+// Choisit un adversaire valide : un autre joueur de la même partie, qui n'a pas déjà un
+// événement actif (jamais interrompre quelqu'un d'autre en pleine résolution). Fonction
+// pure (aucun effet de bord) : utilisée à la fois pour vérifier la condition de
+// déclenchement et pour le tirage réel au démarrage de l'événement.
+function pickEventOpponent(game, player) {
+  const candidates = game.players.filter(p => p.id !== player.id && !p.activeEvent);
+  if (candidates.length === 0) return null;
+  return randomFrom(candidates);
+}
+
+// ---- DUEL : les 2 joueurs choisissent chacun HAUT/BAS. Choix différents -> HAUT bat BAS
+// (règle simple et fixe). Choix identiques -> tirage 50/50 côté serveur (règle simple et
+// clairement définie, jamais de blocage). Le perdant ne perd RIEN (juste pas de gain) :
+// reste amusant, jamais punitif. ----
+const DUEL_REWARD_POINTS = 120; // gain raisonnable pour le gagnant, cohérent avec l'échelle de points du jeu
+
+function startDuel(game, player) {
+  const opponent = pickEventOpponent(game, player);
+  if (!opponent) return null;
+
+  const sharedEvent = {
+    type: EVENT_TYPES.DUEL,
+    participants: [player.id, opponent.id],
+    choices: {}
+  };
+  player.activeEvent = sharedEvent;
+  opponent.activeEvent = sharedEvent;
+  opponent.eventCooldown = EVENT_COOLDOWN_TURNS; // l'adversaire entre aussi en cooldown
+
+  [player, opponent].forEach(p => {
+    const other = p.id === player.id ? opponent : player;
+    io.to(p.id).emit('rare_event_start', {
+      type: EVENT_TYPES.DUEL,
+      label: 'Duel',
+      opponentName: other.name
+    });
+  });
+
+  return sharedEvent;
+}
+
+// Retourné à socket.on('rare_event_action') via resolveEventAction. Contrat spécial :
+// { pending: true } tant que l'autre joueur n'a pas encore répondu (rien n'est nettoyé,
+// rien n'est diffusé) ; { resultsByPlayer } une fois les deux choix reçus, avec une
+// perspective distincte pour chacun (gagnant/perdant) — géré par le handler générique.
+function resolveDuel(game, player, action) {
+  const shared = player.activeEvent;
+  const choice = action && (action.choice === 'HAUT' || action.choice === 'BAS') ? action.choice : null;
+  if (!choice) return { error: 'Choix invalide.' };
+  if (shared.choices[player.id]) return { error: 'Choix déjà envoyé.' };
+
+  shared.choices[player.id] = choice;
+
+  const [idA, idB] = shared.participants;
+  if (!shared.choices[idA] || !shared.choices[idB]) {
+    return { pending: true }; // en attente de l'autre joueur
+  }
+
+  const playerA = game.players.find(p => p.id === idA);
+  const playerB = game.players.find(p => p.id === idB);
+  const choiceA = shared.choices[idA];
+  const choiceB = shared.choices[idB];
+
+  let winnerId;
+  if (choiceA !== choiceB) {
+    winnerId = choiceA === 'HAUT' ? idA : idB; // règle fixe : HAUT bat BAS
+  } else {
+    winnerId = Math.random() < 0.5 ? idA : idB; // égalité de choix -> 50/50 serveur
+  }
+
+  if (playerA && winnerId === idA) playerA.score += DUEL_REWARD_POINTS;
+  if (playerB && winnerId === idB) playerB.score += DUEL_REWARD_POINTS;
+
+  const resultsByPlayer = {};
+  [playerA, playerB].forEach(p => {
+    if (!p) return;
+    const won = p.id === winnerId;
+    resultsByPlayer[p.id] = {
+      type: EVENT_TYPES.DUEL,
+      won,
+      yourChoice: shared.choices[p.id],
+      opponentChoice: shared.choices[p.id === idA ? idB : idA],
+      pointsGained: won ? DUEL_REWARD_POINTS : 0,
+      score: p.score,
+      team: p.team
+    };
+  });
+
+  return { resultsByPlayer };
+}
+
+// ---- MIROIR : un seul Pokémon généré, donné TEL QUEL aux deux joueurs (même espèce,
+// même rareté, mêmes points, même trait), chacun l'ajoute à sa PROPRE équipe. Instantané. ----
+function startMirror(game, player) {
+  const opponent = pickEventOpponent(game, player);
+  if (!opponent || player.team.length >= 6 || opponent.team.length >= 6) return null;
+
+  const useCharm = player.hasShinyCharm && game.turn >= 5;
+  const reward = buildRewardOption(useCharm, player.pity);
+
+  [player, opponent].forEach(p => {
+    p.score += reward.finalPoints;
+    if (p.team.length < 6) {
+      p.team.push({
+        id: reward.pokemonId,
+        name: reward.name,
+        sprite: reward.sprite,
+        rarity: reward.rarity,
+        basePoints: reward.basePoints,
+        effectName: reward.effectName,
+        multiplier: reward.multiplier
+      });
+    }
+  });
+  opponent.eventCooldown = EVENT_COOLDOWN_TURNS;
+
+  broadcastGameUpdated(game);
+  [player, opponent].forEach(p => {
+    const other = p.id === player.id ? opponent : player;
+    io.to(p.id).emit('rare_event_result', {
+      type: EVENT_TYPES.MIRROR,
+      label: 'Miroir',
+      opponentName: other.name,
+      pokemon: { name: reward.name, sprite: reward.sprite },
+      rarity: reward.rarity,
+      pointsGained: reward.finalPoints,
+      score: p.score,
+      team: p.team
+    });
+  });
+
+  return null; // instantané, rien à résoudre plus tard
+}
+
+// ---- DESTINS CROISÉS : lie 2 joueurs. Règle simple et clairement définie, toujours
+// positive (jamais punitive, cf. consigne générale des événements) : quand l'un des deux
+// termine son PROCHAIN tour, l'AUTRE reçoit un petit bonus de rareté sur son tirage
+// suivant (cf. rarityBoost, même mécanisme poids+normalisation que pity/Charme/plancher).
+// Instantané au déclenchement ; l'effet lui-même se joue plus tard, passivement, sur les
+// tours normaux (cf. applyCrossedFatesLink, appelé depuis finalizePlayerTurn). ----
+const CROSSED_FATES_BOOST_MULTIPLIER = 1.25; // petit bonus, volontairement modeste
+
+function startCrossedFates(game, player) {
+  const opponent = pickEventOpponent(game, player);
+  if (!opponent) return null;
+
+  player.crossedFatesPartner = opponent.id;
+  opponent.crossedFatesPartner = player.id;
+  opponent.eventCooldown = EVENT_COOLDOWN_TURNS;
+
+  [player, opponent].forEach(p => {
+    const other = p.id === player.id ? opponent : player;
+    io.to(p.id).emit('rare_event_result', {
+      type: EVENT_TYPES.CROSSED_FATES,
+      label: 'Destins croisés',
+      subtype: 'linked',
+      linkedPlayerName: other.name
+    });
+  });
+
+  return null; // pas d'activeEvent : l'effet se joue passivement sur les prochains tours normaux
+}
+
+// Appelé par finalizePlayerTurn pour CE joueur : si son tour qui vient de se résoudre le
+// liait à un partenaire (CROSSED_FATES), le partenaire reçoit un petit bonus pour son
+// PROCHAIN tirage. Lien consommé immédiatement du côté du joueur qui vient de jouer
+// (à usage unique par joueur), que le partenaire soit encore présent ou non.
+function applyCrossedFatesLink(game, player) {
+  const partnerId = player.crossedFatesPartner;
+  if (!partnerId) return;
+  player.crossedFatesPartner = null;
+
+  const partner = game.players.find(p => p.id === partnerId);
+  if (!partner) return; // le partenaire a quitté entre temps : rien à faire, pas d'erreur
+
+  partner.rarityBoost = CROSSED_FATES_BOOST_MULTIPLIER;
+  io.to(partner.id).emit('rare_event_result', {
+    type: EVENT_TYPES.CROSSED_FATES,
+    label: 'Destins croisés',
+    subtype: 'boost_received',
+    linkedPlayerName: player.name
+  });
 }
 
 // Dispatch générique de résolution, appelé par socket.on('rare_event_action').
@@ -1125,9 +1301,10 @@ function resolveEventAction(game, player, action) {
     case EVENT_TYPES.DOUBLE_ENCOUNTER: return resolveDoubleEncounter(game, player, action);
     case EVENT_TYPES.DOUBLE_OR_NOTHING: return resolveDoubleOrNothing(game, player, action);
     case EVENT_TYPES.HIDDEN_TALENT: return resolveHiddenTalent(game, player, action);
-    case EVENT_TYPES.SECOND_CHANCE: return resolveSecondChance(game, player, action);
     case EVENT_TYPES.INSTANT_EVOLUTION: return resolveInstantEvolution(game, player, action);
     case EVENT_TYPES.LOTTERY: return resolveLottery(game, player, action);
+    case EVENT_TYPES.TIME_RIFT: return resolveTimeRift(game, player, action);
+    case EVENT_TYPES.DUEL: return resolveDuel(game, player, action);
     default: return { error: "Type d'événement inconnu." };
   }
 }
@@ -1184,7 +1361,9 @@ function makePlayer(id, name) {
     pity: 0, // compteur anti-RNG individuel, jamais partagé entre joueurs
     activeEvent: null, // événement rare en cours pour CE joueur (jamais 2 à la fois)
     eventCooldown: 0, // nb de tours restants avant qu'un nouvel événement puisse se tirer
-    rarityFloor: null // effet différé de LUCKY_TURN : plancher de rareté pour le PROCHAIN tirage, à usage unique
+    rarityFloor: null, // effet différé de LUCKY_TURN : plancher de rareté pour le PROCHAIN tirage, à usage unique
+    rarityBoost: null, // petit bonus différé de CROSSED_FATES pour le PROCHAIN tirage, à usage unique
+    crossedFatesPartner: null // id du joueur lié (CROSSED_FATES), consommé au prochain choix de CE joueur
   };
 }
 
@@ -1222,8 +1401,9 @@ function broadcastGameUpdated(game) {
 function assignTurnOptions(game) {
   game.players.forEach(p => {
     const useCharm = p.hasShinyCharm && game.turn >= 5;
-    p.currentOptions = pickPlayerTurnOptions(useCharm, p.pity, p.rarityFloor || undefined);
+    p.currentOptions = pickPlayerTurnOptions(useCharm, p.pity, p.rarityFloor || undefined, p.rarityBoost || undefined);
     p.rarityFloor = null; // effet LUCKY_TURN consommé, à usage unique
+    p.rarityBoost = null; // effet CROSSED_FATES consommé, à usage unique
     io.to(p.id).emit('turn_options', {
       haut: { name: p.currentOptions.haut.name, sprite: p.currentOptions.haut.sprite },
       bas: { name: p.currentOptions.bas.name, sprite: p.currentOptions.bas.sprite }
@@ -1253,7 +1433,13 @@ function advanceTurn(game) {
     p.currentOptions = null;
     p.currentBonusOptions = null;
     p.pendingBonusKey = null;
-    p.activeEvent = null; // un événement non résolu avant le tour suivant expire simplement
+    if (p.activeEvent) {
+      // Un événement non résolu avant le tour suivant expire : le joueur DOIT en être
+      // informé, sinon son overlay reste ouvert indéfiniment (softlock côté client,
+      // ses boutons ne feraient plus qu'échouer silencieusement contre un activeEvent nul).
+      p.activeEvent = null;
+      io.to(p.id).emit('rare_event_cancelled', { reason: 'expired' });
+    }
     if (p.eventCooldown > 0) p.eventCooldown -= 1;
   });
   broadcastGameUpdated(game);
@@ -1291,14 +1477,24 @@ function resolveTurnTransition(game) {
   }
 }
 
-// Une fois que tous les joueurs présents ont choisi, laisse ~4s de révélation
-// avant de faire avancer le tour (ou de terminer la partie), pour tout le monde en même temps.
+// Un événement bloque la transition de tour tant qu'il n'est pas résolu, SAUF DUEL :
+// DUEL est le seul événement conçu pour ne jamais bloquer les autres joueurs (cf. spec
+// multijoueur d'origine — 2 joueurs sur N, les autres continuent normalement). Tous les
+// autres événements interactifs (solo) doivent laisser au joueur tout le temps nécessaire :
+// un choix en 2 étapes (ex: DOUBLE RENCONTRE) ne tient pas dans les 4s de révélation.
+function hasBlockingEvent(player) {
+  return !!player.activeEvent && player.activeEvent.type !== EVENT_TYPES.DUEL;
+}
+
+// Une fois que tous les joueurs présents ont choisi ET qu'aucun n'a d'événement bloquant
+// en cours, laisse ~4s de révélation avant de faire avancer le tour (ou de terminer la
+// partie), pour tout le monde en même temps.
 function maybeScheduleTurnTransition(game) {
   if (game.status !== 'playing') return;
   if (game.turnTimer) return; // déjà planifié, ne pas doubler
 
-  const allChosen = game.players.length > 0 && game.players.every(p => p.currentChoice !== null);
-  if (!allChosen) return;
+  const allReady = game.players.length > 0 && game.players.every(p => p.currentChoice !== null && !hasBlockingEvent(p));
+  if (!allReady) return;
 
   game.turnTimer = setTimeout(() => resolveTurnTransition(game), REVEAL_DELAY_MS);
 }
@@ -1307,12 +1503,16 @@ function maybeScheduleTurnTransition(game) {
 // ou BONUS (Bonbon XP / Objet Mystère / Charme Chroma) — un seul chemin de code pour
 // diffuser l'état et planifier la transition, évite toute divergence entre les deux flux.
 // C'est aussi le point d'accroche des événements rares : tirés pour CE joueur uniquement,
-// jamais pour les autres, et sans bloquer la progression normale du tour (le timer de
-// révélation / passage au tour suivant n'attend pas la résolution d'un événement).
+// jamais pour les autres. Le tirage doit précéder la vérification de transition : un
+// événement fraîchement déclenché doit pouvoir bloquer le passage au tour suivant tant
+// qu'il n'est pas résolu (cf. hasBlockingEvent) — sauf DUEL, jamais bloquant.
 function finalizePlayerTurn(game, player) {
   broadcastGameUpdated(game);
+  if (player) {
+    applyCrossedFatesLink(game, player);
+    maybeTriggerEvent(game, player);
+  }
   maybeScheduleTurnTransition(game);
-  if (player) maybeTriggerEvent(game, player);
 }
 
 function leaveCurrentGame(socket) {
@@ -1322,9 +1522,25 @@ function leaveCurrentGame(socket) {
   const game = games[gameId];
   if (!game) return;
 
+  const leavingPlayer = game.players.find(p => p.id === socket.id);
   game.players = game.players.filter(p => p.id !== socket.id);
   socket.leave(gameId);
   socket.data.gameId = null;
+
+  // Événement à deux joueurs (DUEL) : si celui qui part y participait, l'autre ne doit
+  // jamais rester bloqué à attendre indéfiniment un choix qui ne viendra plus.
+  if (leavingPlayer && leavingPlayer.activeEvent && Array.isArray(leavingPlayer.activeEvent.participants)) {
+    const shared = leavingPlayer.activeEvent;
+    shared.participants
+      .filter(id => id !== socket.id)
+      .forEach(id => {
+        const partner = game.players.find(p => p.id === id);
+        if (partner && partner.activeEvent === shared) {
+          partner.activeEvent = null;
+          io.to(partner.id).emit('rare_event_cancelled', { type: shared.type });
+        }
+      });
+  }
 
   if (game.players.length === 0) {
     if (game.turnTimer) clearTimeout(game.turnTimer);
@@ -1449,6 +1665,8 @@ io.on('connection', (socket) => {
       p.activeEvent = null;
       p.eventCooldown = 0;
       p.rarityFloor = null;
+      p.rarityBoost = null;
+      p.crossedFatesPartner = null;
     });
 
     io.to(gameId).emit('game_started', {
@@ -1650,8 +1868,9 @@ io.on('connection', (socket) => {
 
     if (mode === 'POKEMON') {
       // Flux identique aux autres tours (charme jamais actif au tour 4, il ne commence qu'au tour 5).
-      player.currentOptions = pickPlayerTurnOptions(false, player.pity, player.rarityFloor || undefined);
+      player.currentOptions = pickPlayerTurnOptions(false, player.pity, player.rarityFloor || undefined, player.rarityBoost || undefined);
       player.rarityFloor = null; // effet LUCKY_TURN consommé, à usage unique
+      player.rarityBoost = null; // effet CROSSED_FATES consommé, à usage unique
       socket.emit('turn_options', {
         haut: { name: player.currentOptions.haut.name, sprite: player.currentOptions.haut.sprite },
         bas: { name: player.currentOptions.bas.name, sprite: player.currentOptions.bas.sprite }
@@ -1858,9 +2077,30 @@ io.on('connection', (socket) => {
       return;
     }
 
+    if (outcome.pending) {
+      // Événement à deux joueurs (DUEL) : ce joueur a répondu, on attend l'autre.
+      // Rien à nettoyer ni à diffuser tant que les deux choix ne sont pas là.
+      socket.emit('rare_event_waiting', { type: player.activeEvent.type });
+      return;
+    }
+
+    if (outcome.resultsByPlayer) {
+      // Événement à deux joueurs pleinement résolu : chaque participant reçoit SA
+      // propre perspective (gagnant/perdant), puis on nettoie l'état des DEUX joueurs.
+      Object.entries(outcome.resultsByPlayer).forEach(([playerId, payload]) => {
+        const participant = game.players.find(p => p.id === playerId);
+        if (participant) participant.activeEvent = null;
+        io.to(playerId).emit('rare_event_result', payload);
+      });
+      broadcastGameUpdated(game);
+      maybeScheduleTurnTransition(game);
+      return;
+    }
+
     player.activeEvent = null; // résolu : nettoyage systématique avant tout autre traitement
     broadcastGameUpdated(game); // score/équipe changés hors du flux de tour normal -> resynchronise tout le monde
     socket.emit('rare_event_result', outcome.result);
+    maybeScheduleTurnTransition(game); // l'événement bloquait peut-être la transition : à re-vérifier maintenant
   });
 
   // Solo uniquement : passe immédiatement la pause de révélation en cours. Le serveur
