@@ -23,6 +23,10 @@ const lobbyStatusEl = document.getElementById('lobby-status');
 const btnCopyCode = document.getElementById('btn-copy-code');
 const copyFeedbackEl = document.getElementById('copy-feedback');
 const difficultyButtons = Array.from(document.querySelectorAll('.difficulty-btn'));
+const gamemodeButtons = Array.from(document.querySelectorAll('.gamemode-btn'));
+const adminRolePanelEl = document.getElementById('admin-role-panel');
+const adminRoleOptionsEl = document.getElementById('admin-role-options');
+const adminRoleStatusEl = document.getElementById('admin-role-status');
 
 // ---------- Jeu ----------
 const bossPanelEl = document.getElementById('boss-panel');
@@ -30,6 +34,7 @@ const bossSpriteEl = document.getElementById('boss-sprite');
 const bossNameEl = document.getElementById('boss-name');
 const bossTargetValueEl = document.getElementById('boss-target-value');
 const myScoreValueEl = document.getElementById('my-score-value');
+const myScoreLabelEl = document.getElementById('my-score-label');
 const myScorePopupEl = document.getElementById('my-score-popup');
 const routeTrackEl = document.getElementById('route-track');
 const turnCurrentEl = document.getElementById('turn-current');
@@ -41,6 +46,21 @@ const choiceHautSpriteEl = document.getElementById('choice-haut-sprite');
 const choiceHautNameEl = document.getElementById('choice-haut-name');
 const choiceBasSpriteEl = document.getElementById('choice-bas-sprite');
 const choiceBasNameEl = document.getElementById('choice-bas-name');
+
+// ---------- Mode ADMIN VS JOUEUR ----------
+const adminViewPanelEl = document.getElementById('admin-view-panel');
+const adminViewPlayerNameEl = document.getElementById('admin-view-player-name');
+const adminViewPlayerScoreEl = document.getElementById('admin-view-player-score');
+const adminViewHautSpriteEl = document.getElementById('admin-view-haut-sprite');
+const adminViewHautNameEl = document.getElementById('admin-view-haut-name');
+const adminViewHautRarityEl = document.getElementById('admin-view-haut-rarity');
+const adminViewHautPointsEl = document.getElementById('admin-view-haut-points');
+const adminViewHautEffectEl = document.getElementById('admin-view-haut-effect');
+const adminViewBasSpriteEl = document.getElementById('admin-view-bas-sprite');
+const adminViewBasNameEl = document.getElementById('admin-view-bas-name');
+const adminViewBasRarityEl = document.getElementById('admin-view-bas-rarity');
+const adminViewBasPointsEl = document.getElementById('admin-view-bas-points');
+const adminViewBasEffectEl = document.getElementById('admin-view-bas-effect');
 const resultPanelEl = document.getElementById('result-panel');
 const resultRarityEl = document.getElementById('result-rarity');
 const resultSpriteEl = document.getElementById('result-sprite');
@@ -101,6 +121,9 @@ let hasChosenThisTurn = false;
 let lastTeamSize = 0;
 let lastRenderedTurn = 0;
 let currentDifficulty = 'medium'; // reflet local de la difficulté choisie par l'hôte (le serveur reste source de vérité)
+let currentGameMode = 'normal'; // 'normal' | 'admin' — reflet local, serveur = source de vérité
+let currentAdminId = null; // id du joueur ADMIN choisi par l'hôte (mode "admin" uniquement)
+let lastLobbyPlayers = []; // dernière liste de joueurs du lobby, réutilisée pour re-render le picker ADMIN
 
 const RARITY_LABELS = {
   commun: 'Commun',
@@ -153,6 +176,8 @@ function updateHostControls() {
   const host = isHost();
   btnStart.classList.toggle('screen--hidden', !host);
   difficultyButtons.forEach(btn => { btn.disabled = !host; });
+  gamemodeButtons.forEach(btn => { btn.disabled = !host; });
+  renderAdminRoleOptions(); // dépend aussi de isHost() (boutons désactivés pour l'invité)
   lobbyStatusEl.textContent = host
     ? 'Lance la partie quand tout le monde est prêt.'
     : "En attente que l'hôte démarre la partie...";
@@ -165,6 +190,50 @@ function renderDifficulty(difficulty) {
   difficultyButtons.forEach(btn => {
     btn.classList.toggle('difficulty-btn--selected', btn.dataset.difficulty === currentDifficulty);
   });
+}
+
+// Met à jour l'affichage du mode de jeu + affiche/masque le picker ADMIN. N'émet
+// jamais rien : uniquement du rendu à partir de ce que le serveur a confirmé.
+function renderGameMode(gameMode) {
+  currentGameMode = gameMode || 'normal';
+  gamemodeButtons.forEach(btn => {
+    btn.classList.toggle('gamemode-btn--selected', btn.dataset.mode === currentGameMode);
+  });
+  adminRolePanelEl.classList.toggle('screen--hidden', currentGameMode !== 'admin');
+  renderAdminRoleOptions();
+}
+
+// Reconstruit le picker ADMIN à partir de la dernière liste de joueurs connue. Affiché
+// uniquement en mode "admin". Nécessite exactement 2 joueurs pour proposer un choix ;
+// sinon affiche juste un message explicite (le serveur revalidera de toute façon).
+function renderAdminRoleOptions() {
+  if (currentGameMode !== 'admin') return;
+
+  adminRoleOptionsEl.innerHTML = '';
+  const host = isHost();
+
+  if (lastLobbyPlayers.length !== 2) {
+    adminRoleStatusEl.textContent = 'Exactement 2 joueurs sont nécessaires pour ce mode.';
+    return;
+  }
+
+  lastLobbyPlayers.forEach(p => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'admin-role-btn';
+    btn.classList.toggle('admin-role-btn--selected', p.id === currentAdminId);
+    btn.disabled = !host;
+    btn.textContent = p.name;
+    btn.addEventListener('click', () => {
+      if (!isHost()) return;
+      socket.emit('set_admin_role', { adminId: p.id });
+    });
+    adminRoleOptionsEl.appendChild(btn);
+  });
+
+  adminRoleStatusEl.textContent = currentAdminId
+    ? ''
+    : host ? "Choisis qui sera l'ADMIN." : "En attente que l'hôte choisisse l'ADMIN...";
 }
 
 function updateReplayControls() {
@@ -208,6 +277,8 @@ function renderPlayers(listEl, players) {
 function renderLobbyPlayers(players) {
   playersCountEl.textContent = `(${players.length})`;
   renderPlayers(playersListEl, players);
+  lastLobbyPlayers = players;
+  renderAdminRoleOptions(); // la liste de joueurs a pu changer (join/leave) : re-sync le picker ADMIN
 }
 
 let routeStepEls = [];
@@ -331,11 +402,40 @@ function showTurnPhase(phase) {
   advantagePanelEl.classList.toggle('screen--hidden', phase !== 'advantage');
   bonusPanelEl.classList.toggle('screen--hidden', phase !== 'bonus-pick');
   bonusTargetPanelEl.classList.toggle('screen--hidden', phase !== 'bonus-target');
+  adminViewPanelEl.classList.toggle('screen--hidden', phase !== 'admin-view');
 }
 
 function setAdvantageButtonsEnabled(enabled) {
   btnAdvantagePokemon.disabled = !enabled;
   btnAdvantageBonus.disabled = !enabled;
+}
+
+// ---------- Mode ADMIN VS JOUEUR ----------
+
+// Vrai uniquement pour le socket qui a été désigné ADMIN dans CETTE partie (cf.
+// currentGameMode/currentAdminId, mis à jour par game_started et les events du lobby).
+function isAdminNow() {
+  return currentGameMode === 'admin' && !!currentAdminId && myId === currentAdminId;
+}
+
+// Remplit le panneau d'observation de l'ADMIN avec les données complètes des 2 options
+// (jamais calculées ici : uniquement ce que le serveur a envoyé via admin_view_turn_options).
+function renderAdminViewOptions({ playerName, playerScore, haut, bas }) {
+  adminViewPlayerNameEl.textContent = playerName;
+  adminViewPlayerScoreEl.textContent = playerScore;
+
+  const cards = [
+    { rarity: haut.rarity, sprite: adminViewHautSpriteEl, name: adminViewHautNameEl, rarityEl: adminViewHautRarityEl, points: adminViewHautPointsEl, effect: adminViewHautEffectEl, data: haut },
+    { rarity: bas.rarity, sprite: adminViewBasSpriteEl, name: adminViewBasNameEl, rarityEl: adminViewBasRarityEl, points: adminViewBasPointsEl, effect: adminViewBasEffectEl, data: bas }
+  ];
+  cards.forEach(c => {
+    c.sprite.src = c.data.sprite;
+    c.name.textContent = c.data.name.toUpperCase();
+    c.rarityEl.textContent = RARITY_LABELS[c.data.rarity] || '';
+    c.rarityEl.dataset.rarity = c.data.rarity;
+    c.points.textContent = `${c.data.finalPoints} PTS (base ${c.data.basePoints})`;
+    c.effect.textContent = `${c.data.effectName} ×${c.data.multiplier}`;
+  });
 }
 
 // Bouton "cible" (sprite + nom) pour choisir un Pokémon de l'équipe. Réutilisé par
@@ -951,6 +1051,7 @@ function resetGameUI() {
   lastTeamSize = 0;
   lastRenderedTurn = 0;
   myScoreValueEl.textContent = '0';
+  myScoreLabelEl.textContent = 'Ton score';
   myScorePopupEl.textContent = '';
   myScorePopupEl.classList.remove('my-score-popup--play', 'my-score-popup--negative');
 }
@@ -964,11 +1065,13 @@ function applyGameState({ status, turn, maxTurns, route, players }) {
   updateSkipButton(players);
   renderPlayers(gamePlayersListEl, players);
 
-  const me = players.find(p => p.id === myId);
-  if (me) {
-    renderTeam(me.team);
-    myScoreValueEl.textContent = me.score;
-    if (me.hasChosen) {
+  // Mode ADMIN VS JOUEUR : l'ADMIN n'a ni score ni équipe (cf. spec section 3) — le
+  // panneau "score" affiche celui du JOUEUR observé, jamais le sien (toujours à 0).
+  const observed = isAdminNow() ? players.find(p => p.id !== currentAdminId) : players.find(p => p.id === myId);
+  if (observed) {
+    renderTeam(observed.team);
+    myScoreValueEl.textContent = observed.score;
+    if (!isAdminNow() && observed.hasChosen) {
       setChoiceButtonsEnabled(false);
       turnStatusEl.textContent = 'En attente des autres joueurs...';
     }
@@ -1022,6 +1125,15 @@ difficultyButtons.forEach(btn => {
   btn.addEventListener('click', () => {
     if (!isHost()) return;
     socket.emit('set_difficulty', { difficulty: btn.dataset.difficulty });
+  });
+});
+
+// Même principe pour le mode de jeu. Les boutons du picker ADMIN, eux, sont créés
+// dynamiquement dans renderAdminRoleOptions() (leur nombre dépend des joueurs présents).
+gamemodeButtons.forEach(btn => {
+  btn.addEventListener('click', () => {
+    if (!isHost()) return;
+    socket.emit('set_game_mode', { mode: btn.dataset.mode });
   });
 });
 
@@ -1113,34 +1225,40 @@ socket.on('connect', () => {
   myId = socket.id;
 });
 
-socket.on('game_created', ({ gameId, players, hostId: hId, difficulty }) => {
+socket.on('game_created', ({ gameId, players, hostId: hId, difficulty, gameMode, adminId }) => {
   resetGameUI();
   hostId = hId;
   gameCodeEl.textContent = gameId;
+  currentAdminId = adminId || null;
   renderLobbyPlayers(players);
   renderDifficulty(difficulty);
+  renderGameMode(gameMode);
   updateHostControls();
   showScreen(screenLobby);
 });
 
-socket.on('game_joined', ({ gameId, players, hostId: hId, difficulty }) => {
+socket.on('game_joined', ({ gameId, players, hostId: hId, difficulty, gameMode, adminId }) => {
   resetGameUI();
   hostId = hId;
   gameCodeEl.textContent = gameId;
+  currentAdminId = adminId || null;
   renderLobbyPlayers(players);
   renderDifficulty(difficulty);
+  renderGameMode(gameMode);
   updateHostControls();
   showScreen(screenLobby);
 });
 
-socket.on('game_replayed', ({ gameId, players, hostId: hId, difficulty }) => {
+socket.on('game_replayed', ({ gameId, players, hostId: hId, difficulty, gameMode, adminId }) => {
   resetGameUI();
   hostId = hId;
   gameCodeEl.textContent = gameId;
   copyFeedbackEl.textContent = '';
   copyFeedbackEl.classList.remove('copy-feedback--play');
+  currentAdminId = adminId || null;
   renderLobbyPlayers(players);
   renderDifficulty(difficulty);
+  renderGameMode(gameMode);
   updateHostControls();
   showScreen(screenLobby);
 });
@@ -1151,6 +1269,19 @@ socket.on('difficulty_updated', ({ difficulty }) => {
   renderDifficulty(difficulty);
 });
 
+// Idem pour le mode de jeu : changer de mode réinitialise toujours adminId côté serveur
+// (cf. set_game_mode), donc les deux se mettent à jour ensemble ici.
+socket.on('game_mode_updated', ({ gameMode, adminId }) => {
+  currentAdminId = adminId || null;
+  renderGameMode(gameMode);
+});
+
+// Le rôle ADMIN change (hôte uniquement) : les deux joueurs voient le nouveau choix en direct.
+socket.on('admin_role_updated', ({ adminId }) => {
+  currentAdminId = adminId || null;
+  renderAdminRoleOptions();
+});
+
 socket.on('players_updated', ({ players, hostId: hId }) => {
   hostId = hId;
   renderLobbyPlayers(players);
@@ -1158,8 +1289,11 @@ socket.on('players_updated', ({ players, hostId: hId }) => {
 });
 
 // ---------- Événements serveur : jeu ----------
-socket.on('game_started', ({ status, turn, maxTurns, route, boss, players }) => {
+socket.on('game_started', ({ status, turn, maxTurns, route, boss, players, gameMode, adminId }) => {
   resetGameUI(); // aucun résidu de l'ancienne partie ; masque aussi le choix tour 4 par défaut
+  currentGameMode = gameMode || 'normal';
+  currentAdminId = adminId || null;
+  myScoreLabelEl.textContent = isAdminNow() ? 'Score du joueur' : 'Ton score';
   bossTarget = boss.requiredPoints;
   bossSpriteEl.src = boss.sprite;
   bossNameEl.textContent = boss.name.toUpperCase();
@@ -1176,6 +1310,29 @@ socket.on('turn_options', ({ haut, bas }) => {
   choiceBasNameEl.textContent = bas.name.toUpperCase();
   showTurnPhase('choice');
   resetTurnUI();
+});
+
+// Mode ADMIN VS JOUEUR — reçu UNIQUEMENT par le socket ADMIN. Contient les données
+// complètes des 2 options : jamais envoyé au JOUEUR (cf. player_turn_hidden ci-dessous).
+socket.on('admin_view_turn_options', (payload) => {
+  renderAdminViewOptions(payload);
+  showTurnPhase('admin-view');
+  turnStatusEl.textContent = "Tu es l'ADMIN — indique au JOUEUR ce que tu vois (ou mens-lui).";
+});
+
+// Mode ADMIN VS JOUEUR — reçu UNIQUEMENT par le socket JOUEUR. Ne contient aucune donnée
+// de Pokémon : le serveur ne l'envoie tout simplement pas (cf. assignAdminModeOptions),
+// donc rien à cacher ici côté client. On efface aussi explicitement les champs sprite/nom
+// des cartes de choix : sinon un ancien Pokémon d'une partie précédente (mode normal ou
+// manche précédente) pourrait rester visible dès que le panneau se réaffiche.
+socket.on('player_turn_hidden', () => {
+  choiceHautSpriteEl.src = '';
+  choiceHautNameEl.textContent = '???';
+  choiceBasSpriteEl.src = '';
+  choiceBasNameEl.textContent = '???';
+  showTurnPhase('choice');
+  resetTurnUI();
+  turnStatusEl.textContent = "Écoute les indications de l'ADMIN.";
 });
 
 // Tour 4 uniquement : "CHOISIS TON AVANTAGE" (POKÉMON ou BONUS).

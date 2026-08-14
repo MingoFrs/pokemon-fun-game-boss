@@ -400,6 +400,91 @@ input:focus {
   box-shadow: 0 0 10px rgba(255, 213, 74, 0.35);
 }
 
+/* ---------- Mode de jeu (lobby) ---------- */
+
+.gamemode-panel {
+  margin-bottom: 20px;
+}
+
+.gamemode-options {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+
+.gamemode-btn {
+  background: var(--bg-panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 4px;
+  font-family: var(--font-display);
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+.gamemode-btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+}
+
+.gamemode-btn:disabled {
+  cursor: default;
+}
+
+.gamemode-btn--selected {
+  color: var(--accent-haut);
+  border-color: var(--accent-haut);
+  box-shadow: 0 0 0 2px rgba(245, 166, 35, 0.2);
+}
+
+/* ---------- Rôle ADMIN (lobby, mode "admin" uniquement) ---------- */
+
+.admin-role-panel {
+  margin-bottom: 20px;
+}
+
+.admin-role-options {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+
+.admin-role-btn {
+  background: var(--bg-panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 4px;
+  font-family: var(--font-display);
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+.admin-role-btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+}
+
+.admin-role-btn:disabled {
+  cursor: default;
+}
+
+.admin-role-btn--selected {
+  color: var(--rarity-pseudo);
+  border-color: var(--rarity-pseudo);
+  box-shadow: 0 0 0 2px rgba(242, 87, 140, 0.2);
+}
+
+.admin-role-status {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 12px;
+  margin-top: 8px;
+}
+
 /* ---------- Boutons additionnels ---------- */
 
 .btn--block {
@@ -768,6 +853,98 @@ input:focus {
 
 .choice-card--haut .choice-card__label { color: var(--accent-haut); }
 .choice-card--bas .choice-card__label { color: var(--accent-bas); }
+
+/* ---------- Mode ADMIN VS JOUEUR : écran d'observation de l'ADMIN ---------- */
+
+.admin-view-hint {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+  margin: 0 0 10px;
+}
+
+.admin-view-target {
+  text-align: center;
+  font-family: var(--font-display);
+  font-size: 13px;
+  color: var(--text-primary);
+  margin: 0 0 14px;
+}
+
+.admin-view-cards {
+  display: flex;
+  gap: 12px;
+}
+
+.admin-view-card {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  background: var(--bg-panel-alt);
+  border: 2px solid var(--border);
+  border-radius: 12px;
+  padding: 16px 10px;
+  font-family: var(--font-body);
+  color: var(--text-primary);
+}
+
+.admin-view-card--haut { border-color: var(--accent-haut-dim); }
+.admin-view-card--bas { border-color: var(--accent-bas); }
+
+.admin-view-card__label {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+.admin-view-card--haut .admin-view-card__label { color: var(--accent-haut); }
+.admin-view-card--bas .admin-view-card__label { color: var(--accent-bas); }
+
+.admin-view-card__sprite {
+  width: 72px;
+  height: 72px;
+  object-fit: contain;
+}
+
+.admin-view-card__name {
+  font-family: var(--font-display);
+  font-size: 14px;
+  letter-spacing: 0.02em;
+  margin: 0;
+}
+
+.admin-view-card__rarity {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  margin: 0;
+  color: var(--text-muted);
+}
+
+.admin-view-card--haut .admin-view-card__rarity[data-rarity="peu_commun"],
+.admin-view-card--bas .admin-view-card__rarity[data-rarity="peu_commun"] { color: var(--rarity-peu-commun); }
+.admin-view-card__rarity[data-rarity="rare"] { color: var(--rarity-rare); }
+.admin-view-card__rarity[data-rarity="epique"] { color: var(--rarity-epique); }
+.admin-view-card__rarity[data-rarity="pseudo_legendaire"] { color: var(--rarity-pseudo); }
+.admin-view-card__rarity[data-rarity="legendaire"] { color: var(--rarity-legendaire); }
+
+.admin-view-card__points {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 700;
+  margin: 0;
+}
+
+.admin-view-card__effect {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 0;
+}
 
 /* ---------- Résultat ---------- */
 

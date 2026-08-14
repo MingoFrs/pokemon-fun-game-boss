@@ -90,6 +90,20 @@
       </div>
     </div>
 
+    <div class="gamemode-panel">
+      <p class="eyebrow">Mode de jeu</p>
+      <div id="gamemode-options" class="gamemode-options">
+        <button type="button" class="gamemode-btn" data-mode="normal">Mode normal</button>
+        <button type="button" class="gamemode-btn" data-mode="admin">Admin vs Joueur</button>
+      </div>
+    </div>
+
+    <div id="admin-role-panel" class="admin-role-panel screen--hidden">
+      <p class="eyebrow">Choisir l'ADMIN</p>
+      <div id="admin-role-options" class="admin-role-options"></div>
+      <p id="admin-role-status" class="admin-role-status"></p>
+    </div>
+
     <button id="btn-start" class="btn btn--haut btn--block screen--hidden">Démarrer la partie</button>
     <p class="lobby-status" id="lobby-status">En attente d'autres dresseurs...</p>
   </section>
@@ -102,7 +116,7 @@
       <h2 id="boss-name" class="boss-name">ARCEUS</h2>
       <p class="boss-target">Objectif : <span id="boss-target-value">2500</span> PTS</p>
       <div class="my-score-row">
-        <span class="my-score-label">Ton score</span>
+        <span id="my-score-label" class="my-score-label">Ton score</span>
         <span class="my-score-value-wrap">
           <span id="my-score-value" class="my-score-value">0</span>
           <span id="my-score-popup" class="my-score-popup"></span>
@@ -130,6 +144,34 @@
           <p id="choice-bas-name" class="choice-card__name">???</p>
           <span class="choice-card__label">🔽 BAS</span>
         </button>
+      </div>
+
+      <!-- Mode ADMIN VS JOUEUR, écran de l'ADMIN : lecture seule, aucun bouton de choix.
+           Remplace #choice-cards (masqué) pour ce rôle. -->
+      <div id="admin-view-panel" class="admin-view-panel screen--hidden">
+        <p class="admin-view-hint">Tu es l'ADMIN — indique au JOUEUR ce que tu vois (ou mens-lui).</p>
+        <p class="admin-view-target">
+          Joueur observé : <span id="admin-view-player-name">—</span> ·
+          <span id="admin-view-player-score">0</span> PTS
+        </p>
+        <div class="admin-view-cards">
+          <div class="admin-view-card admin-view-card--haut">
+            <span class="admin-view-card__label">🔼 HAUT</span>
+            <img id="admin-view-haut-sprite" class="admin-view-card__sprite" src="" alt="">
+            <p id="admin-view-haut-name" class="admin-view-card__name">???</p>
+            <p id="admin-view-haut-rarity" class="admin-view-card__rarity"></p>
+            <p id="admin-view-haut-points" class="admin-view-card__points"></p>
+            <p id="admin-view-haut-effect" class="admin-view-card__effect"></p>
+          </div>
+          <div class="admin-view-card admin-view-card--bas">
+            <span class="admin-view-card__label">🔽 BAS</span>
+            <img id="admin-view-bas-sprite" class="admin-view-card__sprite" src="" alt="">
+            <p id="admin-view-bas-name" class="admin-view-card__name">???</p>
+            <p id="admin-view-bas-rarity" class="admin-view-card__rarity"></p>
+            <p id="admin-view-bas-points" class="admin-view-card__points"></p>
+            <p id="admin-view-bas-effect" class="admin-view-card__effect"></p>
+          </div>
+        </div>
       </div>
 
       <!-- Tour 4 uniquement : POKÉMON (chemin normal) ou BONUS (sacrifie le Pokémon du tour). -->

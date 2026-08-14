@@ -549,6 +549,70 @@ function pickPlayerTurnOptions(useCharm, pity, floorRarity, extraBoost) {
 }
 
 // -----------------------------------------------------------------
+// GAMEMODE "ADMIN VS JOUEUR" — génération des options de tour.
+//
+// Contrairement au mode normal, chaque option est tirée INDÉPENDAMMENT dans une table
+// de raretés dédiée (ADMIN_MODE_RARITY_TABLE), volontairement inclinée vers les raretés
+// fortes, mais SANS jamais empêcher deux Pokémon faibles — ou deux légendaires — de se
+// retrouver face à face : c'est le principe même du mode (écarts de puissance imprévisibles,
+// cf. spec section 7-10). Pas de pity, pas de plancher, pas de Charme Chroma ici : ce mode
+// est volontairement chaotique, pas équilibré sur la durée comme le mode normal.
+// -----------------------------------------------------------------
+const ADMIN_MODE_RARITY_TABLE = [
+  { rarity: 'commun', weight: 0.16 },
+  { rarity: 'peu_commun', weight: 0.16 },
+  { rarity: 'rare', weight: 0.20 },
+  { rarity: 'epique', weight: 0.20 },
+  { rarity: 'pseudo_legendaire', weight: 0.16 },
+  { rarity: 'legendaire', weight: 0.12 }
+];
+
+function pickAdminModeRarity() {
+  const roll = Math.random();
+  let cumulative = 0;
+  for (const entry of ADMIN_MODE_RARITY_TABLE) {
+    cumulative += entry.weight;
+    if (roll < cumulative) return entry.rarity;
+  }
+  return ADMIN_MODE_RARITY_TABLE[ADMIN_MODE_RARITY_TABLE.length - 1].rarity; // filet de sécurité (arrondis flottants)
+}
+
+function buildAdminModeOption() {
+  const rarity = pickAdminModeRarity();
+  const pokemon = randomFrom(POKEMON_POOLS[rarity]);
+  const effect = pickEffect();
+  const finalPoints = Math.round(pokemon.points * effect.multiplier);
+
+  return {
+    pokemonId: pokemon.id,
+    name: pokemon.name,
+    sprite: pokemon.sprite,
+    rarity: pokemon.rarity,
+    basePoints: pokemon.points,
+    effectName: effect.name,
+    multiplier: effect.multiplier,
+    finalPoints
+  };
+}
+
+// Génère les 2 options HAUT/BAS d'une manche en mode ADMIN VS JOUEUR. Tirage totalement
+// indépendant pour chaque option (AUCUNE règle "1 seul légendaire max" — cf. spec section
+// 10) ; seule contrainte conservée, comme en mode normal : ne jamais proposer deux fois
+// le même Pokémon.
+function pickAdminModeOptions() {
+  const haut = buildAdminModeOption();
+  let bas = buildAdminModeOption();
+
+  let guard = 0;
+  while (bas.pokemonId === haut.pokemonId && guard < 10) {
+    bas = buildAdminModeOption();
+    guard += 1;
+  }
+
+  return { haut, bas };
+}
+
+// -----------------------------------------------------------------
 // ÉVÉNEMENTS RARES
 //
 // Tirés côté serveur UNIQUEMENT, individuellement pour CHAQUE joueur, juste après
@@ -1317,6 +1381,9 @@ function buildRoute() {
 //         tiré aléatoirement dans BOSSES au moment du start_game (identique pour tous les joueurs),
 //   route,
 //   turnTimer: setTimeout id | null (pause de révélation entre 2 tours),
+//   gameMode: "normal" | "admin" (cf. GAME_MODES), choisi dans le lobby, "normal" par défaut,
+//   adminId: id du joueur ADMIN si gameMode === "admin", sinon null (choisi par l'hôte,
+//            valide uniquement à exactement 2 joueurs — cf. set_admin_role),
 //   players: [player]
 // }
 // player = {
@@ -1328,6 +1395,16 @@ function buildRoute() {
 // }
 // ---------------------------------------------------------------
 const games = {};
+
+// -----------------------------------------------------------------
+// GAMEMODE "ADMIN VS JOUEUR" — cf. set_game_mode / set_admin_role.
+// "normal" = comportement actuel, inchangé. "admin" = à exactement 2 joueurs, l'un
+// devient ADMIN (voit tout, ne joue jamais), l'autre JOUEUR (joue normalement, ne voit
+// rien de caché). Le champ gameMode est posé ici ; la logique de tour spécifique au
+// mode admin sera ajoutée aux étapes suivantes (génération des options, diffusion
+// différenciée admin/joueur, interfaces dédiées).
+// -----------------------------------------------------------------
+const GAME_MODES = ['normal', 'admin'];
 
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // sans 0/O/1/I
 
@@ -1403,10 +1480,48 @@ function assignTurnOptions(game) {
   });
 }
 
+// Équivalent de assignTurnOptions() pour le mode ADMIN VS JOUEUR : un seul tirage par
+// manche (pickAdminModeOptions), stocké sur le JOUEUR (réutilise le champ currentOptions,
+// donc player_choice n'a besoin de presque aucune adaptation). Deux payloads DIFFÉRENTS
+// envoyés séparément : jamais la même donnée cachée avec un simple flag côté client (cf.
+// spec section 5/17) — le serveur ne fait tout simplement pas transiter l'info secrète
+// vers la socket du JOUEUR.
+//
+// admin.currentChoice est mis à une sentinelle ('OBSERVE', jamais une valeur HAUT/BAS
+// valide) dès la génération de la manche : l'ADMIN ne joue jamais, mais allReady
+// (cf. maybeScheduleTurnTransition) attend currentChoice !== null pour TOUS les joueurs
+// présents. Sans cette sentinelle, la manche ne pourrait jamais avancer.
+function assignAdminModeOptions(game) {
+  const joueur = game.players.find(p => p.id !== game.adminId);
+  const admin = game.players.find(p => p.id === game.adminId);
+  if (!joueur || !admin) return; // état invalide : ne devrait pas arriver (validé par start_game)
+
+  joueur.currentOptions = pickAdminModeOptions();
+  admin.currentChoice = 'OBSERVE';
+
+  io.to(admin.id).emit('admin_view_turn_options', {
+    turn: game.turn,
+    playerName: joueur.name,
+    playerScore: joueur.score,
+    haut: { ...joueur.currentOptions.haut },
+    bas: { ...joueur.currentOptions.bas }
+  });
+
+  io.to(joueur.id).emit('player_turn_hidden', { turn: game.turn });
+}
+
 // Démarre un tour pour tous les joueurs. Au tour 4, phase spéciale : on ne révèle
 // rien tout de suite, chaque joueur doit d'abord choisir POKÉMON ou BONUS
 // (cf. socket.on('special_choice')). Tous les autres tours : flux normal inchangé.
+//
+// Mode ADMIN VS JOUEUR : décision de gameplay volontaire — pas de tour 4 spécial
+// (Bonbon XP / Objet Mystère) dans ce mode. Les 6 tours y sont tous des manches
+// identiques (assignAdminModeOptions), y compris le tour 4.
 function startTurnForPlayers(game) {
+  if (game.gameMode === 'admin') {
+    assignAdminModeOptions(game);
+    return;
+  }
   if (game.turn === 4) {
     game.players.forEach(p => {
       io.to(p.id).emit('advantage_options', {});
@@ -1498,9 +1613,16 @@ function maybeScheduleTurnTransition(game) {
 // jamais pour les autres. Le tirage doit précéder la vérification de transition : un
 // événement fraîchement déclenché doit pouvoir bloquer le passage au tour suivant tant
 // qu'il n'est pas résolu (cf. hasBlockingEvent) — sauf DUEL, jamais bloquant.
+//
+// Mode ADMIN VS JOUEUR : les événements rares sont désactivés pour l'instant (cf. spec
+// section 18). Les événements à deux joueurs (DUEL/MIRROR/CROSSED_FATES) chercheraient
+// un "adversaire" via pickEventOpponent — en mode admin, le seul autre joueur présent
+// est l'ADMIN, qui n'a ni score ni équipe : les activer sans adaptation lui attribuerait
+// à tort des points/Pokémon. À réintroduire, événement par événement, une fois vérifiés
+// compatibles avec ce mode.
 function finalizePlayerTurn(game, player) {
   broadcastGameUpdated(game);
-  if (player) {
+  if (player && game.gameMode !== 'admin') {
     applyCrossedFatesLink(game, player);
     maybeTriggerEvent(game, player);
   }
@@ -1545,6 +1667,12 @@ function leaveCurrentGame(socket) {
   }
 
   if (game.status === 'waiting') {
+    // L'ADMIN choisi qui quitte le lobby n'a plus de sens : l'hôte doit re-choisir
+    // (cf. set_admin_role, qui revalide de toute façon qu'il reste 2 joueurs).
+    if (game.adminId === socket.id) {
+      game.adminId = null;
+      io.to(gameId).emit('admin_role_updated', { adminId: null });
+    }
     broadcastPlayers(game);
     return;
   }
@@ -1576,6 +1704,8 @@ io.on('connection', (socket) => {
       hostId: socket.id,
       boss: null, // choisi aléatoirement au démarrage (start_game), identique pour tous les joueurs
       selectedDifficulty: 'medium', // choisi par l'hôte dans le lobby ; défaut = MOYEN
+      gameMode: 'normal', // 'normal' | 'admin' — choisi par l'hôte dans le lobby, cf. set_game_mode
+      adminId: null, // id du joueur ADMIN si gameMode === 'admin', cf. set_admin_role
       route: buildRoute(),
       turnTimer: null,
       players: [makePlayer(socket.id, trimmed)]
@@ -1588,7 +1718,9 @@ io.on('connection', (socket) => {
       gameId,
       players: getPublicPlayers(games[gameId]),
       hostId: games[gameId].hostId,
-      difficulty: games[gameId].selectedDifficulty
+      difficulty: games[gameId].selectedDifficulty,
+      gameMode: games[gameId].gameMode,
+      adminId: games[gameId].adminId
     });
   });
 
@@ -1618,7 +1750,9 @@ io.on('connection', (socket) => {
         gameId: id,
         players: getPublicPlayers(game),
         hostId: game.hostId,
-        difficulty: game.selectedDifficulty
+        difficulty: game.selectedDifficulty,
+        gameMode: game.gameMode,
+        adminId: game.adminId
       });
       return;
     }
@@ -1635,7 +1769,9 @@ io.on('connection', (socket) => {
       gameId: id,
       players: getPublicPlayers(game),
       hostId: game.hostId,
-      difficulty: game.selectedDifficulty
+      difficulty: game.selectedDifficulty,
+      gameMode: game.gameMode,
+      adminId: game.adminId
     });
 
     broadcastPlayers(game);
@@ -1660,6 +1796,16 @@ io.on('connection', (socket) => {
     if (game.status !== 'waiting') {
       socket.emit('error_message', 'Partie déjà démarrée.');
       return;
+    }
+    if (game.gameMode === 'admin') {
+      if (game.players.length !== 2) {
+        socket.emit('error_message', 'Le mode ADMIN VS JOUEUR nécessite exactement 2 joueurs.');
+        return;
+      }
+      if (!game.adminId || !game.players.some(p => p.id === game.adminId)) {
+        socket.emit('error_message', "Choisis l'ADMIN avant de démarrer.");
+        return;
+      }
     }
 
     game.status = 'playing';
@@ -1690,6 +1836,8 @@ io.on('connection', (socket) => {
       route: game.route,
       boss: game.boss,
       difficulty: game.selectedDifficulty,
+      gameMode: game.gameMode,
+      adminId: game.adminId,
       players: getPublicPlayers(game)
     });
 
@@ -1722,6 +1870,10 @@ io.on('connection', (socket) => {
     // un joueur resté dans oldGame.players sans socket actif deviendrait un "fantôme"
     // qui ne rejoint jamais le nouveau salon mais y bloquerait "allReady" pour toujours.
     const connectedOldPlayers = oldGame.players.filter(p => io.sockets.sockets.has(p.id));
+    // gameMode conservé tel quel (l'hôte peut le changer avant de relancer). adminId
+    // conservé UNIQUEMENT s'il désigne toujours un joueur présent dans la nouvelle
+    // partie ; sinon l'hôte doit re-choisir (cf. set_admin_role).
+    const carriedAdminId = connectedOldPlayers.some(p => p.id === oldGame.adminId) ? oldGame.adminId : null;
     const newGame = {
       id: newGameId,
       status: 'waiting',
@@ -1730,6 +1882,8 @@ io.on('connection', (socket) => {
       hostId: oldGame.hostId,
       boss: null,
       selectedDifficulty: oldGame.selectedDifficulty || 'medium', // conservée, modifiable avant le lancement
+      gameMode: oldGame.gameMode || 'normal',
+      adminId: carriedAdminId,
       route: buildRoute(),
       turnTimer: null,
       players: connectedOldPlayers.map(p => makePlayer(p.id, p.name)) // pity remis à 0 (cf. makePlayer)
@@ -1753,7 +1907,9 @@ io.on('connection', (socket) => {
       gameId: newGameId,
       players: getPublicPlayers(newGame),
       hostId: newGame.hostId,
-      difficulty: newGame.selectedDifficulty
+      difficulty: newGame.selectedDifficulty,
+      gameMode: newGame.gameMode,
+      adminId: newGame.adminId
     });
   });
 
@@ -1785,6 +1941,73 @@ io.on('connection', (socket) => {
     io.to(gameId).emit('difficulty_updated', { difficulty: game.selectedDifficulty });
   });
 
+  // Choix du mode de jeu dans le lobby. Réservé à l'hôte, uniquement avant le lancement.
+  // Changer de mode réinitialise systématiquement adminId : un ADMIN choisi pour une
+  // configuration précédente n'a plus de sens après un changement de mode (l'hôte doit
+  // re-choisir via set_admin_role).
+  socket.on('set_game_mode', ({ mode } = {}) => {
+    const gameId = socket.data.gameId;
+    const game = games[gameId];
+
+    if (!game) {
+      socket.emit('error_message', 'Partie introuvable.');
+      return;
+    }
+    if (game.hostId !== socket.id) {
+      socket.emit('error_message', "Seul l'hôte peut choisir le mode de jeu.");
+      return;
+    }
+    if (game.status !== 'waiting') {
+      socket.emit('error_message', 'Le mode de jeu ne peut plus être modifié.');
+      return;
+    }
+    if (!GAME_MODES.includes(mode)) {
+      socket.emit('error_message', 'Mode de jeu invalide.');
+      return;
+    }
+
+    game.gameMode = mode;
+    game.adminId = null;
+    io.to(gameId).emit('game_mode_updated', { gameMode: game.gameMode, adminId: game.adminId });
+  });
+
+  // Choix du joueur ADMIN dans le lobby (mode "admin" uniquement). Réservé à l'hôte,
+  // uniquement avant le lancement, uniquement à exactement 2 joueurs. Le serveur revalide
+  // que l'id proposé désigne bien un joueur réellement présent dans la partie — jamais un
+  // id arbitraire envoyé par le client.
+  socket.on('set_admin_role', ({ adminId } = {}) => {
+    const gameId = socket.data.gameId;
+    const game = games[gameId];
+
+    if (!game) {
+      socket.emit('error_message', 'Partie introuvable.');
+      return;
+    }
+    if (game.hostId !== socket.id) {
+      socket.emit('error_message', "Seul l'hôte peut choisir l'ADMIN.");
+      return;
+    }
+    if (game.status !== 'waiting') {
+      socket.emit('error_message', "Le rôle ADMIN ne peut plus être modifié.");
+      return;
+    }
+    if (game.gameMode !== 'admin') {
+      socket.emit('error_message', "Le mode ADMIN VS JOUEUR n'est pas sélectionné.");
+      return;
+    }
+    if (game.players.length !== 2) {
+      socket.emit('error_message', 'Le mode ADMIN VS JOUEUR nécessite exactement 2 joueurs.');
+      return;
+    }
+    if (!game.players.some(p => p.id === adminId)) {
+      socket.emit('error_message', 'Joueur invalide.');
+      return;
+    }
+
+    game.adminId = adminId;
+    io.to(gameId).emit('admin_role_updated', { adminId: game.adminId });
+  });
+
   socket.on('player_choice', ({ choice } = {}) => {
     const gameId = socket.data.gameId;
     const game = games[gameId];
@@ -1807,6 +2030,10 @@ io.on('connection', (socket) => {
       socket.emit('error_message', 'Tu ne fais pas partie de cette partie.');
       return;
     }
+    if (game.gameMode === 'admin' && socket.id === game.adminId) {
+      socket.emit('error_message', "L'ADMIN ne joue pas : il observe uniquement.");
+      return;
+    }
     if (player.currentChoice !== null) {
       socket.emit('error_message', 'Choix déjà enregistré pour ce tour.');
       return;
@@ -1822,7 +2049,11 @@ io.on('connection', (socket) => {
 
     // Anti-RNG : bonne rareté -> réinitialise le compteur ; mauvaise -> l'incrémente.
     // Basé UNIQUEMENT sur la rareté effectivement obtenue (pas les 2 options générées).
-    player.pity = PITY_GOOD_RARITIES.includes(reward.rarity) ? 0 : (player.pity || 0) + 1;
+    // N'existe pas en mode ADMIN VS JOUEUR : ce mode est volontairement chaotique, sans
+    // mécanisme d'équité sur la durée (cf. pickAdminModeOptions).
+    if (game.gameMode !== 'admin') {
+      player.pity = PITY_GOOD_RARITIES.includes(reward.rarity) ? 0 : (player.pity || 0) + 1;
+    }
 
     player.score += reward.finalPoints;
     if (player.team.length < 6) {
