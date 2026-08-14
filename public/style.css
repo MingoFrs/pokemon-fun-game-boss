@@ -854,6 +854,15 @@ input:focus {
 .choice-card--haut .choice-card__label { color: var(--accent-haut); }
 .choice-card--bas .choice-card__label { color: var(--accent-bas); }
 
+.choice-card--shiny {
+  border-color: var(--rarity-legendaire);
+  box-shadow: 0 0 10px rgba(255, 213, 74, 0.35);
+}
+
+.choice-card--shiny .choice-card__sprite {
+  filter: drop-shadow(0 0 8px rgba(255, 213, 74, 0.6));
+}
+
 /* ---------- Mode ADMIN VS JOUEUR : écran d'observation de l'ADMIN ---------- */
 
 .admin-view-hint {
@@ -892,6 +901,15 @@ input:focus {
 
 .admin-view-card--haut { border-color: var(--accent-haut-dim); }
 .admin-view-card--bas { border-color: var(--accent-bas); }
+
+.admin-view-card--shiny {
+  border-color: var(--rarity-legendaire);
+  box-shadow: 0 0 12px rgba(255, 213, 74, 0.35);
+}
+
+.admin-view-card--shiny .admin-view-card__sprite {
+  filter: drop-shadow(0 0 10px rgba(255, 213, 74, 0.65));
+}
 
 .admin-view-card__label {
   font-family: var(--font-mono);
@@ -955,6 +973,15 @@ input:focus {
   border-radius: 12px;
   padding: 20px;
   margin-bottom: 16px;
+}
+
+.result-panel--shiny {
+  border-color: var(--rarity-legendaire);
+  box-shadow: 0 0 16px rgba(255, 213, 74, 0.35);
+}
+
+.result-panel--shiny .result-sprite {
+  filter: drop-shadow(0 0 12px rgba(255, 213, 74, 0.7));
 }
 
 .result-panel--hidden {

@@ -99,8 +99,10 @@ const finishedOutcomeEl = document.getElementById('finished-outcome');
 const finishedBossSpriteEl = document.getElementById('finished-boss-sprite');
 const finishedBossNameEl = document.getElementById('finished-boss-name');
 const finishedMyScoreEl = document.getElementById('finished-my-score');
+const finishedMyScoreLabelEl = document.getElementById('finished-my-score-label');
 const finishedTargetEl = document.getElementById('finished-target');
 const finishedMyTeamEl = document.getElementById('finished-my-team');
+const finishedMyTeamLabelEl = document.getElementById('finished-my-team-label');
 const finishedResultsEl = document.getElementById('finished-results');
 const btnReplay = document.getElementById('btn-replay');
 const finishedStatusEl = document.getElementById('finished-status');
@@ -133,6 +135,11 @@ const RARITY_LABELS = {
   pseudo_legendaire: 'Pseudo-légendaire',
   legendaire: 'Légendaire'
 };
+
+// Purement cosmétique (texte affiché) : la valeur qui compte réellement est calculée
+// côté serveur (cf. SHINY_POINTS_MULTIPLIER dans server.js — une seule source de vérité
+// pour le calcul, ce chiffre ici ne sert qu'à l'affichage).
+const SHINY_POINTS_MULTIPLIER = 1.5;
 
 // État de l'overlay événements rares. activeEventType = type actuellement affiché
 // (start ou result) ; eventQueue = résultats reçus pendant qu'un AUTRE événement est
@@ -429,12 +436,16 @@ function renderAdminViewOptions({ playerName, playerScore, haut, bas }) {
     { rarity: bas.rarity, sprite: adminViewBasSpriteEl, name: adminViewBasNameEl, rarityEl: adminViewBasRarityEl, points: adminViewBasPointsEl, effect: adminViewBasEffectEl, data: bas }
   ];
   cards.forEach(c => {
-    c.sprite.src = c.data.sprite;
-    c.name.textContent = c.data.name.toUpperCase();
+    c.sprite.src = pokemonSprite(c.data);
+    c.sprite.onerror = c.data.shiny ? () => { c.sprite.src = c.data.sprite; } : null;
+    c.name.textContent = c.data.shiny ? `✨ ${c.data.name.toUpperCase()}` : c.data.name.toUpperCase();
     c.rarityEl.textContent = RARITY_LABELS[c.data.rarity] || '';
     c.rarityEl.dataset.rarity = c.data.rarity;
     c.points.textContent = `${c.data.finalPoints} PTS (base ${c.data.basePoints})`;
-    c.effect.textContent = `${c.data.effectName} ×${c.data.multiplier}`;
+    c.effect.textContent = c.data.shiny
+      ? `${c.data.effectName} ×${c.data.multiplier} · Shiny ×${SHINY_POINTS_MULTIPLIER}`
+      : `${c.data.effectName} ×${c.data.multiplier}`;
+    c.sprite.closest('.admin-view-card').classList.toggle('admin-view-card--shiny', !!c.data.shiny);
   });
 }
 
@@ -1303,11 +1314,21 @@ socket.on('game_started', ({ status, turn, maxTurns, route, boss, players, gameM
 });
 
 // Options individuelles du joueur pour ce tour : sprite + nom visibles, points/effet cachés.
+// display remis à '' au cas où le panneau vient d'un tour caché (mode ADMIN VS JOUEUR,
+// cf. player_turn_hidden) — sinon le sprite resterait masqué même une fois repeuplé.
 socket.on('turn_options', ({ haut, bas }) => {
-  choiceHautSpriteEl.src = haut.sprite;
+  choiceHautSpriteEl.style.display = '';
+  choiceHautSpriteEl.src = pokemonSprite(haut);
+  choiceHautSpriteEl.onerror = haut.shiny ? () => { choiceHautSpriteEl.src = haut.sprite; } : null;
   choiceHautNameEl.textContent = haut.name.toUpperCase();
-  choiceBasSpriteEl.src = bas.sprite;
+  choiceCardsEl.querySelector('.choice-card--haut').classList.toggle('choice-card--shiny', !!haut.shiny);
+
+  choiceBasSpriteEl.style.display = '';
+  choiceBasSpriteEl.src = pokemonSprite(bas);
+  choiceBasSpriteEl.onerror = bas.shiny ? () => { choiceBasSpriteEl.src = bas.sprite; } : null;
   choiceBasNameEl.textContent = bas.name.toUpperCase();
+  choiceCardsEl.querySelector('.choice-card--bas').classList.toggle('choice-card--shiny', !!bas.shiny);
+
   showTurnPhase('choice');
   resetTurnUI();
 });
@@ -1322,14 +1343,21 @@ socket.on('admin_view_turn_options', (payload) => {
 
 // Mode ADMIN VS JOUEUR — reçu UNIQUEMENT par le socket JOUEUR. Ne contient aucune donnée
 // de Pokémon : le serveur ne l'envoie tout simplement pas (cf. assignAdminModeOptions),
-// donc rien à cacher ici côté client. On efface aussi explicitement les champs sprite/nom
-// des cartes de choix : sinon un ancien Pokémon d'une partie précédente (mode normal ou
-// manche précédente) pourrait rester visible dès que le panneau se réaffiche.
+// donc rien à cacher ici côté client. Le sprite est complètement MASQUÉ (display: none),
+// pas juste vidé (src="") : un <img> sans src affiche quand même un cadre/icône "image
+// cassée" dans la plupart des navigateurs — visuellement sale et jamais voulu ici, on ne
+// doit voir que "???".
 socket.on('player_turn_hidden', () => {
-  choiceHautSpriteEl.src = '';
+  choiceHautSpriteEl.style.display = 'none';
+  choiceHautSpriteEl.removeAttribute('src');
   choiceHautNameEl.textContent = '???';
-  choiceBasSpriteEl.src = '';
+  choiceCardsEl.querySelector('.choice-card--haut').classList.remove('choice-card--shiny');
+
+  choiceBasSpriteEl.style.display = 'none';
+  choiceBasSpriteEl.removeAttribute('src');
   choiceBasNameEl.textContent = '???';
+  choiceCardsEl.querySelector('.choice-card--bas').classList.remove('choice-card--shiny');
+
   showTurnPhase('choice');
   resetTurnUI();
   turnStatusEl.textContent = "Écoute les indications de l'ADMIN.";
@@ -1391,11 +1419,15 @@ socket.on('bonus_result', (data) => {
 
 socket.on('choice_result', ({ pokemon, rarity, basePoints, effect, pointsGained, score, team }) => {
   resultPanelEl.dataset.rarity = rarity || 'commun'; // rareté fournie par le serveur, jamais déterminée ici
+  resultPanelEl.classList.toggle('result-panel--shiny', !!pokemon.shiny);
   resultRarityEl.textContent = RARITY_LABELS[rarity] || '';
-  resultSpriteEl.src = pokemon.sprite;
-  resultNameEl.textContent = pokemon.name.toUpperCase();
+  resultSpriteEl.src = pokemonSprite(pokemon);
+  resultSpriteEl.onerror = pokemon.shiny ? () => { resultSpriteEl.src = pokemon.sprite; } : null;
+  resultNameEl.textContent = pokemon.shiny ? `✨ ${pokemon.name.toUpperCase()}` : pokemon.name.toUpperCase();
   resultBaseEl.textContent = basePoints;
-  resultEffectEl.textContent = `${effect.name} ×${effect.multiplier}`;
+  resultEffectEl.textContent = pokemon.shiny
+    ? `${effect.name} ×${effect.multiplier} · Shiny ×${SHINY_POINTS_MULTIPLIER}`
+    : `${effect.name} ×${effect.multiplier}`;
   resultEffectEl.classList.toggle('result-effect--bonus', effect.multiplier >= 1);
   resultEffectEl.classList.toggle('result-effect--malus', effect.multiplier < 1);
   resultPointsEl.textContent = pointsGained;
@@ -1457,10 +1489,20 @@ function ordinalFr(rank) {
   return rank === 1 ? '1er' : `${rank}e`;
 }
 
-socket.on('game_finished', ({ boss, difficulty, players }) => {
-  const me = players.find(p => p.id === myId);
+socket.on('game_finished', ({ boss, difficulty, gameMode, adminId, reason, players }) => {
+  // Le rôle a pu changer entre le dernier game_started reçu (aucun risque en pratique
+  // puisqu'il est verrouillé après start_game, mais on resynchronise par cohérence).
+  currentGameMode = gameMode || currentGameMode;
+  currentAdminId = adminId !== undefined ? adminId : currentAdminId;
 
-  finishedOutcomeEl.textContent = me && me.result === 'victory' ? 'VICTOIRE !' : 'DÉFAITE';
+  const me = players.find(p => p.id === myId);
+  // Mode ADMIN VS JOUEUR : l'ADMIN n'a ni score ni équipe propres — l'écran final lui
+  // montre ceux du JOUEUR observé (cf. spec section 20 : "l'ADMIN peut également voir
+  // le résumé [de l'équipe du JOUEUR]").
+  const observed = isAdminNow() ? players.find(p => p.id !== currentAdminId) : me;
+
+  const outcomeText = (me && me.result === 'victory' ? 'VICTOIRE !' : 'DÉFAITE') + (reason === 'forfeit' ? ' (forfait)' : '');
+  finishedOutcomeEl.textContent = outcomeText;
   finishedOutcomeEl.classList.toggle('finished-outcome--victory', !!me && me.result === 'victory');
   finishedOutcomeEl.classList.toggle('finished-outcome--defeat', !!me && me.result !== 'victory');
 
@@ -1471,9 +1513,11 @@ socket.on('game_finished', ({ boss, difficulty, players }) => {
     finishedDifficultyEl.classList.toggle(`finished-difficulty-badge--${d}`, d === difficulty);
   });
   finishedTargetEl.textContent = `${boss.requiredPoints} PTS`;
-  finishedMyScoreEl.textContent = `${me ? me.score : 0} PTS`;
+  finishedMyScoreLabelEl.textContent = isAdminNow() ? 'Score du joueur' : 'Ton score';
+  finishedMyTeamLabelEl.textContent = isAdminNow() ? 'Équipe du joueur' : 'Ton équipe';
+  finishedMyScoreEl.textContent = `${observed ? observed.score : 0} PTS`;
 
-  if (me) renderFinishedTeam(me.team);
+  if (observed) renderFinishedTeam(observed.team);
 
   finishedResultsEl.innerHTML = '';
 
@@ -1498,7 +1542,11 @@ socket.on('game_finished', ({ boss, difficulty, players }) => {
 
     const name = document.createElement('p');
     name.className = 'finished-card__name';
-    name.textContent = p.name;
+    // Mode ADMIN VS JOUEUR : précise le rôle à côté du pseudo (l'ADMIN a un score à 0,
+    // sinon incompréhensible dans le classement/badge).
+    name.textContent = currentGameMode === 'admin'
+      ? `${p.name} (${p.id === currentAdminId ? 'ADMIN' : 'JOUEUR'})`
+      : p.name;
 
     const score = document.createElement('p');
     score.className = 'finished-card__score';

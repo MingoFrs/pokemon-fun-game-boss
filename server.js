@@ -24,6 +24,21 @@ function shinySpriteUrl(dexId) {
 }
 
 // -----------------------------------------------------------------
+// SHINY — indépendant de la rareté et de l'effet/trait. 2% de chance qu'un Pokémon
+// nouvellement généré soit chromatique ; ses points sont alors multipliés par
+// SHINY_POINTS_MULTIPLIER en plus de son effet (cumulatif, jamais à la place). Constante
+// UNIQUE et partagée : utilisée à la fois au tirage (buildRewardOption/buildAdminModeOption)
+// et par l'événement rare POKÉMON SHINY (qui rend chromatique un Pokémon déjà en équipe) —
+// un seul chiffre à ajuster pour tout le jeu, jamais deux mécaniques qui divergent.
+// -----------------------------------------------------------------
+const SHINY_CHANCE = 0.02;
+const SHINY_POINTS_MULTIPLIER = 1.5;
+
+function rollShiny() {
+  return Math.random() < SHINY_CHANCE;
+}
+
+// -----------------------------------------------------------------
 // Pool de Pokémon organisé par rareté.
 // Chaque tour, le serveur tire d'abord une rareté (selon RARITY_TABLE),
 // puis un Pokémon au hasard dans cette rareté.
@@ -341,13 +356,13 @@ function pickRarity(useCharm, pity, floorRarity, extraBoost) {
 // ~75% Neutre (aucun modificateur perceptible), ~25% répartis entre les 8 vrais bonus/malus.
 const EFFECTS = [
   { name: 'Neutre', multiplier: 1.0, weight: 75 },
-  { name: 'Énergétique', multiplier: 1.2, weight: 3.125 },
-  { name: 'Chanceux', multiplier: 1.3, weight: 3.125 },
+  { name: 'Salzmann secret technique', multiplier: 1.2, weight: 3.125 },
+  { name: 'Beauty privilege', multiplier: 1.3, weight: 3.125 },
   { name: 'Motivé', multiplier: 1.1, weight: 3.125 },
-  { name: 'Concentré', multiplier: 1.15, weight: 3.125 },
-  { name: 'Fatigué', multiplier: 0.75, weight: 3.125 },
-  { name: 'Poids lourd', multiplier: 0.8, weight: 3.125 },
-  { name: 'Malchanceux', multiplier: 0.6, weight: 3.125 },
+  { name: 'Sous steroïde', multiplier: 1.15, weight: 3.125 },
+  { name: 'Sub-5', multiplier: 0.75, weight: 3.125 },
+  { name: 'Lagging', multiplier: 0.8, weight: 3.125 },
+  { name: 'Skill issues', multiplier: 0.6, weight: 3.125 },
   { name: 'Épine dans le pied', multiplier: 0.7, weight: 3.125 }
 ];
 
@@ -501,8 +516,10 @@ function assignEffect(mon, effect) {
 
 // Construit un Pokémon d'équipe prêt à être poussé dans player.team, à partir d'une
 // récompense tirée par buildRewardOption (ou d'un objet de même forme, ex. carte loterie).
+// shiny/shinySprite ne sont ajoutés QUE si la récompense est effectivement shiny : garde
+// les objets d'équipe non-shiny identiques à avant (mêmes clés qu'avant l'ajout du shiny).
 function teamMonFromReward(reward) {
-  return {
+  const mon = {
     id: reward.pokemonId,
     name: reward.name,
     sprite: reward.sprite,
@@ -511,16 +528,24 @@ function teamMonFromReward(reward) {
     effectName: reward.effectName,
     multiplier: reward.multiplier
   };
+  if (reward.shiny) {
+    mon.shiny = true;
+    mon.shinySprite = reward.shinySprite;
+  }
+  return mon;
 }
 
 // Construit une récompense secrète complète (rareté → Pokémon + effet + points calculés).
 // floorRarity est optionnel (LUCKY_TURN, TIME_RIFT) ; extraBoost aussi (CROSSED_FATES) :
-// undefined pour les deux = comportement inchangé.
+// undefined pour les deux = comportement inchangé. shiny est tiré ici, indépendamment de
+// la rareté/l'effet (cf. SHINY_CHANCE) : s'applique donc à TOUT ce qui appelle cette
+// fonction (tirage normal, DOUBLE_ENCOUNTER, MIRROR, TIME_RIFT, LOTTERY).
 function buildRewardOption(useCharm, pity, floorRarity, extraBoost) {
   const rarity = pickRarity(useCharm, pity, floorRarity, extraBoost);
   const pokemon = randomFrom(POKEMON_POOLS[rarity]);
   const effect = pickEffect();
-  const finalPoints = Math.round(pokemon.points * effect.multiplier);
+  const shiny = rollShiny();
+  const finalPoints = Math.round(pokemon.points * effect.multiplier * (shiny ? SHINY_POINTS_MULTIPLIER : 1));
 
   return {
     pokemonId: pokemon.id,
@@ -530,6 +555,8 @@ function buildRewardOption(useCharm, pity, floorRarity, extraBoost) {
     basePoints: pokemon.points,
     effectName: effect.name,
     multiplier: effect.multiplier,
+    shiny,
+    shinySprite: shiny ? shinySpriteUrl(pokemon.id) : null,
     finalPoints
   };
 }
@@ -581,7 +608,8 @@ function buildAdminModeOption() {
   const rarity = pickAdminModeRarity();
   const pokemon = randomFrom(POKEMON_POOLS[rarity]);
   const effect = pickEffect();
-  const finalPoints = Math.round(pokemon.points * effect.multiplier);
+  const shiny = rollShiny();
+  const finalPoints = Math.round(pokemon.points * effect.multiplier * (shiny ? SHINY_POINTS_MULTIPLIER : 1));
 
   return {
     pokemonId: pokemon.id,
@@ -591,6 +619,8 @@ function buildAdminModeOption() {
     basePoints: pokemon.points,
     effectName: effect.name,
     multiplier: effect.multiplier,
+    shiny,
+    shinySprite: shiny ? shinySpriteUrl(pokemon.id) : null,
     finalPoints
   };
 }
@@ -680,7 +710,12 @@ const EVENT_DEFINITIONS = [
     probability: 0.02,
     scope: 'solo',
     implemented: true,
-    condition: (game, player) => player.team.length > 0
+    // Un Pokémon déjà chromatique (tiré directement shiny, cf. SHINY_CHANCE) ne peut pas
+    // "redevenir" shiny une seconde fois : évite un cumul ×1.5 doublé, narrativement absurde.
+    condition: (game, player) => {
+      const mon = player.team[player.team.length - 1];
+      return !!mon && !mon.shiny;
+    }
   },
   {
     id: EVENT_TYPES.DUEL,
@@ -984,10 +1019,9 @@ function resolveInstantEvolution(game, player, action) {
 }
 
 // ---- POKÉMON SHINY : aucun choix, aucun nouveau Pokémon — juste un état ajouté sur celui
-// obtenu ce tour, plus un léger bonus de points (jamais un multiplicateur qui casse
-// l'équilibrage). Instantané : pas d'activeEvent, résolu et annoncé en un seul emit. ----
-const SHINY_BONUS_MULTIPLIER = 1.15; // bonus volontairement léger
-
+// obtenu ce tour, plus un bonus de points (SHINY_POINTS_MULTIPLIER, même constante que le
+// tirage direct — cf. plus haut). Instantané : pas d'activeEvent, résolu et annoncé en un
+// seul emit. ----
 function startShinyPokemon(game, player) {
   const mon = player.team[player.team.length - 1];
   if (!mon) return null;
@@ -995,7 +1029,7 @@ function startShinyPokemon(game, player) {
   const scoreDelta = applyMonMutation(player, mon, m => {
     m.shiny = true;
     m.shinySprite = shinySpriteUrl(m.id);
-    m.multiplier = m.multiplier * SHINY_BONUS_MULTIPLIER;
+    m.multiplier = m.multiplier * SHINY_POINTS_MULTIPLIER;
   });
 
   broadcastGameUpdated(game); // score/équipe changés hors du flux de tour déjà diffusé par finalizePlayerTurn
@@ -1474,8 +1508,8 @@ function assignTurnOptions(game) {
     p.rarityFloor = null; // effet LUCKY_TURN consommé, à usage unique
     p.rarityBoost = null; // effet CROSSED_FATES consommé, à usage unique
     io.to(p.id).emit('turn_options', {
-      haut: { name: p.currentOptions.haut.name, sprite: p.currentOptions.haut.sprite },
-      bas: { name: p.currentOptions.bas.name, sprite: p.currentOptions.bas.sprite }
+      haut: { name: p.currentOptions.haut.name, sprite: p.currentOptions.haut.sprite, shiny: p.currentOptions.haut.shiny, shinySprite: p.currentOptions.haut.shinySprite },
+      bas: { name: p.currentOptions.bas.name, sprite: p.currentOptions.bas.sprite, shiny: p.currentOptions.bas.shiny, shinySprite: p.currentOptions.bas.shinySprite }
     });
   });
 }
@@ -1557,17 +1591,32 @@ function finishGame(game) {
   game.status = 'finished';
   game.route[game.route.length - 1].status = 'done';
 
-  const results = game.players.map(p => ({
-    id: p.id,
-    name: p.name,
-    score: p.score,
-    team: p.team,
-    result: p.score >= game.boss.requiredPoints ? 'victory' : 'defeat'
-  }));
+  // Mode ADMIN VS JOUEUR : un seul résultat réel (celui du JOUEUR, seul à avoir un score).
+  // L'ADMIN n'a pas sa propre victoire/défaite : la sienne est l'INVERSE de celle du
+  // JOUEUR (cf. spec section 20 — JOUEUR gagne = ADMIN perd, et inversement). Sans ce
+  // cas particulier, l'ADMIN (score toujours à 0) serait toujours marqué "defeat", même
+  // quand le JOUEUR l'emporte.
+  const joueur = game.gameMode === 'admin' ? game.players.find(p => p.id !== game.adminId) : null;
+  const joueurWon = joueur ? joueur.score >= game.boss.requiredPoints : null;
+
+  const results = game.players.map(p => {
+    if (game.gameMode === 'admin' && p.id === game.adminId) {
+      return { id: p.id, name: p.name, score: p.score, team: p.team, result: joueurWon ? 'defeat' : 'victory' };
+    }
+    return {
+      id: p.id,
+      name: p.name,
+      score: p.score,
+      team: p.team,
+      result: p.score >= game.boss.requiredPoints ? 'victory' : 'defeat'
+    };
+  });
 
   io.to(game.id).emit('game_finished', {
     boss: game.boss,
     difficulty: game.selectedDifficulty,
+    gameMode: game.gameMode,
+    adminId: game.adminId,
     route: game.route,
     players: results
   });
@@ -1677,8 +1726,52 @@ function leaveCurrentGame(socket) {
     return;
   }
 
+  // Mode ADMIN VS JOUEUR : la manche est un tirage partagé (cf. assignAdminModeOptions) —
+  // si l'ADMIN ou le JOUEUR quitte en cours de partie, l'autre ne peut plus jamais recevoir
+  // de nouvelle manche (softlock silencieux). Victoire par forfait immédiate pour celui
+  // qui reste plutôt que de le laisser bloqué sans explication.
+  if (game.status === 'playing' && game.gameMode === 'admin') {
+    finishAdminModeByForfeit(game, leavingPlayer);
+    return;
+  }
+
   broadcastGameUpdated(game);
   maybeScheduleTurnTransition(game);
+}
+
+// Termine immédiatement une partie ADMIN VS JOUEUR quand l'un des deux quitte en cours
+// de jeu : victoire par forfait pour celui qui reste, défaite pour celui qui est parti —
+// peu importe le rôle de chacun (contrairement à finishGame(), qui inverse spécifiquement
+// le résultat de l'ADMIN par rapport au score du JOUEUR : ici il n'y a pas de "score
+// atteint", juste un abandon). leavingPlayer est capturé par leaveCurrentGame() AVANT
+// d'être retiré de game.players, sinon son score/équipe finaux seraient perdus.
+function finishAdminModeByForfeit(game, leavingPlayer) {
+  if (game.turnTimer) {
+    clearTimeout(game.turnTimer);
+    game.turnTimer = null;
+  }
+  game.status = 'finished';
+
+  const remaining = game.players[0]; // un seul joueur restant, cf. leaveCurrentGame()
+  const results = [leavingPlayer, remaining]
+    .filter(Boolean)
+    .map(p => ({
+      id: p.id,
+      name: p.name,
+      score: p.score,
+      team: p.team,
+      result: p.id === leavingPlayer.id ? 'defeat' : 'victory'
+    }));
+
+  io.to(game.id).emit('game_finished', {
+    boss: game.boss,
+    difficulty: game.selectedDifficulty,
+    gameMode: game.gameMode,
+    adminId: game.adminId,
+    reason: 'forfeit',
+    route: game.route,
+    players: results
+  });
 }
 
 io.on('connection', (socket) => {
@@ -2061,7 +2154,7 @@ io.on('connection', (socket) => {
     }
 
     socket.emit('choice_result', {
-      pokemon: { name: reward.name, sprite: reward.sprite },
+      pokemon: { name: reward.name, sprite: reward.sprite, shiny: reward.shiny, shinySprite: reward.shinySprite },
       rarity: reward.rarity,
       basePoints: reward.basePoints,
       effect: { name: reward.effectName, multiplier: reward.multiplier },
