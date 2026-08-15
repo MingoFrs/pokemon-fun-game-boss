@@ -1,5 +1,8 @@
 const socket = io();
 
+// Easter egg : dex id de Métamorph (cf. socket.on('transform_metamorph') côté serveur).
+const METAMORPH_DEX_ID = 132;
+
 // ---------- Éléments DOM : écrans ----------
 const screenHome = document.getElementById('screen-home');
 const screenLobby = document.getElementById('screen-lobby');
@@ -329,7 +332,9 @@ function pokemonSprite(mon) {
   return (mon && mon.shiny && mon.shinySprite) ? mon.shinySprite : (mon ? mon.sprite : '');
 }
 
-function renderTeam(team) {
+// interactive = true uniquement quand c'est réellement TA propre équipe (jamais celle
+// observée par l'ADMIN en mode ADMIN VS JOUEUR, qui reste strictement en lecture seule).
+function renderTeam(team, interactive) {
   teamSlotsEl.innerHTML = '';
   for (let i = 0; i < 6; i++) {
     const slot = document.createElement('div');
@@ -346,6 +351,14 @@ function renderTeam(team) {
       slot.appendChild(img);
       if (i === team.length - 1 && team.length > lastTeamSize) {
         slot.classList.add('team-slot--new');
+      }
+      // Easter egg : Métamorph cliquable -> se transforme en copiant le sprite d'un
+      // autre membre de l'équipe (cf. socket.on('metamorph_transformed') plus bas).
+      if (interactive && pokemon.id === METAMORPH_DEX_ID) {
+        slot.classList.add('team-slot--metamorph');
+        slot.addEventListener('click', () => {
+          socket.emit('transform_metamorph', { index: i });
+        });
       }
     }
     teamSlotsEl.appendChild(slot);
@@ -953,7 +966,7 @@ function renderEventResult(payload) {
 
   // Le score est géré par chaque renderXxxResult (le calcul du delta net diffère selon
   // le type, ex: skip = aucun changement). L'équipe, elle, suit toujours la même règle.
-  if (payload.team) renderTeam(payload.team);
+  if (payload.team) renderTeam(payload.team, true); // toujours ta propre équipe (résultat d'événement rare)
 }
 
 
@@ -1080,7 +1093,7 @@ function applyGameState({ status, turn, maxTurns, route, players }) {
   // panneau "score" affiche celui du JOUEUR observé, jamais le sien (toujours à 0).
   const observed = isAdminNow() ? players.find(p => p.id !== currentAdminId) : players.find(p => p.id === myId);
   if (observed) {
-    renderTeam(observed.team);
+    renderTeam(observed.team, !isAdminNow()); // ADMIN observe en lecture seule, jamais interactif
     myScoreValueEl.textContent = observed.score;
     if (!isAdminNow() && observed.hasChosen) {
       setChoiceButtonsEnabled(false);
@@ -1413,7 +1426,7 @@ socket.on('mystery_item_pending', ({ team }) => {
 socket.on('bonus_result', (data) => {
   showTurnPhase('none'); // tour 4 résolu : masque avantage/bonus/cible avant le tour 5
   showBonusResult(data);
-  if (data.team) renderTeam(data.team);
+  if (data.team) renderTeam(data.team, true); // toujours ta propre équipe (résultat de bonus tour 4)
   updateMyScore(data.score, data.scoreDelta);
 });
 
@@ -1433,7 +1446,7 @@ socket.on('choice_result', ({ pokemon, rarity, basePoints, effect, pointsGained,
   resultPointsEl.textContent = pointsGained;
   resultPanelEl.classList.remove('result-panel--hidden');
   playRevealAnimation();
-  renderTeam(team);
+  renderTeam(team, true); // toujours ta propre équipe (résultat de ton propre choix)
   updateMyScore(score, pointsGained);
 });
 
@@ -1488,6 +1501,13 @@ function renderFinishedTeam(team) {
 function ordinalFr(rank) {
   return rank === 1 ? '1er' : `${rank}e`;
 }
+
+// Easter egg Métamorph : mise à jour silencieuse (pas de gros panneau de révélation
+// comme choice_result — juste le score qui pulse et l'équipe qui se redessine).
+socket.on('metamorph_transformed', ({ score, scoreDelta, team }) => {
+  renderTeam(team, true);
+  updateMyScore(score, scoreDelta);
+});
 
 socket.on('game_finished', ({ boss, difficulty, gameMode, adminId, reason, players }) => {
   // Le rôle a pu changer entre le dernier game_started reçu (aucun risque en pratique

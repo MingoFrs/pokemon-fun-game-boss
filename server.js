@@ -39,6 +39,15 @@ function rollShiny() {
 }
 
 // -----------------------------------------------------------------
+// EASTER EGG — MÉTAMORPH (dex 132). Cliquer sur un Métamorph dans son équipe (cf.
+// socket.on('transform_metamorph')) le transforme : il copie le sprite d'un AUTRE
+// Pokémon au hasard dans la même équipe et prend 75% de sa valeur actuelle. Le nom
+// affiché reste TOUJOURS "Métamorph" (jamais réécrit, c'est tout le principe).
+// -----------------------------------------------------------------
+const METAMORPH_DEX_ID = 132;
+const METAMORPH_TRANSFORM_MULTIPLIER = 0.75;
+
+// -----------------------------------------------------------------
 // Pool de Pokémon organisé par rareté.
 // Chaque tour, le serveur tire d'abord une rareté (selon RARITY_TABLE),
 // puis un Pokémon au hasard dans cette rareté.
@@ -730,7 +739,12 @@ const EVENT_DEFINITIONS = [
     label: 'Miroir',
     probability: 0.02,
     scope: 'duo',
-    implemented: true,
+    // Désactivé sur demande (bugs récurrents en jeu réel : équipes à 7 Pokémon
+    // constatées malgré les gardes team.length<6 côté serveur — cause exacte non
+    // identifiée avec certitude, donc désactivé plutôt que "réparé au hasard").
+    // Le code est conservé tel quel (implemented: false) : ne se déclenche plus jamais,
+    // réactivable d'un mot en repassant à true une fois la cause trouvée.
+    implemented: false,
     // Les deux équipes doivent avoir de la place : sinon l'événement se déclencherait
     // pour ne rien donner à personne (cooldown consommé pour rien).
     condition: (game, player) => player.team.length < 6 && !!pickEventOpponent(game, player, p => p.team.length < 6)
@@ -2437,6 +2451,59 @@ io.on('connection', (socket) => {
     broadcastGameUpdated(game); // score/équipe changés hors du flux de tour normal -> resynchronise tout le monde
     socket.emit('rare_event_result', outcome.result);
     maybeScheduleTurnTransition(game); // l'événement bloquait peut-être la transition : à re-vérifier maintenant
+  });
+
+  // Easter egg : clique sur un Métamorph dans TON équipe -> il copie le sprite d'un
+  // autre Pokémon au hasard dans la même équipe et prend 75% de sa valeur actuelle.
+  // Rejouable à volonté (re-tire un nouveau membre à chaque clic) : jamais de croissance
+  // infinie, toujours borné par 0.75× la valeur d'un membre déjà présent dans l'équipe.
+  // Aucun lien avec le tour en cours : peut être cliqué à tout moment pendant la partie.
+  socket.on('transform_metamorph', ({ index } = {}) => {
+    const gameId = socket.data.gameId;
+    const game = games[gameId];
+
+    if (!game) {
+      socket.emit('error_message', 'Partie introuvable.');
+      return;
+    }
+    if (game.status !== 'playing') {
+      socket.emit('error_message', "La partie n'est pas en cours.");
+      return;
+    }
+    const player = game.players.find(p => p.id === socket.id);
+    if (!player) {
+      socket.emit('error_message', 'Tu ne fais pas partie de cette partie.');
+      return;
+    }
+
+    const mon = player.team[index];
+    if (!mon || mon.id !== METAMORPH_DEX_ID) {
+      socket.emit('error_message', "Ce n'est pas un Métamorph.");
+      return;
+    }
+
+    const candidates = player.team.filter((m, i) => i !== index);
+    if (candidates.length === 0) {
+      socket.emit('error_message', "Il faut un autre Pokémon dans l'équipe pour se transformer.");
+      return;
+    }
+
+    const target = randomFrom(candidates);
+    const targetContribution = monContribution(target);
+    const scoreDelta = applyMonMutation(player, mon, m => {
+      m.sprite = (target.shiny && target.shinySprite) ? target.shinySprite : target.sprite;
+      m.basePoints = targetContribution;
+      m.multiplier = METAMORPH_TRANSFORM_MULTIPLIER;
+      m.effectName = 'Transformé';
+      // m.name INTENTIONNELLEMENT jamais réécrit : reste "Métamorph" pour toujours.
+    });
+
+    socket.emit('metamorph_transformed', {
+      score: player.score,
+      scoreDelta,
+      team: player.team
+    });
+    broadcastGameUpdated(game); // score/équipe changés hors du flux de tour -> resynchronise les autres joueurs
   });
 
   // Solo uniquement : passe immédiatement la pause de révélation en cours. Le serveur

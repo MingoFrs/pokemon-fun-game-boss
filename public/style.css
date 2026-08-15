@@ -1213,6 +1213,21 @@ input:focus {
   position: relative;
 }
 
+/* Easter egg Métamorph : indice discret de cliquabilité (curseur + léger scale au survol),
+   sans rien révéler — l'effet lui-même n'est jamais indiqué à l'avance. */
+.team-slot--metamorph {
+  cursor: pointer;
+  transition: transform 0.15s ease;
+}
+
+.team-slot--metamorph:hover {
+  transform: scale(1.06);
+}
+
+.team-slot--metamorph:active {
+  transform: scale(0.96);
+}
+
 .team-slot--shiny::after {
   content: '✨';
   position: absolute;
