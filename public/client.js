@@ -72,6 +72,12 @@ const resultBaseEl = document.getElementById('result-base');
 const resultEffectEl = document.getElementById('result-effect');
 const resultPointsEl = document.getElementById('result-points');
 const teamSlotsEl = document.getElementById('team-slots');
+const metamorphResultPanelEl = document.getElementById('metamorph-result-panel');
+const metamorphResultTitleEl = document.getElementById('metamorph-result-title');
+const metamorphResultSpriteEl = document.getElementById('metamorph-result-sprite');
+const metamorphResultDetailEl = document.getElementById('metamorph-result-detail');
+const metamorphResultFinalEl = document.getElementById('metamorph-result-final');
+let metamorphResultTimer = null;
 const gamePlayersListEl = document.getElementById('game-players-list');
 const btnLeaveGame = document.getElementById('btn-leave-game');
 
@@ -354,9 +360,14 @@ function renderTeam(team, interactive) {
       }
       // Easter egg : Métamorph cliquable -> se transforme en copiant le sprite d'un
       // autre membre de l'équipe (cf. socket.on('metamorph_transformed') plus bas).
+      // Verrouillage anti-spam : un clic désactive IMMÉDIATEMENT ce slot (avant même la
+      // réponse du serveur) ; renderTeam() étant systématiquement rappelé après le
+      // résultat, un slot Métamorph frais (donc réactivé) est recréé naturellement.
       if (interactive && pokemon.id === METAMORPH_DEX_ID) {
         slot.classList.add('team-slot--metamorph');
         slot.addEventListener('click', () => {
+          if (slot.classList.contains('team-slot--metamorph-locked')) return;
+          slot.classList.add('team-slot--metamorph-locked');
           socket.emit('transform_metamorph', { index: i });
         });
       }
@@ -1040,6 +1051,8 @@ function resetGameUI() {
   resultPanelEl.removeAttribute('data-rarity');
   bonusResultPanelEl.classList.add('result-panel--hidden');
   bonusResultPanelEl.classList.remove('result-panel--animate');
+  metamorphResultPanelEl.classList.add('result-panel--hidden');
+  clearTimeout(metamorphResultTimer);
 
   // Phases du tour : rien de visible tant que le serveur n'en indique pas une
   // (choice/advantage/bonus-pick/bonus-target sont mutuellement exclusifs).
@@ -1502,11 +1515,27 @@ function ordinalFr(rank) {
   return rank === 1 ? '1er' : `${rank}e`;
 }
 
-// Easter egg Métamorph : mise à jour silencieuse (pas de gros panneau de révélation
-// comme choice_result — juste le score qui pulse et l'équipe qui se redessine).
-socket.on('metamorph_transformed', ({ score, scoreDelta, team }) => {
+// Easter egg Métamorph : révélation claire ("Métamorphe se transforme ??!") avec le
+// Pokémon copié et le delta de points, affichée quelques secondes puis masquée seule.
+function showMetamorphResult({ targetName, sprite, scoreDelta }) {
+  metamorphResultSpriteEl.src = sprite;
+  metamorphResultDetailEl.textContent = `Copie de ${targetName}`;
+  const sign = scoreDelta > 0 ? '+' : '';
+  metamorphResultFinalEl.textContent = `${sign}${scoreDelta} PTS`;
+  metamorphResultFinalEl.classList.toggle('result-effect--bonus', scoreDelta >= 0);
+  metamorphResultFinalEl.classList.toggle('result-effect--malus', scoreDelta < 0);
+  metamorphResultPanelEl.classList.remove('result-panel--hidden');
+
+  clearTimeout(metamorphResultTimer);
+  metamorphResultTimer = setTimeout(() => {
+    metamorphResultPanelEl.classList.add('result-panel--hidden');
+  }, 4000);
+}
+
+socket.on('metamorph_transformed', ({ score, scoreDelta, team, targetName, sprite }) => {
   renderTeam(team, true);
   updateMyScore(score, scoreDelta);
+  showMetamorphResult({ targetName, sprite, scoreDelta });
 });
 
 socket.on('game_finished', ({ boss, difficulty, gameMode, adminId, reason, players }) => {

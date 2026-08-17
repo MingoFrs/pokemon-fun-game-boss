@@ -56,15 +56,22 @@ const METAMORPH_TRANSFORM_MULTIPLIER = 0.75;
 const COMMON_RAW = [
   { id: 10, name: 'Chenipan', points: 56 },
   { id: 13, name: 'Aspicot', points: 57 },
+  { id: 280, name: 'Tarsal', points: 57 },
+  { id: 265, name: 'Chenipotte', points: 57 },
   { id: 129, name: 'Magicarpe', points: 60 },
   { id: 194, name: 'Axoloto', points: 68 },
   { id: 161, name: 'Fouinette', points: 70 },
+  { id: 261, name: 'Medhyèna', points: 74 },
+  { id: 263, name: 'Zigzaton', points: 90 },
+  { id: 396, name: 'Étourmi', points: 93 },
   { id: 41, name: 'Nosferapti', points: 94 },
+  { id: 399, name: 'Keunotor', points: 96 },
   { id: 16, name: 'Roucool', points: 97 },
   { id: 19, name: 'Rattata', points: 100 },
   { id: 21, name: 'Piafabec', points: 104 },
   { id: 163, name: 'Hoothoot', points: 105 },
   { id: 50, name: 'Taupiqueur', points: 107 },
+  { id: 276, name: 'Nirondelle', points: 111 },
   { id: 39, name: 'Rondoudou', points: 112 },
   { id: 29, name: 'Nidoran Femelle', points: 114 },
   { id: 32, name: 'Nidoran Mâle', points: 114 },
@@ -79,10 +86,13 @@ const COMMON_RAW = [
   { id: 69, name: 'Chétiflor', points: 135 },
   { id: 56, name: 'Férosinge', points: 136 },
   { id: 48, name: 'Mimitoss', points: 138 },
-  { id: 90, name: 'Coquiperl', points: 138 },
+  { id: 90, name: 'Kokiyas', points: 138 },
   { id: 155, name: 'Héricendre', points: 139 },
   { id: 84, name: 'Doduo', points: 140 },
+  { id: 252, name: 'Arcko', points: 140 },
   { id: 4, name: 'Salamèche', points: 141 },
+  { id: 255, name: 'Poussifeu', points: 141 },
+  { id: 258, name: 'Gobou', points: 142 },
   { id: 7, name: 'Carapuce', points: 143 },
   { id: 158, name: 'Kaiminus', points: 144 },
   { id: 1, name: 'Bulbizarre', points: 146 },
@@ -101,7 +111,7 @@ const COMMON_RAW = [
   { id: 72, name: 'Tentacool', points: 159 },
   { id: 120, name: 'Stari', points: 162 },
   { id: 109, name: 'Smogo', points: 163 },
-  { id: 138, name: 'Kabuto', points: 175 },
+  { id: 140, name: 'Kabuto', points: 175 },
   { id: 108, name: 'Excelangue', points: 196 }
 ];
 
@@ -116,13 +126,21 @@ const UNCOMMON_RAW = [
   { id: 58, name: 'Caninos', points: 230 },
   { id: 30, name: 'Nidorina', points: 236 },
   { id: 33, name: 'Nidorino', points: 237 },
+  { id: 269, name: 'Cavaton', points: 244 },
   { id: 70, name: 'Boustiflor', points: 245 },
   { id: 44, name: 'Ortide', points: 247 },
   { id: 75, name: 'Gravalanch', points: 247 },
+  { id: 267, name: 'Charmillon', points: 247 },
   { id: 137, name: 'Porygon', points: 248 },
+  { id: 259, name: 'Flobio', points: 250 },
   { id: 51, name: 'Triopikeur', points: 251 },
+  { id: 253, name: 'Massko', points: 251 },
   { id: 77, name: 'Ponyta', points: 252 },
   { id: 47, name: 'Parasect', points: 252 },
+  { id: 256, name: 'Galifeu', points: 252 },
+  { id: 400, name: 'Bibarel', points: 253 },
+  { id: 262, name: 'Grahyèna', points: 257 },
+  { id: 264, name: 'Linéon', points: 258 },
   { id: 104, name: 'Osselait', points: 261 },
   { id: 24, name: 'Arbok', points: 264 },
   { id: 53, name: 'Persian', points: 266 },
@@ -139,14 +157,22 @@ const RARE_RAW = [
   { id: 63, name: 'Abra', points: 312 },
   { id: 92, name: 'Fantominus', points: 313 },
   { id: 133, name: 'Évoli', points: 323 },
+  { id: 302, name: 'Ténéfix', points: 364 },
+  { id: 303, name: 'Mysdibule', points: 364 },
   { id: 95, name: 'Onix', points: 369 },
+  { id: 315, name: 'Rosélia', points: 378 },
   { id: 67, name: 'Machopeur', points: 383 },
+  { id: 358, name: 'Éoko', points: 397 },
+  { id: 203, name: 'Girafarig', points: 418 },
+  { id: 277, name: 'Hélédelle', points: 420 },
+  { id: 359, name: 'Absol', points: 426 },
   { id: 82, name: 'Magnéton', points: 427 },
   { id: 18, name: 'Roucarnage', points: 430 },
   { id: 26, name: 'Raichu', points: 435 },
   { id: 45, name: 'Rafflesia', points: 437 },
   { id: 71, name: 'Empiflor', points: 437 },
   { id: 80, name: 'Flagadoss', points: 445 },
+  { id: 241, name: 'Écrémeuh', points: 445 },
   { id: 31, name: 'Nidoqueen', points: 448 },
   { id: 34, name: 'Nidoking', points: 450 },
   { id: 78, name: 'Galopa', points: 451 },
@@ -166,12 +192,17 @@ const EPIC_RAW = [
   { id: 113, name: 'Leveinard', points: 495 },
   { id: 778, name: 'Mimiqui', points: 540 },
   { id: 76, name: 'Grolem', points: 557 },
+  { id: 398, name: 'Étalonnerf', points: 557 },
   { id: 94, name: 'Ectoplasma', points: 581 },
   { id: 68, name: 'Mackogneur', points: 590 },
   { id: 282, name: 'Gardevoir', points: 611 },
   { id: 475, name: 'Gallame', points: 613 },
   { id: 448, name: 'Lucario', points: 622 },
+  { id: 254, name: 'Jungko', points: 632 },
+  { id: 257, name: 'Braségali', points: 633 },
+  { id: 260, name: 'Laggron', points: 640 },
   { id: 131, name: 'Lokhlass', points: 642 },
+  { id: 350, name: 'Milobellus', points: 648 },
   { id: 143, name: 'Ronflex', points: 649 },
   { id: 637, name: 'Volcarona', points: 665 }
 ];
@@ -183,47 +214,52 @@ const EPIC_RAW = [
 const PSEUDO_LEGENDARY_RAW = [
   { id: 149, name: 'Dracolosse', points: 801 },
   { id: 248, name: 'Tyranocif', points: 801 },
+  { id: 373, name: 'Drattak', points: 801 },
   { id: 445, name: 'Carchacrok', points: 802 },
   { id: 376, name: 'Métalosse', points: 802 },
   { id: 635, name: 'Trioxhydre', points: 802 },
-  { id: 887, name: 'Dragapult', points: 802 }
+  { id: 887, name: 'Dragapult', points: 802 },
+  { id: 706, name: 'Muplodocus', points: 802 }
 ];
 
 // Moyenne légendaire ≈ 1334 → seuls les 5 nettement au-dessus (>+10%) sont nerfés :
 // Arceus (1550, +16%), Koraidon/Miraidon (1510, +13%), Zacian/Zamazenta (1475, +11%).
 // Necrozma (1435, +7.6%) reste inchangé : pas assez d'écart pour être "clairement" trop fort.
 const LEGENDARY_RAW = [
-  { id: 385, name: 'Jirachi', points: 950 },
-  { id: 386, name: 'Deoxys', points: 950 },
-  { id: 491, name: 'Darkrai', points: 950 },
-  { id: 800, name: 'Necrozma', points: 951 },
-  { id: 807, name: 'Zeraora', points: 951 },
-  { id: 492, name: 'Shaymin', points: 951 },
-  { id: 802, name: 'Marshadow', points: 952 },
-  { id: 151, name: 'Mew', points: 952 },
-  { id: 251, name: 'Celebi', points: 952 },
-  { id: 494, name: 'Victini', points: 952 },
-  { id: 720, name: 'Hoopa', points: 952 },
-  { id: 889, name: 'Zamazenta', points: 1175 },
-  { id: 646, name: 'Kyurem', points: 1176 },
-  { id: 888, name: 'Zacian', points: 1177 },
-  { id: 1008, name: 'Miraidon', points: 1212 },
-  { id: 383, name: 'Groudon', points: 1214 },
-  { id: 382, name: 'Kyogre', points: 1214 },
-  { id: 1007, name: 'Koraidon', points: 1215 },
-  { id: 483, name: 'Dialga', points: 1250 },
-  { id: 484, name: 'Palkia', points: 1250 },
-  { id: 644, name: 'Zekrom', points: 1250 },
-  { id: 791, name: 'Solgaleo', points: 1250 },
-  { id: 792, name: 'Lunala', points: 1250 },
-  { id: 150, name: 'Mewtwo', points: 1251 },
-  { id: 716, name: 'Xerneas', points: 1251 },
-  { id: 717, name: 'Yveltal', points: 1251 },
-  { id: 249, name: 'Lugia', points: 1252 },
-  { id: 250, name: 'Ho-Oh', points: 1252 },
-  { id: 384, name: 'Rayquaza', points: 1252 },
-  { id: 643, name: 'Reshiram', points: 1252 },
-  { id: 487, name: 'Giratina', points: 1252 },
+  { id: 144, name: 'Artikodin', points: 952 },
+  { id: 145, name: 'Électhor', points: 952 },
+  { id: 146, name: 'Sulfura', points: 952 },
+  { id: 385, name: 'Jirachi', points: 1014 },
+  { id: 386, name: 'Deoxys', points: 1015 },
+  { id: 491, name: 'Darkrai', points: 1015 },
+  { id: 800, name: 'Necrozma', points: 1015 },
+  { id: 807, name: 'Zeraora', points: 1015 },
+  { id: 492, name: 'Shaymin', points: 1015 },
+  { id: 802, name: 'Marshadow', points: 1016 },
+  { id: 151, name: 'Mew', points: 1016 },
+  { id: 494, name: 'Victini', points: 1016 },
+  { id: 251, name: 'Celebi', points: 1017 },
+  { id: 720, name: 'Hoopa', points: 1017 },
+  { id: 889, name: 'Zamazenta', points: 1207 },
+  { id: 646, name: 'Kyurem', points: 1208 },
+  { id: 888, name: 'Zacian', points: 1210 },
+  { id: 1008, name: 'Miraidon', points: 1239 },
+  { id: 383, name: 'Groudon', points: 1241 },
+  { id: 382, name: 'Kyogre', points: 1241 },
+  { id: 1007, name: 'Koraidon', points: 1242 },
+  { id: 483, name: 'Dialga', points: 1271 },
+  { id: 644, name: 'Zekrom', points: 1271 },
+  { id: 791, name: 'Solgaleo', points: 1271 },
+  { id: 484, name: 'Palkia', points: 1272 },
+  { id: 792, name: 'Lunala', points: 1272 },
+  { id: 716, name: 'Xerneas', points: 1272 },
+  { id: 150, name: 'Mewtwo', points: 1273 },
+  { id: 717, name: 'Yveltal', points: 1273 },
+  { id: 249, name: 'Lugia', points: 1273 },
+  { id: 250, name: 'Ho-Oh', points: 1273 },
+  { id: 487, name: 'Giratina', points: 1273 },
+  { id: 384, name: 'Rayquaza', points: 1274 },
+  { id: 643, name: 'Reshiram', points: 1274 },
   { id: 493, name: 'Arceus', points: 1401 }
 ];
 
@@ -292,7 +328,7 @@ const EVOLUTION_MAP = {
   116: { id: 230, name: 'Hyporoi', points: 648 },
   120: { id: 121, name: 'Staross', points: 296 },
   129: { id: 130, name: 'Léviator', points: 482 },
-  138: { id: 140, name: 'Kabutops', points: 572 },
+  140: { id: 141, name: 'Kabutops', points: 572 },
   147: { id: 149, name: 'Dracolosse', points: 801 }
 };
 
@@ -535,6 +571,12 @@ function evolveMon(mon, evolution) {
   mon.id = evolution.id;
   mon.name = evolution.name;
   mon.sprite = spriteUrl(evolution.id);
+  // Un Pokémon shiny qui évolue reste shiny : son sprite chromatique doit lui aussi
+  // pointer vers la NOUVELLE forme, sinon l'ancien sprite shiny (désormais périmé)
+  // continue d'être affiché indéfiniment (pokemonSprite() le préfère à mon.sprite).
+  if (mon.shiny) {
+    mon.shinySprite = shinySpriteUrl(evolution.id);
+  }
   mon.basePoints = evolution.points;
   mon.evolvedFrom = fromName;
   return fromName;
@@ -2514,7 +2556,18 @@ io.on('connection', (socket) => {
     const target = randomFrom(candidates);
     const targetContribution = monContribution(target);
     const scoreDelta = applyMonMutation(player, mon, m => {
-      m.sprite = (target.shiny && target.shinySprite) ? target.shinySprite : target.sprite;
+      // Sprite normal TOUJOURS celui de la cible (jamais un reliquat de l'ancien Métamorph).
+      m.sprite = target.sprite;
+      // Le statut shiny doit lui aussi être remplacé par celui de la cible, pas conservé :
+      // sinon un Métamorph shiny qui copie un Pokémon normal continuerait à afficher
+      // son ANCIEN sprite chromatique (pokemonSprite() le préfère à mon.sprite).
+      if (target.shiny && target.shinySprite) {
+        m.shiny = true;
+        m.shinySprite = target.shinySprite;
+      } else {
+        m.shiny = false;
+        m.shinySprite = null;
+      }
       m.basePoints = targetContribution;
       m.multiplier = METAMORPH_TRANSFORM_MULTIPLIER;
       m.effectName = 'Transformé';
@@ -2524,7 +2577,9 @@ io.on('connection', (socket) => {
     socket.emit('metamorph_transformed', {
       score: player.score,
       scoreDelta,
-      team: player.team
+      team: player.team,
+      targetName: target.name,
+      sprite: (mon.shiny && mon.shinySprite) ? mon.shinySprite : mon.sprite
     });
     broadcastGameUpdated(game); // score/équipe changés hors du flux de tour -> resynchronise les autres joueurs
   });
