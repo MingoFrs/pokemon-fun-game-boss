@@ -39,12 +39,14 @@
   </header>
 
   <section id="screen-home" class="screen">
-    <div class="field">
+    <p id="reconnect-status" class="lobby-status screen--hidden">Reconnexion à ta partie...</p>
+
+    <div id="home-forms" class="field">
       <label for="pseudo-input">Pseudo</label>
       <input id="pseudo-input" type="text" maxlength="16" placeholder="Ton nom de dresseur" autocomplete="off">
     </div>
 
-    <div class="cards">
+    <div id="home-cards" class="cards">
       <div class="card">
         <h2>Créer une partie</h2>
         <p class="card__hint">Génère un code et invite tes amis.</p>

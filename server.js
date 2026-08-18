@@ -126,7 +126,7 @@ const UNCOMMON_RAW = [
   { id: 58, name: 'Caninos', points: 230 },
   { id: 30, name: 'Nidorina', points: 236 },
   { id: 33, name: 'Nidorino', points: 237 },
-  { id: 269, name: 'Cavaton', points: 244 },
+  { id: 269, name: 'Papinox', points: 244 },
   { id: 70, name: 'Boustiflor', points: 245 },
   { id: 44, name: 'Ortide', points: 247 },
   { id: 75, name: 'Gravalanch', points: 247 },
@@ -192,7 +192,7 @@ const EPIC_RAW = [
   { id: 113, name: 'Leveinard', points: 495 },
   { id: 778, name: 'Mimiqui', points: 540 },
   { id: 76, name: 'Grolem', points: 557 },
-  { id: 398, name: 'Étalonnerf', points: 557 },
+  { id: 398, name: 'Étouraptor', points: 557 },
   { id: 94, name: 'Ectoplasma', points: 581 },
   { id: 68, name: 'Mackogneur', points: 590 },
   { id: 282, name: 'Gardevoir', points: 611 },
@@ -1521,6 +1521,30 @@ const GAME_MODES = ['normal', 'admin'];
 
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // sans 0/O/1/I
 
+// -----------------------------------------------------------------
+// RECONNEXION — cf. socket.on('rejoin_game').
+//
+// Chaque joueur a un token stable généré côté CLIENT au premier chargement (stocké en
+// localStorage, jamais régénéré tant que le navigateur ne l'efface pas). Contrairement à
+// socket.id (qui change à chaque connexion), ce token survit à une coupure réseau/un
+// refresh de page : c'est lui qui permet de retrouver et de "rebrancher" le bon joueur
+// sur sa nouvelle socket lors d'une reconnexion.
+//
+// Le comportement diffère selon l'état de la partie au moment de la déconnexion :
+// - "waiting" (lobby) ou "finished" : rien à sauver, retrait immédiat (comportement
+//   historique, inchangé) — les enjeux sont faibles, autant garder simple.
+// - "playing" : le joueur N'EST PAS retiré immédiatement. Il est marqué `disconnected`
+//   (les autres voient un badge "hors ligne"), et un délai de grâce démarre. S'il
+//   revient dans ce délai (rejoin_game avec le bon token), il reprend exactement sa
+//   place (score, équipe, tour en cours) sans rien perdre. Sinon, il est retiré comme
+//   d'habitude une fois le délai écoulé (y compris le forfait en mode ADMIN VS JOUEUR).
+// -----------------------------------------------------------------
+const RECONNECT_GRACE_MS = 45000;
+
+function generateToken() {
+  return Array.from({ length: 24 }, () => CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)]).join('');
+}
+
 function generateGameId() {
   let id;
   do {
@@ -1529,10 +1553,13 @@ function generateGameId() {
   return id;
 }
 
-function makePlayer(id, name) {
+function makePlayer(id, name, token) {
   return {
     id,
     name,
+    token: token || generateToken(), // filet de sécurité si un vieux client n'en envoie pas
+    disconnected: false, // cf. RECONNECT_GRACE_MS — true pendant le délai de grâce
+    disconnectTimer: null,
     score: 0,
     team: [],
     currentChoice: null,
@@ -1550,10 +1577,13 @@ function makePlayer(id, name) {
 }
 
 // Ne renvoie jamais currentOptions au client (secret tant que le choix n'est pas fait).
+// Ne renvoie jamais token non plus (secret de reconnexion : seul le joueur concerné le
+// connaît, cf. rejoin_success qui le renvoie uniquement à l'intéressé).
 function getPublicPlayers(game) {
   return game.players.map(p => ({
     id: p.id,
     name: p.name,
+    disconnected: p.disconnected,
     score: p.score,
     team: p.team,
     hasChosen: p.currentChoice !== null
@@ -1757,24 +1787,18 @@ function finalizePlayerTurn(game, player) {
   maybeScheduleTurnTransition(game);
 }
 
-function leaveCurrentGame(socket) {
-  const gameId = socket.data.gameId;
-  if (!gameId) return;
-
-  const game = games[gameId];
-  if (!game) return;
-
-  const leavingPlayer = game.players.find(p => p.id === socket.id);
-  game.players = game.players.filter(p => p.id !== socket.id);
-  socket.leave(gameId);
-  socket.data.gameId = null;
-
+// Retire réellement un joueur déjà sorti de game.players et gère toutes les conséquences
+// (DUEL partagé, suppression de la partie si elle se retrouve vide, réassignation de
+// l'hôte, reset du rôle ADMIN en lobby, forfait en mode ADMIN VS JOUEUR, transition de
+// tour). Ne dépend d'AUCUNE socket : appelable longtemps après qu'elle a disparu, ce qui
+// est exactement le cas quand le délai de grâce de reconnexion expire (cf. RECONNECT_GRACE_MS).
+function finalizePlayerRemoval(game, gameId, leavingPlayer) {
   // Événement à deux joueurs (DUEL) : si celui qui part y participait, l'autre ne doit
   // jamais rester bloqué à attendre indéfiniment un choix qui ne viendra plus.
-  if (leavingPlayer && leavingPlayer.activeEvent && Array.isArray(leavingPlayer.activeEvent.participants)) {
+  if (leavingPlayer.activeEvent && Array.isArray(leavingPlayer.activeEvent.participants)) {
     const shared = leavingPlayer.activeEvent;
     shared.participants
-      .filter(id => id !== socket.id)
+      .filter(id => id !== leavingPlayer.id)
       .forEach(id => {
         const partner = game.players.find(p => p.id === id);
         if (partner && partner.activeEvent === shared) {
@@ -1790,14 +1814,14 @@ function leaveCurrentGame(socket) {
     return;
   }
 
-  if (game.hostId === socket.id) {
+  if (game.hostId === leavingPlayer.id) {
     game.hostId = game.players[0].id;
   }
 
   if (game.status === 'waiting') {
     // L'ADMIN choisi qui quitte le lobby n'a plus de sens : l'hôte doit re-choisir
     // (cf. set_admin_role, qui revalide de toute façon qu'il reste 2 joueurs).
-    if (game.adminId === socket.id) {
+    if (game.adminId === leavingPlayer.id) {
       game.adminId = null;
       io.to(gameId).emit('admin_role_updated', { adminId: null });
     }
@@ -1806,9 +1830,9 @@ function leaveCurrentGame(socket) {
   }
 
   // Mode ADMIN VS JOUEUR : la manche est un tirage partagé (cf. assignAdminModeOptions) —
-  // si l'ADMIN ou le JOUEUR quitte en cours de partie, l'autre ne peut plus jamais recevoir
-  // de nouvelle manche (softlock silencieux). Victoire par forfait immédiate pour celui
-  // qui reste plutôt que de le laisser bloqué sans explication.
+  // si l'ADMIN ou le JOUEUR quitte en cours de partie (pour de bon : délai de grâce déjà
+  // écoulé), l'autre ne peut plus jamais recevoir de nouvelle manche (softlock silencieux).
+  // Victoire par forfait plutôt que de le laisser bloqué sans explication.
   if (game.status === 'playing' && game.gameMode === 'admin') {
     finishAdminModeByForfeit(game, leavingPlayer);
     return;
@@ -1816,6 +1840,67 @@ function leaveCurrentGame(socket) {
 
   broadcastGameUpdated(game);
   maybeScheduleTurnTransition(game);
+}
+
+// Départ EXPLICITE (bouton "Quitter", ou nettoyage avant de créer/rejoindre une autre
+// partie) : toujours immédiat, jamais de délai de grâce — contrairement à une simple
+// déconnexion réseau (cf. handleSocketDisconnect), cliquer sur "Quitter" est un choix
+// délibéré, pas un accident dont on pourrait vouloir revenir.
+function leaveCurrentGame(socket) {
+  const gameId = socket.data.gameId;
+  if (!gameId) return;
+
+  const game = games[gameId];
+  if (!game) return;
+
+  const leavingPlayer = game.players.find(p => p.id === socket.id);
+  if (!leavingPlayer) {
+    socket.data.gameId = null;
+    return;
+  }
+  if (leavingPlayer.disconnectTimer) clearTimeout(leavingPlayer.disconnectTimer);
+
+  game.players = game.players.filter(p => p.id !== socket.id);
+  socket.leave(gameId);
+  socket.data.gameId = null;
+
+  finalizePlayerRemoval(game, gameId, leavingPlayer);
+}
+
+// Déconnexion RÉSEAU (perte de connexion, refresh de page, onglet fermé...) : jamais
+// distinguable côté serveur d'un abandon volontaire, donc on donne toujours le bénéfice
+// du doute si la partie est en cours (cf. RECONNECT_GRACE_MS). En lobby/partie finie,
+// les enjeux sont trop faibles pour justifier la complexité : retrait immédiat, comme
+// avant.
+function handleSocketDisconnect(socket) {
+  const gameId = socket.data.gameId;
+  if (!gameId) return;
+
+  const game = games[gameId];
+  if (!game) {
+    socket.data.gameId = null;
+    return;
+  }
+
+  const player = game.players.find(p => p.id === socket.id);
+  if (!player) {
+    socket.data.gameId = null;
+    return;
+  }
+
+  if (game.status !== 'playing') {
+    leaveCurrentGame(socket);
+    return;
+  }
+
+  player.disconnected = true;
+  socket.data.gameId = null; // cette socket-ci ne représente plus ce joueur
+  broadcastGameUpdated(game); // les autres voient tout de suite le badge "hors ligne"
+
+  player.disconnectTimer = setTimeout(() => {
+    game.players = game.players.filter(p => p.token !== player.token);
+    finalizePlayerRemoval(game, gameId, player);
+  }, RECONNECT_GRACE_MS);
 }
 
 // Termine immédiatement une partie ADMIN VS JOUEUR quand l'un des deux quitte en cours
@@ -1854,7 +1939,7 @@ function finishAdminModeByForfeit(game, leavingPlayer) {
 }
 
 io.on('connection', (socket) => {
-  socket.on('create_game', ({ name } = {}) => {
+  socket.on('create_game', ({ name, token } = {}) => {
     const trimmed = (name || '').trim();
     if (!trimmed) {
       socket.emit('error_message', 'Pseudo requis.');
@@ -1880,7 +1965,7 @@ io.on('connection', (socket) => {
       adminId: null, // id du joueur ADMIN si gameMode === 'admin', cf. set_admin_role
       route: buildRoute(),
       turnTimer: null,
-      players: [makePlayer(socket.id, trimmed)]
+      players: [makePlayer(socket.id, trimmed, token)]
     };
 
     socket.join(gameId);
@@ -1888,6 +1973,7 @@ io.on('connection', (socket) => {
 
     socket.emit('game_created', {
       gameId,
+      token: games[gameId].players[0].token,
       players: getPublicPlayers(games[gameId]),
       hostId: games[gameId].hostId,
       difficulty: games[gameId].selectedDifficulty,
@@ -1896,7 +1982,7 @@ io.on('connection', (socket) => {
     });
   });
 
-  socket.on('join_game', ({ name, gameId } = {}) => {
+  socket.on('join_game', ({ name, gameId, token } = {}) => {
     const trimmedName = (name || '').trim();
     const id = (gameId || '').trim().toUpperCase();
     const game = games[id];
@@ -1918,8 +2004,10 @@ io.on('connection', (socket) => {
     // avant de rejoindre celle-ci. Si c'est déjà cette partie-là, ne pas dupliquer
     // l'entrée joueur : renvoyer simplement l'état actuel.
     if (socket.data.gameId === id) {
+      const self = game.players.find(p => p.id === socket.id);
       socket.emit('game_joined', {
         gameId: id,
+        token: self ? self.token : token,
         players: getPublicPlayers(game),
         hostId: game.hostId,
         difficulty: game.selectedDifficulty,
@@ -1932,13 +2020,15 @@ io.on('connection', (socket) => {
       leaveCurrentGame(socket);
     }
 
-    game.players.push(makePlayer(socket.id, trimmedName));
+    const newPlayer = makePlayer(socket.id, trimmedName, token);
+    game.players.push(newPlayer);
 
     socket.join(id);
     socket.data.gameId = id;
 
     socket.emit('game_joined', {
       gameId: id,
+      token: newPlayer.token,
       players: getPublicPlayers(game),
       hostId: game.hostId,
       difficulty: game.selectedDifficulty,
@@ -2058,7 +2148,7 @@ io.on('connection', (socket) => {
       adminId: carriedAdminId,
       route: buildRoute(),
       turnTimer: null,
-      players: connectedOldPlayers.map(p => makePlayer(p.id, p.name)) // pity remis à 0 (cf. makePlayer)
+      players: connectedOldPlayers.map(p => makePlayer(p.id, p.name, p.token)) // pity remis à 0, token conservé (cf. makePlayer)
     };
 
     games[newGameId] = newGame;
@@ -2619,8 +2709,86 @@ io.on('connection', (socket) => {
     });
   });
 
+  // Reconnexion après une coupure réseau/un refresh pendant une partie en cours
+  // (cf. RECONNECT_GRACE_MS / handleSocketDisconnect). Le token est la seule preuve
+  // d'identité : jamais confiance sur un gameId+pseudo fournis sans le bon token.
+  socket.on('rejoin_game', ({ gameId, token } = {}) => {
+    const game = games[gameId];
+    if (!game) {
+      socket.emit('rejoin_failed');
+      return;
+    }
+    const player = game.players.find(p => p.token === token);
+    if (!player) {
+      socket.emit('rejoin_failed');
+      return;
+    }
+
+    if (player.disconnectTimer) {
+      clearTimeout(player.disconnectTimer);
+      player.disconnectTimer = null;
+    }
+    player.disconnected = false;
+    player.id = socket.id; // rebranche ce joueur sur sa nouvelle socket
+    socket.join(gameId);
+    socket.data.gameId = gameId;
+
+    socket.emit('rejoin_success', {
+      gameId: game.id,
+      status: game.status,
+      turn: game.turn,
+      maxTurns: game.maxTurns,
+      route: game.route,
+      boss: game.boss,
+      difficulty: game.selectedDifficulty,
+      gameMode: game.gameMode,
+      adminId: game.adminId,
+      hostId: game.hostId,
+      players: getPublicPlayers(game)
+    });
+
+    // Si une manche est en cours et que ce joueur n'a pas encore choisi, on lui renvoie
+    // ses options actuelles (mêmes règles de confidentialité qu'à l'assignation normale).
+    // Cas plus rares volontairement non reconstruits ici (tour 4 spécial, événement rare
+    // en cours) : le joueur retrouve quand même son score/équipe/tour à jour, et
+    // rattrapera l'interactivité complète dès le tour suivant.
+    if (game.status === 'playing' && player.currentChoice === null) {
+      if (game.gameMode === 'admin') {
+        const joueur = game.players.find(p => p.id !== game.adminId);
+        if (player.id === game.adminId && joueur && joueur.currentOptions) {
+          io.to(player.id).emit('admin_view_turn_options', {
+            turn: game.turn,
+            playerName: joueur.name,
+            playerScore: joueur.score,
+            haut: { ...joueur.currentOptions.haut },
+            bas: { ...joueur.currentOptions.bas }
+          });
+        } else if (player.id !== game.adminId && player.currentOptions) {
+          io.to(player.id).emit('player_turn_hidden', { turn: game.turn });
+        }
+      } else if (player.currentOptions) {
+        io.to(player.id).emit('turn_options', {
+          haut: {
+            name: player.currentOptions.haut.name,
+            sprite: player.currentOptions.haut.sprite,
+            shiny: player.currentOptions.haut.shiny,
+            shinySprite: player.currentOptions.haut.shinySprite
+          },
+          bas: {
+            name: player.currentOptions.bas.name,
+            sprite: player.currentOptions.bas.sprite,
+            shiny: player.currentOptions.bas.shiny,
+            shinySprite: player.currentOptions.bas.shinySprite
+          }
+        });
+      }
+    }
+
+    broadcastGameUpdated(game); // les autres voient le badge "hors ligne" disparaître
+  });
+
   socket.on('disconnect', () => {
-    leaveCurrentGame(socket);
+    handleSocketDisconnect(socket);
   });
 });
 

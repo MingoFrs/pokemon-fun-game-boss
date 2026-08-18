@@ -3,8 +3,49 @@ const socket = io();
 // Easter egg : dex id de Métamorph (cf. socket.on('transform_metamorph') côté serveur).
 const METAMORPH_DEX_ID = 132;
 
+// ---------- Reconnexion (cf. socket.on('rejoin_game') côté serveur) ----------
+// Token stable par navigateur, généré une seule fois et conservé en localStorage : c'est
+// lui (et non socket.id, qui change à chaque connexion) qui permet au serveur de
+// retrouver le bon joueur après une coupure réseau ou un refresh de page pendant une
+// partie en cours.
+function getOrCreateDeviceToken() {
+  let token = localStorage.getItem('routeduboss_token');
+  if (!token) {
+    token = Array.from({ length: 24 }, () => Math.floor(Math.random() * 36).toString(36)).join('');
+    localStorage.setItem('routeduboss_token', token);
+  }
+  return token;
+}
+const deviceToken = getOrCreateDeviceToken();
+
+// gameId de la partie en cours (si il y en a une), retenu pour tenter une reconnexion
+// automatique au chargement de la page. Effacé dès qu'on quitte volontairement une
+// partie ou qu'une partie se termine.
+function rememberActiveGame(gameId) {
+  if (gameId) localStorage.setItem('routeduboss_active_game', gameId);
+  else localStorage.removeItem('routeduboss_active_game');
+}
+
+// Si une partie était en cours au dernier chargement, masque le formulaire créer/rejoindre
+// et affiche "Reconnexion..." le temps que rejoin_success/rejoin_failed tranche — sinon
+// on verrait le formulaire s'afficher une fraction de seconde avant d'être remplacé.
+const pendingRejoinGameId = localStorage.getItem('routeduboss_active_game');
+if (pendingRejoinGameId) {
+  reconnectStatusEl.classList.remove('screen--hidden');
+  homeFormsEl.classList.add('screen--hidden');
+  homeCardsEl.classList.add('screen--hidden');
+}
+function endReconnectAttempt() {
+  reconnectStatusEl.classList.add('screen--hidden');
+  homeFormsEl.classList.remove('screen--hidden');
+  homeCardsEl.classList.remove('screen--hidden');
+}
+
 // ---------- Éléments DOM : écrans ----------
 const screenHome = document.getElementById('screen-home');
+const reconnectStatusEl = document.getElementById('reconnect-status');
+const homeFormsEl = document.getElementById('home-forms');
+const homeCardsEl = document.getElementById('home-cards');
 const screenLobby = document.getElementById('screen-lobby');
 const screenGame = document.getElementById('screen-game');
 const screenFinished = document.getElementById('screen-finished');
@@ -264,6 +305,7 @@ function renderPlayers(listEl, players) {
   listEl.innerHTML = '';
   players.forEach(p => {
     const li = document.createElement('li');
+    li.classList.toggle('player-item--disconnected', !!p.disconnected);
 
     const name = document.createElement('span');
     name.textContent = p.name;
@@ -272,6 +314,12 @@ function renderPlayers(listEl, players) {
       hostTag.className = 'player-host';
       hostTag.textContent = 'Hôte';
       name.appendChild(hostTag);
+    }
+    if (p.disconnected) {
+      const offlineTag = document.createElement('span');
+      offlineTag.className = 'player-offline';
+      offlineTag.textContent = 'Hors ligne';
+      name.appendChild(offlineTag);
     }
     if (p.hasChosen) {
       const check = document.createElement('span');
@@ -1123,7 +1171,7 @@ btnCreate.addEventListener('click', () => {
     showError('Entre un pseudo.');
     return;
   }
-  socket.emit('create_game', { name });
+  socket.emit('create_game', { name, token: deviceToken });
 });
 
 btnJoin.addEventListener('click', () => {
@@ -1138,7 +1186,7 @@ btnJoin.addEventListener('click', () => {
     showError('Entre un code de partie.');
     return;
   }
-  socket.emit('join_game', { name, gameId: code });
+  socket.emit('join_game', { name, gameId: code, token: deviceToken });
 });
 
 codeInput.addEventListener('input', () => {
@@ -1152,6 +1200,7 @@ btnStart.addEventListener('click', () => {
 
 btnLeave.addEventListener('click', () => {
   socket.emit('leave_game');
+  rememberActiveGame(null);
   showScreen(screenHome);
 });
 
@@ -1243,12 +1292,14 @@ btnSkip.addEventListener('click', () => {
 
 btnLeaveGame.addEventListener('click', () => {
   socket.emit('leave_game');
+  rememberActiveGame(null);
   resetGameUI();
   showScreen(screenHome);
 });
 
 btnLeaveFinished.addEventListener('click', () => {
   socket.emit('leave_game');
+  rememberActiveGame(null);
   resetGameUI();
   showScreen(screenHome);
 });
@@ -1260,6 +1311,64 @@ btnReplay.addEventListener('click', () => {
 // ---------- Événements serveur : lobby ----------
 socket.on('connect', () => {
   myId = socket.id;
+  // Se déclenche à la toute première connexion ET après chaque reconnexion automatique
+  // de socket.io (coupure réseau brève) : dans les deux cas, s'il existe une partie
+  // enregistrée, on tente de reprendre exactement là où on en était.
+  const gameId = localStorage.getItem('routeduboss_active_game');
+  if (gameId) {
+    socket.emit('rejoin_game', { gameId, token: deviceToken });
+  }
+});
+
+socket.on('rejoin_success', (payload) => {
+  endReconnectAttempt();
+  hostId = payload.hostId;
+  currentGameMode = payload.gameMode || 'normal';
+  currentAdminId = payload.adminId || null;
+  rememberActiveGame(payload.gameId);
+
+  if (payload.status === 'waiting') {
+    resetGameUI();
+    gameCodeEl.textContent = payload.gameId;
+    renderLobbyPlayers(payload.players);
+    renderDifficulty(payload.difficulty);
+    renderGameMode(payload.gameMode);
+    updateHostControls();
+    showScreen(screenLobby);
+  } else if (payload.status === 'playing') {
+    // applyGameState() (appelée par applyGameStarted) gère déjà l'état "en attente des
+    // autres" si ce joueur avait déjà choisi ce tour — rien à dupliquer ici. S'il n'avait
+    // PAS encore choisi, le serveur envoie séparément turn_options/player_turn_hidden/
+    // admin_view_turn_options juste après rejoin_success (cf. socket.on('rejoin_game')
+    // côté serveur), qui prendront le relais pour l'interactivité.
+    applyGameStarted({
+      status: payload.status,
+      turn: payload.turn,
+      maxTurns: payload.maxTurns,
+      route: payload.route,
+      boss: payload.boss,
+      players: payload.players,
+      gameMode: payload.gameMode,
+      adminId: payload.adminId
+    });
+  } else if (payload.status === 'finished') {
+    applyGameFinished({
+      boss: payload.boss,
+      difficulty: payload.difficulty,
+      gameMode: payload.gameMode,
+      adminId: payload.adminId,
+      reason: null,
+      players: payload.players
+    });
+  }
+});
+
+// Token invalide, partie introuvable, ou délai de grâce déjà expiré : la reconnexion
+// automatique ne peut pas aboutir, retour silencieux à l'écran d'accueil normal (rien
+// à récupérer, pas la peine d'afficher une erreur pour un cas aussi ordinaire).
+socket.on('rejoin_failed', () => {
+  rememberActiveGame(null);
+  endReconnectAttempt();
 });
 
 socket.on('game_created', ({ gameId, players, hostId: hId, difficulty, gameMode, adminId }) => {
@@ -1267,6 +1376,7 @@ socket.on('game_created', ({ gameId, players, hostId: hId, difficulty, gameMode,
   hostId = hId;
   gameCodeEl.textContent = gameId;
   currentAdminId = adminId || null;
+  rememberActiveGame(gameId);
   renderLobbyPlayers(players);
   renderDifficulty(difficulty);
   renderGameMode(gameMode);
@@ -1279,6 +1389,7 @@ socket.on('game_joined', ({ gameId, players, hostId: hId, difficulty, gameMode, 
   hostId = hId;
   gameCodeEl.textContent = gameId;
   currentAdminId = adminId || null;
+  rememberActiveGame(gameId);
   renderLobbyPlayers(players);
   renderDifficulty(difficulty);
   renderGameMode(gameMode);
@@ -1293,6 +1404,7 @@ socket.on('game_replayed', ({ gameId, players, hostId: hId, difficulty, gameMode
   copyFeedbackEl.textContent = '';
   copyFeedbackEl.classList.remove('copy-feedback--play');
   currentAdminId = adminId || null;
+  rememberActiveGame(gameId);
   renderLobbyPlayers(players);
   renderDifficulty(difficulty);
   renderGameMode(gameMode);
@@ -1326,7 +1438,7 @@ socket.on('players_updated', ({ players, hostId: hId }) => {
 });
 
 // ---------- Événements serveur : jeu ----------
-socket.on('game_started', ({ status, turn, maxTurns, route, boss, players, gameMode, adminId }) => {
+function applyGameStarted({ status, turn, maxTurns, route, boss, players, gameMode, adminId }) {
   resetGameUI(); // aucun résidu de l'ancienne partie ; masque aussi le choix tour 4 par défaut
   currentGameMode = gameMode || 'normal';
   currentAdminId = adminId || null;
@@ -1337,7 +1449,9 @@ socket.on('game_started', ({ status, turn, maxTurns, route, boss, players, gameM
   bossTargetValueEl.textContent = boss.requiredPoints;
   applyGameState({ status, turn, maxTurns, route, players });
   showScreen(screenGame);
-});
+}
+
+socket.on('game_started', applyGameStarted);
 
 // Options individuelles du joueur pour ce tour : sprite + nom visibles, points/effet cachés.
 // display remis à '' au cas où le panneau vient d'un tour caché (mode ADMIN VS JOUEUR,
@@ -1538,7 +1652,7 @@ socket.on('metamorph_transformed', ({ score, scoreDelta, team, targetName, sprit
   showMetamorphResult({ targetName, sprite, scoreDelta });
 });
 
-socket.on('game_finished', ({ boss, difficulty, gameMode, adminId, reason, players }) => {
+function applyGameFinished({ boss, difficulty, gameMode, adminId, reason, players }) {
   // Le rôle a pu changer entre le dernier game_started reçu (aucun risque en pratique
   // puisqu'il est verrouillé après start_game, mais on resynchronise par cohérence).
   currentGameMode = gameMode || currentGameMode;
@@ -1629,7 +1743,9 @@ socket.on('game_finished', ({ boss, difficulty, gameMode, adminId, reason, playe
   });
 
   showScreen(screenFinished);
-});
+}
+
+socket.on('game_finished', applyGameFinished);
 
 // ---------- Événements serveur : événements rares ----------
 // Peuvent arriver à tout moment pendant screen-game, indépendamment du flux de tour

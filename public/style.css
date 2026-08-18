@@ -336,6 +336,19 @@ input:focus {
   margin-left: 8px;
 }
 
+.players-list .player-offline {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--danger);
+  margin-left: 8px;
+}
+
+.players-list .player-item--disconnected {
+  opacity: 0.6;
+}
+
 .lobby-status {
   text-align: center;
   color: var(--text-muted);
