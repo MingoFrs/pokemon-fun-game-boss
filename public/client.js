@@ -3,6 +3,18 @@ const socket = io();
 // Easter egg : dex id de Métamorph (cf. socket.on('transform_metamorph') côté serveur).
 const METAMORPH_DEX_ID = 132;
 
+// ---------- Éléments DOM : écrans ----------
+// Déclarés ICI, avant toute logique de reconnexion : celle-ci référence ces éléments
+// immédiatement au chargement (pas seulement dans des handlers différés), donc l'ordre
+// compte réellement — les référencer avant leur déclaration plante tout le script.
+const screenHome = document.getElementById('screen-home');
+const reconnectStatusEl = document.getElementById('reconnect-status');
+const homeFormsEl = document.getElementById('home-forms');
+const homeCardsEl = document.getElementById('home-cards');
+const screenLobby = document.getElementById('screen-lobby');
+const screenGame = document.getElementById('screen-game');
+const screenFinished = document.getElementById('screen-finished');
+
 // ---------- Reconnexion (cf. socket.on('rejoin_game') côté serveur) ----------
 // Token stable par navigateur, généré une seule fois et conservé en localStorage : c'est
 // lui (et non socket.id, qui change à chaque connexion) qui permet au serveur de
@@ -40,15 +52,6 @@ function endReconnectAttempt() {
   homeFormsEl.classList.remove('screen--hidden');
   homeCardsEl.classList.remove('screen--hidden');
 }
-
-// ---------- Éléments DOM : écrans ----------
-const screenHome = document.getElementById('screen-home');
-const reconnectStatusEl = document.getElementById('reconnect-status');
-const homeFormsEl = document.getElementById('home-forms');
-const homeCardsEl = document.getElementById('home-cards');
-const screenLobby = document.getElementById('screen-lobby');
-const screenGame = document.getElementById('screen-game');
-const screenFinished = document.getElementById('screen-finished');
 
 // ---------- Accueil ----------
 const pseudoInput = document.getElementById('pseudo-input');
