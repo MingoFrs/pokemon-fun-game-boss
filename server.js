@@ -726,16 +726,24 @@ function pickAdminModeOptions() {
 // -----------------------------------------------------------------
 const GUESS_TURN_DURATION_MS = 25000;
 
-// Nombre de cases tirées par palier (somme = 36). Un peu de chaque, jamais tout un
-// palier d'un coup : la planche reste variée même si le tirage dans chaque palier est
-// aléatoire.
-const GUESS_TIER_COUNTS = {
-  commun: 10,
-  peu_commun: 8,
-  rare: 7,
-  epique: 6,
-  pseudo_legendaire: 3,
-  legendaire: 2
+// Taille de la planche pilotée par la difficulté choisie dans le lobby (réutilise le
+// même sélecteur que Route du Boss — jamais un 2e réglage séparé). Plus de Pokémon en
+// jeu = plus de possibilités à éliminer = plus difficile à deviner.
+const GUESS_BOARD_SIZE_BY_DIFFICULTY = {
+  easy: 15,
+  medium: 20,
+  hard: 30,
+  extreme: 40
+};
+
+// Nombre de cases tirées par palier pour chaque taille de planche (la somme de chaque
+// ligne correspond exactement à la taille visée). Toujours un peu de chaque palier,
+// jamais tout un palier d'un coup : la planche reste variée même à 15 cases.
+const GUESS_TIER_COUNTS_BY_DIFFICULTY = {
+  easy: { commun: 5, peu_commun: 3, rare: 3, epique: 2, pseudo_legendaire: 1, legendaire: 1 },
+  medium: { commun: 6, peu_commun: 5, rare: 4, epique: 3, pseudo_legendaire: 1, legendaire: 1 },
+  hard: { commun: 9, peu_commun: 7, rare: 6, epique: 5, pseudo_legendaire: 2, legendaire: 1 },
+  extreme: { commun: 11, peu_commun: 9, rare: 8, epique: 6, pseudo_legendaire: 3, legendaire: 3 }
 };
 
 // Fisher-Yates : mélange correct et non biaisé (contrairement à `sort(() => Math.random())`,
@@ -749,12 +757,13 @@ function shuffleArray(arr) {
   return copy;
 }
 
-// Construit une planche fraîche (36 cases), différente à chaque partie. Le contenu
-// entier (planche = quels Pokémon, dans quel ordre) n'est PAS secret : les deux joueurs
-// la voient intégralement identique. Seule la case CHOISIE par chacun comme secret l'est.
-function buildGuessBoard() {
+// Construit une planche fraîche, différente à chaque partie. Le contenu entier
+// (planche = quels Pokémon, dans quel ordre) n'est PAS secret : les deux joueurs la
+// voient intégralement identique. Seule la case CHOISIE par chacun comme secret l'est.
+function buildGuessBoard(difficulty) {
+  const tierCounts = GUESS_TIER_COUNTS_BY_DIFFICULTY[difficulty] || GUESS_TIER_COUNTS_BY_DIFFICULTY.medium;
   const picked = [];
-  for (const [tier, count] of Object.entries(GUESS_TIER_COUNTS)) {
+  for (const [tier, count] of Object.entries(tierCounts)) {
     const shuffledTier = shuffleArray(POKEMON_POOLS[tier]);
     picked.push(...shuffledTier.slice(0, count));
   }
@@ -770,7 +779,7 @@ function buildGuessBoard() {
 // par start_game (jamais par play_again directement : la planche précédente ne doit
 // jamais être réutilisée, cf. section 20 de la spec).
 function startGuessGame(game) {
-  game.guessBoard = buildGuessBoard();
+  game.guessBoard = buildGuessBoard(game.selectedDifficulty);
   game.guessActivePlayerId = null;
   game.guessTurnEndsAt = null;
   if (game.guessTurnTimer) {
@@ -783,6 +792,7 @@ function startGuessGame(game) {
   io.to(game.id).emit('guess_game_started', {
     gameId: game.id,
     board: game.guessBoard,
+    difficulty: game.selectedDifficulty,
     players: getPublicPlayers(game)
   });
 }

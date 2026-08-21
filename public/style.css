@@ -1972,8 +1972,8 @@ input:focus {
 
 .guess-board {
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
-  gap: 6px;
+  grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+  gap: 8px;
 }
 
 .guess-tile {
@@ -1982,24 +1982,24 @@ input:focus {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 2px;
+  gap: 4px;
   background: var(--bg-panel);
   border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 4px 2px;
+  border-radius: 10px;
+  padding: 6px 4px;
   cursor: default;
   transition: transform 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
 }
 
 .guess-tile img {
-  width: 70%;
-  max-width: 42px;
+  width: 78%;
+  max-width: 60px;
   object-fit: contain;
 }
 
 .guess-tile__name {
-  font-size: 8px;
-  line-height: 1.1;
+  font-size: 11px;
+  line-height: 1.15;
   text-align: center;
   color: var(--text-muted);
   overflow: hidden;
@@ -2163,10 +2163,11 @@ input:focus {
   }
 
   .guess-board {
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(auto-fill, minmax(68px, 1fr));
+    gap: 6px;
   }
 
   .guess-tile__name {
-    font-size: 7px;
+    font-size: 9px;
   }
 }
