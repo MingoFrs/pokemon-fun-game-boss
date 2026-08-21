@@ -14,6 +14,8 @@ const homeCardsEl = document.getElementById('home-cards');
 const screenLobby = document.getElementById('screen-lobby');
 const screenGame = document.getElementById('screen-game');
 const screenFinished = document.getElementById('screen-finished');
+const screenGuess = document.getElementById('screen-guess');
+const screenGuessFinished = document.getElementById('screen-guess-finished');
 
 // ---------- Reconnexion (cf. socket.on('rejoin_game') côté serveur) ----------
 // Token stable par navigateur, généré une seule fois et conservé en localStorage : c'est
@@ -71,6 +73,7 @@ const btnCopyCode = document.getElementById('btn-copy-code');
 const copyFeedbackEl = document.getElementById('copy-feedback');
 const difficultyButtons = Array.from(document.querySelectorAll('.difficulty-btn'));
 const gamemodeButtons = Array.from(document.querySelectorAll('.gamemode-btn'));
+const gamemodeHintEl = document.getElementById('gamemode-hint');
 const adminRolePanelEl = document.getElementById('admin-role-panel');
 const adminRoleOptionsEl = document.getElementById('admin-role-options');
 const adminRoleStatusEl = document.getElementById('admin-role-status');
@@ -224,7 +227,7 @@ function clearError() {
 }
 
 function showScreen(screen) {
-  [screenHome, screenLobby, screenGame, screenFinished].forEach(s => s.classList.add('screen--hidden'));
+  [screenHome, screenLobby, screenGame, screenFinished, screenGuess, screenGuessFinished].forEach(s => s.classList.add('screen--hidden'));
   screen.classList.remove('screen--hidden');
 }
 
@@ -261,6 +264,14 @@ function renderGameMode(gameMode) {
   });
   adminRolePanelEl.classList.toggle('screen--hidden', currentGameMode !== 'admin');
   renderAdminRoleOptions();
+
+  // "Devine le Pokémon" : pas de rôle à choisir (contrairement à ADMIN VS JOUEUR), juste
+  // un rappel que ce mode nécessite exactement 2 joueurs (le serveur revalide de toute
+  // façon au démarrage, ce message n'est qu'un confort visuel).
+  gamemodeHintEl.classList.toggle('screen--hidden', currentGameMode !== 'guess');
+  if (currentGameMode === 'guess') {
+    gamemodeHintEl.textContent = 'Ce mode nécessite exactement 2 joueurs.';
+  }
 }
 
 // Reconstruit le picker ADMIN à partir de la dernière liste de joueurs connue. Affiché
@@ -1330,6 +1341,63 @@ socket.on('rejoin_success', (payload) => {
   currentAdminId = payload.adminId || null;
   rememberActiveGame(payload.gameId);
 
+  // Mode "Devine le Pokémon" : structure d'état complètement différente (planche/secret/
+  // tour chronométré, aucun boss/route/équipe) — reconstruction dédiée, jamais via
+  // applyGameStarted/applyGameFinished qui supposent ces champs Route du Boss présents.
+  if (payload.gameMode === 'guess') {
+    if (payload.status === 'waiting') {
+      resetGameUI();
+      gameCodeEl.textContent = payload.gameId;
+      renderLobbyPlayers(payload.players);
+      renderDifficulty(payload.difficulty);
+      renderGameMode(payload.gameMode);
+      updateHostControls();
+      showScreen(screenLobby);
+    } else if (payload.status === 'playing') {
+      resetGuessUI();
+      guessBoard = payload.guessBoard || [];
+      guessMySecretIndex = payload.mySecretIndex !== undefined ? payload.mySecretIndex : null;
+      renderGuessPlayers(payload.players);
+
+      if (guessMySecretIndex === null) {
+        // Toujours en phase de sélection : la planche redevient cliquable pour choisir.
+        renderGuessBoard();
+        showScreen(screenGuess);
+      } else if (payload.guessActivePlayerId) {
+        // Les 2 secrets étaient déjà choisis : reprend directement le tour en cours.
+        renderGuessBoard();
+        showScreen(screenGuess);
+        const isMe = payload.guessActivePlayerId === myId;
+        guessActivePlayerId = payload.guessActivePlayerId;
+        guessSelectionPanelEl.classList.add('screen--hidden');
+        guessTurnPanelEl.classList.remove('screen--hidden');
+        guessActiveNameEl.textContent = guessPlayerName(payload.guessActivePlayerId);
+        guessTurnHintEl.textContent = isMe
+          ? 'Pose tes questions à ton adversaire via Discord.'
+          : `${guessPlayerName(payload.guessActivePlayerId)} réfléchit...`;
+        guessActiveActionsEl.classList.toggle('screen--hidden', !isMe);
+        if (payload.guessTurnEndsAt) startGuessTimerDisplay(payload.guessTurnEndsAt);
+      } else {
+        // Cas limite : mon secret est choisi mais pas encore celui de l'adversaire.
+        guessSelectionStatusEl.textContent = 'Pokémon secret sélectionné. En attente de l\'adversaire...';
+        renderGuessBoard();
+        showScreen(screenGuess);
+      }
+    } else if (payload.status === 'finished') {
+      resetGuessUI();
+      lastGuessPlayers = payload.players;
+      // Pas assez d'info pour redistinguer victoire/défaite/forfait après coup sans
+      // guess_game_over (diffusé seulement au moment réel, jamais renvoyé par rejoin) :
+      // affichage neutre plutôt qu'un mauvais verdict inventé.
+      guessFinishedOutcomeEl.textContent = 'Partie terminée.';
+      guessFinishedOutcomeEl.classList.remove('finished-outcome--victory', 'finished-outcome--defeat');
+      guessFinishedDetailEl.innerHTML = '';
+      updateGuessReplayControls();
+      showScreen(screenGuessFinished);
+    }
+    return;
+  }
+
   if (payload.status === 'waiting') {
     resetGameUI();
     gameCodeEl.textContent = payload.gameId;
@@ -1777,4 +1845,351 @@ socket.on('rare_event_cancelled', () => {
 
 socket.on('error_message', (msg) => {
   showError(msg);
+});
+
+// ============================================================
+// MODE "DEVINE LE POKÉMON"
+// ============================================================
+// Écran entièrement séparé de Route du Boss/Admin (aucun boss/route/équipe/points ici) :
+// planche partagée, Pokémon secret, tours chronométrés. Réutilise uniquement le socle
+// commun (salon/lobby/reconnexion/REJOUER), jamais game_started/applyGameState.
+
+// ---------- Éléments DOM ----------
+const btnLeaveGuess = document.getElementById('btn-leave-guess');
+const guessSelectionPanelEl = document.getElementById('guess-selection-panel');
+const guessSelectionStatusEl = document.getElementById('guess-selection-status');
+const guessTurnPanelEl = document.getElementById('guess-turn-panel');
+const guessActiveNameEl = document.getElementById('guess-active-name');
+const guessTurnHintEl = document.getElementById('guess-turn-hint');
+const guessTimerBarEl = document.getElementById('guess-timer-bar');
+const guessTimerValueEl = document.getElementById('guess-timer-value');
+const guessActiveActionsEl = document.getElementById('guess-active-actions');
+const btnGuessAnswer = document.getElementById('btn-guess-answer');
+const btnGuessFinishTurn = document.getElementById('btn-guess-finish-turn');
+const guessLastAttemptEl = document.getElementById('guess-last-attempt');
+const guessBoardEl = document.getElementById('guess-board');
+const guessPlayersListEl = document.getElementById('guess-players-list');
+const guessConfirmOverlayEl = document.getElementById('guess-confirm-overlay');
+const guessConfirmContentEl = document.getElementById('guess-confirm-content');
+const btnGuessConfirmCancel = document.getElementById('btn-guess-confirm-cancel');
+const btnGuessConfirmOk = document.getElementById('btn-guess-confirm-ok');
+const guessFinishedOutcomeEl = document.getElementById('guess-finished-outcome');
+const guessFinishedDetailEl = document.getElementById('guess-finished-detail');
+const btnGuessReplay = document.getElementById('btn-guess-replay');
+const guessFinishedStatusEl = document.getElementById('guess-finished-status');
+const btnLeaveGuessFinished = document.getElementById('btn-leave-guess-finished');
+
+// ---------- État local ----------
+const GUESS_TURN_DURATION_MS = 25000; // purement cosmétique (barre de temps) ; le serveur seul fait foi pour l'expiration réelle
+let guessBoard = [];
+let guessMySecretIndex = null; // ma propre sélection UNIQUEMENT (jamais celle de l'adversaire)
+let guessActivePlayerId = null;
+let guessTimerInterval = null;
+let guessBoardMode = 'select-secret'; // 'select-secret' | 'idle' | 'guessing'
+let guessPendingAttemptIndex = null;
+let lastGuessPlayers = [];
+// Cases que JE coche personnellement comme "pas ça" en cliquant en dehors du mode
+// "Dire ma réponse" (aide-mémoire type Qui est-ce ?). Purement local : jamais envoyé au
+// serveur, jamais synchronisé avec l'adversaire — jamais un vrai deuxième bit de secret.
+let guessHintedIndexes = new Set();
+
+function resetGuessUI() {
+  guessBoard = [];
+  guessMySecretIndex = null;
+  guessActivePlayerId = null;
+  guessBoardMode = 'select-secret';
+  guessPendingAttemptIndex = null;
+  lastGuessPlayers = [];
+  guessHintedIndexes = new Set();
+  clearInterval(guessTimerInterval);
+
+  guessSelectionPanelEl.classList.remove('screen--hidden');
+  guessSelectionStatusEl.textContent = 'Clique sur une case de la planche.';
+  guessTurnPanelEl.classList.add('screen--hidden');
+  guessActiveActionsEl.classList.add('screen--hidden');
+  guessLastAttemptEl.classList.add('screen--hidden');
+  guessConfirmOverlayEl.classList.add('screen--hidden');
+  guessBoardEl.innerHTML = '';
+  guessPlayersListEl.innerHTML = '';
+  btnGuessAnswer.textContent = 'Dire ma réponse';
+}
+
+// Nom d'un joueur à partir de la dernière liste connue (jamais son secret, juste son nom).
+function guessPlayerName(id) {
+  if (id === myId) return 'Toi';
+  const p = lastGuessPlayers.find(x => x.id === id);
+  return p ? p.name : 'Ton adversaire';
+}
+
+function renderGuessPlayers(players) {
+  lastGuessPlayers = players;
+  guessPlayersListEl.innerHTML = '';
+  players.forEach(p => {
+    const li = document.createElement('li');
+    li.classList.toggle('player-item--disconnected', !!p.disconnected);
+
+    const name = document.createElement('span');
+    name.textContent = p.name;
+    if (p.id === hostId) {
+      const hostTag = document.createElement('span');
+      hostTag.className = 'player-host';
+      hostTag.textContent = 'Hôte';
+      name.appendChild(hostTag);
+    }
+    if (p.disconnected) {
+      const offlineTag = document.createElement('span');
+      offlineTag.className = 'player-offline';
+      offlineTag.textContent = 'Hors ligne';
+      name.appendChild(offlineTag);
+    }
+
+    const status = document.createElement('span');
+    status.className = 'player-score';
+    const ready = p.id === myId ? guessMySecretIndex !== null : p.secretSelected;
+    status.textContent = ready ? 'Prêt ✓' : 'En attente';
+
+    li.appendChild(name);
+    li.appendChild(status);
+    guessPlayersListEl.appendChild(li);
+  });
+}
+
+// La planche est TOUJOURS cliquable (cf. handleGuessTileClick pour ce que fait
+// réellement un clic selon le contexte : choisir son secret, cocher une aide
+// personnelle, ou tenter une réponse). Seule exception : plus aucune interaction utile
+// une fois mon propre secret déjà choisi ET qu'on n'est pas encore en phase de tours
+// (l'adversaire n'a pas fini de choisir) — cocher des aides reste possible même là,
+// ça ne gêne rien.
+function renderGuessBoard() {
+  guessBoardEl.innerHTML = '';
+
+  guessBoard.forEach(mon => {
+    const tile = document.createElement('button');
+    tile.type = 'button';
+    tile.className = 'guess-tile guess-tile--clickable';
+    if (mon.index === guessMySecretIndex) tile.classList.add('guess-tile--mine');
+    if (guessHintedIndexes.has(mon.index)) tile.classList.add('guess-tile--hinted');
+
+    const img = document.createElement('img');
+    img.src = mon.sprite;
+    img.alt = mon.name;
+
+    const name = document.createElement('span');
+    name.className = 'guess-tile__name';
+    name.textContent = mon.name;
+
+    tile.appendChild(img);
+    tile.appendChild(name);
+    tile.addEventListener('click', () => handleGuessTileClick(mon.index));
+
+    guessBoardEl.appendChild(tile);
+  });
+}
+
+function setGuessBoardMode(mode) {
+  guessBoardMode = mode;
+  renderGuessBoard();
+}
+
+// Un clic sur une case ne veut pas dire la même chose selon le contexte :
+// - Phase de sélection, secret pas encore choisi -> choisit CE Pokémon comme secret.
+// - Mode "guessing" (après avoir cliqué "Dire ma réponse") -> ouvre la confirmation
+//   de tentative.
+// - Tout le reste du temps (y compris pendant l'attente, pendant son propre tour sans
+//   avoir cliqué "Dire ma réponse", ou pendant le tour de l'adversaire) -> simple
+//   coche personnelle "pas ça" (aide-mémoire, jamais envoyée au serveur).
+function handleGuessTileClick(index) {
+  if (guessBoardMode === 'select-secret' && guessMySecretIndex === null) {
+    socket.emit('select_secret_pokemon', { index });
+    return;
+  }
+  if (guessBoardMode === 'guessing') {
+    openGuessConfirm(index);
+    return;
+  }
+  toggleGuessHint(index);
+}
+
+function toggleGuessHint(index) {
+  if (guessHintedIndexes.has(index)) guessHintedIndexes.delete(index);
+  else guessHintedIndexes.add(index);
+  renderGuessBoard();
+}
+
+function openGuessConfirm(index) {
+  guessPendingAttemptIndex = index;
+  const mon = guessBoard[index];
+
+  guessConfirmContentEl.innerHTML = '';
+  const img = document.createElement('img');
+  img.src = mon.sprite;
+  img.alt = mon.name;
+  const p = document.createElement('p');
+  p.textContent = `Tu es sûr de vouloir répondre : ${mon.name} ?`;
+  const warning = document.createElement('p');
+  warning.className = 'guess-confirm-warning';
+  warning.textContent = 'Ça termine ton tour, bonne ou mauvaise réponse.';
+  guessConfirmContentEl.appendChild(img);
+  guessConfirmContentEl.appendChild(p);
+  guessConfirmContentEl.appendChild(warning);
+
+  guessConfirmOverlayEl.classList.remove('screen--hidden');
+}
+
+btnGuessConfirmCancel.addEventListener('click', () => {
+  guessPendingAttemptIndex = null;
+  guessConfirmOverlayEl.classList.add('screen--hidden');
+});
+
+btnGuessConfirmOk.addEventListener('click', () => {
+  if (guessPendingAttemptIndex === null) return;
+  socket.emit('guess_attempt', { index: guessPendingAttemptIndex });
+  guessPendingAttemptIndex = null;
+  guessConfirmOverlayEl.classList.add('screen--hidden');
+  setGuessBoardMode('idle');
+  btnGuessAnswer.textContent = 'Dire ma réponse';
+  // "Dire ma réponse" engage toujours le tour côté serveur (bonne ou mauvaise réponse) :
+  // désactive tout de suite les actions plutôt que d'attendre guess_turn_started/
+  // guess_game_over, pour éviter un double-clic dans la fenêtre entre les deux.
+  guessActiveActionsEl.classList.add('screen--hidden');
+});
+
+// Purement visuelle : la barre/le chiffre se recalculent depuis turnEndsAt (fourni par
+// le serveur) à chaque tick, jamais depuis un décompte local qui pourrait dériver.
+function startGuessTimerDisplay(turnEndsAt) {
+  clearInterval(guessTimerInterval);
+
+  function tick() {
+    const remainingMs = Math.max(0, turnEndsAt - Date.now());
+    const remainingSec = Math.ceil(remainingMs / 1000);
+    guessTimerValueEl.textContent = remainingSec;
+    const pct = Math.max(0, Math.min(100, (remainingMs / GUESS_TURN_DURATION_MS) * 100));
+    guessTimerBarEl.style.width = `${pct}%`;
+    guessTimerBarEl.classList.toggle('guess-timer-bar--low', remainingSec <= 5);
+    if (remainingMs <= 0) clearInterval(guessTimerInterval);
+  }
+  tick();
+  guessTimerInterval = setInterval(tick, 250);
+}
+
+function updateGuessReplayControls() {
+  const host = isHost();
+  btnGuessReplay.classList.toggle('screen--hidden', !host);
+  guessFinishedStatusEl.textContent = host
+    ? 'Relance une partie quand tu es prêt.'
+    : "En attente que l'hôte relance une partie...";
+}
+
+// ---------- Boutons ----------
+btnLeaveGuess.addEventListener('click', () => {
+  socket.emit('leave_game');
+  rememberActiveGame(null);
+  resetGuessUI();
+  showScreen(screenHome);
+});
+
+btnLeaveGuessFinished.addEventListener('click', () => {
+  socket.emit('leave_game');
+  rememberActiveGame(null);
+  resetGuessUI();
+  showScreen(screenHome);
+});
+
+btnGuessReplay.addEventListener('click', () => {
+  socket.emit('play_again'); // même event que Route du Boss, déjà gameMode-agnostic côté serveur
+});
+
+btnGuessAnswer.addEventListener('click', () => {
+  if (guessBoardMode === 'guessing') {
+    setGuessBoardMode('idle');
+    btnGuessAnswer.textContent = 'Dire ma réponse';
+  } else {
+    setGuessBoardMode('guessing');
+    btnGuessAnswer.textContent = 'Annuler la réponse';
+  }
+});
+
+btnGuessFinishTurn.addEventListener('click', () => {
+  socket.emit('guess_finish_turn');
+});
+
+// ---------- Événements serveur ----------
+socket.on('guess_game_started', ({ gameId, board, players }) => {
+  resetGuessUI();
+  rememberActiveGame(gameId);
+  guessBoard = board;
+  renderGuessPlayers(players);
+  renderGuessBoard();
+  showScreen(screenGuess);
+});
+
+socket.on('secret_selection_confirmed', ({ index, name }) => {
+  guessMySecretIndex = index;
+  guessSelectionStatusEl.textContent = `Pokémon secret sélectionné : ${name}. En attente de l'adversaire...`;
+  renderGuessBoard();
+  renderGuessPlayers(lastGuessPlayers);
+});
+
+socket.on('guess_players_updated', ({ players }) => {
+  renderGuessPlayers(players);
+});
+
+socket.on('guess_turn_started', ({ activePlayerId, turnEndsAt }) => {
+  guessActivePlayerId = activePlayerId;
+  guessSelectionPanelEl.classList.add('screen--hidden');
+  guessTurnPanelEl.classList.remove('screen--hidden');
+  guessLastAttemptEl.classList.add('screen--hidden');
+
+  const isMe = activePlayerId === myId;
+  guessActiveNameEl.textContent = guessPlayerName(activePlayerId);
+  guessTurnHintEl.textContent = isMe
+    ? 'Pose tes questions à ton adversaire via Discord.'
+    : `${guessPlayerName(activePlayerId)} réfléchit...`;
+  guessActiveActionsEl.classList.toggle('screen--hidden', !isMe);
+
+  setGuessBoardMode('idle');
+  btnGuessAnswer.textContent = 'Dire ma réponse';
+
+  startGuessTimerDisplay(turnEndsAt);
+});
+
+// Diffusé aux DEUX joueurs, bonne ou mauvaise réponse : ça fait partie du jeu de
+// déduction (cf. spec section 5/9/10). Une mauvaise réponse ne change rien d'autre.
+socket.on('guess_attempt_result', ({ by, index, name, correct }) => {
+  guessLastAttemptEl.classList.remove('guess-last-attempt--correct', 'guess-last-attempt--wrong');
+  guessLastAttemptEl.classList.add(correct ? 'guess-last-attempt--correct' : 'guess-last-attempt--wrong');
+  guessLastAttemptEl.textContent = correct
+    ? `✅ ${guessPlayerName(by)} a trouvé : ${name} !`
+    : `❌ ${guessPlayerName(by)} a tenté ${name} — mauvaise réponse.`;
+  guessLastAttemptEl.classList.remove('screen--hidden');
+});
+
+socket.on('guess_game_over', ({ winnerId, reason, secretPokemon, players }) => {
+  clearInterval(guessTimerInterval);
+  lastGuessPlayers = players;
+
+  const won = winnerId === myId;
+  guessFinishedOutcomeEl.textContent = won ? 'VICTOIRE !' : 'DÉFAITE';
+  guessFinishedOutcomeEl.classList.toggle('finished-outcome--victory', won);
+  guessFinishedOutcomeEl.classList.toggle('finished-outcome--defeat', !won);
+
+  guessFinishedDetailEl.innerHTML = '';
+  if (reason === 'forfeit') {
+    const p = document.createElement('p');
+    p.textContent = won ? "Ton adversaire a quitté la partie." : 'Tu as quitté la partie.';
+    guessFinishedDetailEl.appendChild(p);
+  } else if (secretPokemon) {
+    const img = document.createElement('img');
+    img.src = secretPokemon.sprite;
+    img.alt = secretPokemon.name;
+    const p = document.createElement('p');
+    p.textContent = won
+      ? `Tu as trouvé : ${secretPokemon.name} !`
+      : `${guessPlayerName(winnerId)} a trouvé : ${secretPokemon.name} !`;
+    guessFinishedDetailEl.appendChild(img);
+    guessFinishedDetailEl.appendChild(p);
+  }
+
+  updateGuessReplayControls();
+  showScreen(screenGuessFinished);
 });

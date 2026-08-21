@@ -97,8 +97,11 @@
       <div id="gamemode-options" class="gamemode-options">
         <button type="button" class="gamemode-btn" data-mode="normal">Mode normal</button>
         <button type="button" class="gamemode-btn" data-mode="admin">Admin vs Joueur</button>
+        <button type="button" class="gamemode-btn" data-mode="guess">Devine le Pokémon</button>
       </div>
     </div>
+
+    <p id="gamemode-hint" class="gamemode-hint screen--hidden"></p>
 
     <div id="admin-role-panel" class="admin-role-panel screen--hidden">
       <p class="eyebrow">Choisir l'ADMIN</p>
@@ -282,6 +285,67 @@
     <button id="btn-replay" class="btn btn--haut btn--block screen--hidden">Rejouer</button>
     <p class="lobby-status" id="finished-status"></p>
     <button id="btn-leave-finished" class="btn btn--ghost btn--block">Quitter</button>
+  </section>
+
+  <!-- ============ MODE "DEVINE LE POKÉMON" ============ -->
+
+  <section id="screen-guess" class="screen screen--hidden">
+    <header class="guess-header">
+      <p class="eyebrow">Devine le Pokémon</p>
+      <button id="btn-leave-guess" class="btn btn--ghost">Quitter</button>
+    </header>
+
+    <!-- Phase 1 : sélection du secret, avant que les 2 joueurs soient prêts. -->
+    <div id="guess-selection-panel" class="guess-panel">
+      <h2 id="guess-selection-title">Choisis ton Pokémon secret</h2>
+      <p id="guess-selection-status" class="lobby-status">Clique sur une case de la planche.</p>
+    </div>
+
+    <!-- Phase 2 : tours chronométrés, une fois les 2 secrets choisis. -->
+    <div id="guess-turn-panel" class="guess-panel screen--hidden">
+      <p class="guess-turn-label">Tour de : <span id="guess-active-name">—</span></p>
+      <p id="guess-turn-hint" class="guess-turn-hint"></p>
+      <div class="guess-timer-wrap">
+        <div class="guess-timer-track"><div id="guess-timer-bar" class="guess-timer-bar"></div></div>
+        <span id="guess-timer-value" class="guess-timer-value">25</span>
+      </div>
+      <div id="guess-active-actions" class="guess-active-actions screen--hidden">
+        <button id="btn-guess-answer" type="button" class="btn btn--haut">Dire ma réponse</button>
+        <button id="btn-guess-finish-turn" type="button" class="btn btn--ghost">Finir le tour</button>
+      </div>
+    </div>
+
+    <!-- Dernière tentative (publique aux 2 joueurs), masquée par défaut. -->
+    <div id="guess-last-attempt" class="guess-last-attempt screen--hidden"></div>
+
+    <!-- Planche partagée : mêmes Pokémon, mêmes cases, pour les 2 joueurs. -->
+    <div class="guess-board-panel">
+      <div id="guess-board" class="guess-board"></div>
+    </div>
+
+    <div class="players-panel">
+      <h2>Joueurs</h2>
+      <ul id="guess-players-list" class="players-list"></ul>
+    </div>
+  </section>
+
+  <div id="guess-confirm-overlay" class="event-overlay screen--hidden" role="dialog" aria-modal="true">
+    <div class="event-modal">
+      <p class="event-modal__eyebrow">Confirmer ta réponse</p>
+      <div id="guess-confirm-content" class="guess-confirm-content"></div>
+      <div class="event-modal__actions">
+        <button id="btn-guess-confirm-cancel" type="button" class="btn btn--ghost btn--block">Annuler</button>
+        <button id="btn-guess-confirm-ok" type="button" class="btn btn--haut btn--block">Confirmer</button>
+      </div>
+    </div>
+  </div>
+
+  <section id="screen-guess-finished" class="screen screen--hidden">
+    <p id="guess-finished-outcome" class="finished-outcome"></p>
+    <div id="guess-finished-detail" class="guess-finished-detail"></div>
+    <button id="btn-guess-replay" class="btn btn--haut btn--block screen--hidden">Rejouer</button>
+    <p class="lobby-status" id="guess-finished-status"></p>
+    <button id="btn-leave-guess-finished" class="btn btn--ghost btn--block">Quitter</button>
   </section>
 
 </main>

@@ -717,6 +717,153 @@ function pickAdminModeOptions() {
 }
 
 // -----------------------------------------------------------------
+// GAMEMODE "DEVINE LE POKÉMON" — planche partagée + Pokémon secret + tours chronométrés.
+//
+// Contrairement aux deux autres modes, ici pas de rareté/points/traits : chaque case de
+// la planche n'est qu'un Pokémon "identité" (id, nom, sprite). Réutilise POKEMON_POOLS
+// tel quel (aucune deuxième base de données) via un échantillonnage stratifié par palier
+// de rareté, pour éviter une planche qui ne contiendrait que des Pokémon très similaires.
+// -----------------------------------------------------------------
+const GUESS_TURN_DURATION_MS = 25000;
+
+// Nombre de cases tirées par palier (somme = 36). Un peu de chaque, jamais tout un
+// palier d'un coup : la planche reste variée même si le tirage dans chaque palier est
+// aléatoire.
+const GUESS_TIER_COUNTS = {
+  commun: 10,
+  peu_commun: 8,
+  rare: 7,
+  epique: 6,
+  pseudo_legendaire: 3,
+  legendaire: 2
+};
+
+// Fisher-Yates : mélange correct et non biaisé (contrairement à `sort(() => Math.random())`,
+// qui ne produit pas une distribution uniforme).
+function shuffleArray(arr) {
+  const copy = [...arr];
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+}
+
+// Construit une planche fraîche (36 cases), différente à chaque partie. Le contenu
+// entier (planche = quels Pokémon, dans quel ordre) n'est PAS secret : les deux joueurs
+// la voient intégralement identique. Seule la case CHOISIE par chacun comme secret l'est.
+function buildGuessBoard() {
+  const picked = [];
+  for (const [tier, count] of Object.entries(GUESS_TIER_COUNTS)) {
+    const shuffledTier = shuffleArray(POKEMON_POOLS[tier]);
+    picked.push(...shuffledTier.slice(0, count));
+  }
+  return shuffleArray(picked).map((p, index) => ({
+    index,
+    id: p.id,
+    name: p.name,
+    sprite: p.sprite
+  }));
+}
+
+// Démarre une partie "guess" : nouvelle planche, secrets réinitialisés. Appelé UNIQUEMENT
+// par start_game (jamais par play_again directement : la planche précédente ne doit
+// jamais être réutilisée, cf. section 20 de la spec).
+function startGuessGame(game) {
+  game.guessBoard = buildGuessBoard();
+  game.guessActivePlayerId = null;
+  game.guessTurnEndsAt = null;
+  if (game.guessTurnTimer) {
+    clearTimeout(game.guessTurnTimer);
+    game.guessTurnTimer = null;
+  }
+  game.guessWinnerId = null;
+  game.players.forEach(p => { p.secretPokemonIndex = null; });
+
+  io.to(game.id).emit('guess_game_started', {
+    gameId: game.id,
+    board: game.guessBoard,
+    players: getPublicPlayers(game)
+  });
+}
+
+function broadcastGuessPlayers(game) {
+  io.to(game.id).emit('guess_players_updated', { players: getPublicPlayers(game) });
+}
+
+// Démarre le tour de `activePlayerId` : pose le timer serveur (source de vérité, cf.
+// section 6 de la spec — jamais confiance dans un timer client) et notifie tout le monde.
+function beginGuessTurn(game, activePlayerId) {
+  if (game.guessTurnTimer) clearTimeout(game.guessTurnTimer);
+
+  game.guessActivePlayerId = activePlayerId;
+  game.guessTurnEndsAt = Date.now() + GUESS_TURN_DURATION_MS;
+
+  io.to(game.id).emit('guess_turn_started', {
+    activePlayerId,
+    turnEndsAt: game.guessTurnEndsAt
+  });
+
+  game.guessTurnTimer = setTimeout(() => advanceGuessTurn(game), GUESS_TURN_DURATION_MS);
+}
+
+// Premier tour de la partie, une fois que les DEUX joueurs ont choisi leur secret.
+function startGuessTurns(game) {
+  const first = randomFrom(game.players);
+  beginGuessTurn(game, first.id);
+}
+
+// Passe au joueur suivant, que ce soit parce que le temps est écoulé (timer serveur) ou
+// que le joueur actif a cliqué sur "Finir le tour" (cf. socket.on('guess_finish_turn')) :
+// un seul chemin de code pour les deux déclencheurs, donc aucune divergence possible.
+function advanceGuessTurn(game) {
+  if (game.status !== 'playing' || game.gameMode !== 'guess') return; // partie déjà finie/rejouée entretemps
+  const other = game.players.find(p => p.id !== game.guessActivePlayerId);
+  if (!other) return; // adversaire déjà parti : la déconnexion gère la suite (forfait)
+  beginGuessTurn(game, other.id);
+}
+
+// Victoire normale : un joueur a trouvé le Pokémon secret de l'autre.
+function finishGuessGame(game, winnerId, opponentSecretIndex) {
+  if (game.guessTurnTimer) {
+    clearTimeout(game.guessTurnTimer);
+    game.guessTurnTimer = null;
+  }
+  game.status = 'finished';
+  game.guessWinnerId = winnerId;
+
+  const secretMon = game.guessBoard[opponentSecretIndex];
+  io.to(game.id).emit('guess_game_over', {
+    winnerId,
+    reason: 'found',
+    secretPokemon: { name: secretMon.name, sprite: secretMon.sprite },
+    players: getPublicPlayers(game)
+  });
+}
+
+// Abandon : l'un des deux quitte en cours de partie (ou de sélection du secret). Comme
+// ce mode nécessite strictement 2 joueurs, celui qui reste ne peut de toute façon plus
+// continuer normalement — victoire par forfait plutôt qu'un blocage silencieux (même
+// principe que finishAdminModeByForfeit).
+function finishGuessGameByForfeit(game, leavingPlayer) {
+  if (game.guessTurnTimer) {
+    clearTimeout(game.guessTurnTimer);
+    game.guessTurnTimer = null;
+  }
+  game.status = 'finished';
+
+  const remaining = game.players[0]; // un seul joueur restant, cf. leaveCurrentGame()/finalizePlayerRemoval()
+  game.guessWinnerId = remaining ? remaining.id : null;
+
+  io.to(game.id).emit('guess_game_over', {
+    winnerId: game.guessWinnerId,
+    reason: 'forfeit',
+    secretPokemon: null,
+    players: getPublicPlayers(game)
+  });
+}
+
+// -----------------------------------------------------------------
 // ÉVÉNEMENTS RARES
 //
 // Tirés côté serveur UNIQUEMENT, individuellement pour CHAQUE joueur, juste après
@@ -1517,7 +1664,7 @@ const games = {};
 // mode admin sera ajoutée aux étapes suivantes (génération des options, diffusion
 // différenciée admin/joueur, interfaces dédiées).
 // -----------------------------------------------------------------
-const GAME_MODES = ['normal', 'admin'];
+const GAME_MODES = ['normal', 'admin', 'guess'];
 
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // sans 0/O/1/I
 
@@ -1572,7 +1719,8 @@ function makePlayer(id, name, token) {
     eventCooldown: 0, // nb de tours restants avant qu'un nouvel événement puisse se tirer
     rarityFloor: null, // effet différé de LUCKY_TURN : plancher de rareté pour le PROCHAIN tirage, à usage unique
     rarityBoost: null, // petit bonus différé de CROSSED_FATES pour le PROCHAIN tirage, à usage unique
-    crossedFatesPartner: null // id du joueur lié (CROSSED_FATES), consommé au prochain choix de CE joueur
+    crossedFatesPartner: null, // id du joueur lié (CROSSED_FATES), consommé au prochain choix de CE joueur
+    secretPokemonIndex: null // mode "guess" uniquement : case choisie sur guessBoard, jamais révélée à l'adversaire
   };
 }
 
@@ -1586,7 +1734,8 @@ function getPublicPlayers(game) {
     disconnected: p.disconnected,
     score: p.score,
     team: p.team,
-    hasChosen: p.currentChoice !== null
+    hasChosen: p.currentChoice !== null,
+    secretSelected: p.secretPokemonIndex !== null // mode "guess" : jamais LEQUEL, juste si choisi
   }));
 }
 
@@ -1838,6 +1987,13 @@ function finalizePlayerRemoval(game, gameId, leavingPlayer) {
     return;
   }
 
+  // Mode DEVINE LE POKÉMON : strictement 2 joueurs, aucune continuation possible seul —
+  // même principe de victoire par forfait.
+  if (game.status === 'playing' && game.gameMode === 'guess') {
+    finishGuessGameByForfeit(game, leavingPlayer);
+    return;
+  }
+
   broadcastGameUpdated(game);
   maybeScheduleTurnTransition(game);
 }
@@ -1961,10 +2117,16 @@ io.on('connection', (socket) => {
       hostId: socket.id,
       boss: null, // choisi aléatoirement au démarrage (start_game), identique pour tous les joueurs
       selectedDifficulty: 'medium', // choisi par l'hôte dans le lobby ; défaut = MOYEN
-      gameMode: 'normal', // 'normal' | 'admin' — choisi par l'hôte dans le lobby, cf. set_game_mode
+      gameMode: 'normal', // 'normal' | 'admin' | 'guess' — choisi par l'hôte dans le lobby, cf. set_game_mode
       adminId: null, // id du joueur ADMIN si gameMode === 'admin', cf. set_admin_role
       route: buildRoute(),
       turnTimer: null,
+      // ---- Mode "guess" (Devine le Pokémon) uniquement, cf. startGuessGame() ----
+      guessBoard: null,
+      guessActivePlayerId: null,
+      guessTurnEndsAt: null,
+      guessTurnTimer: null,
+      guessWinnerId: null,
       players: [makePlayer(socket.id, trimmed, token)]
     };
 
@@ -2069,8 +2231,22 @@ io.on('connection', (socket) => {
         return;
       }
     }
+    if (game.gameMode === 'guess' && game.players.length !== 2) {
+      socket.emit('error_message', 'Ce mode nécessite exactement 2 joueurs.');
+      return;
+    }
 
     game.status = 'playing';
+
+    // Mode "Devine le Pokémon" : aucun concept de boss/route/équipe/tour-cadeau — flux
+    // entièrement différent (planche + secrets + tours chronométrés), isolé dans
+    // startGuessGame(). On sort ici avant de toucher aux champs Route du Boss.
+    if (game.gameMode === 'guess') {
+      game.players.forEach(p => { p.secretPokemonIndex = null; });
+      startGuessGame(game);
+      return;
+    }
+
     game.turn = 1;
     game.route = buildRoute();
     game.boss = pickRandomBoss(game.selectedDifficulty || 'medium');
@@ -2088,6 +2264,7 @@ io.on('connection', (socket) => {
       p.rarityFloor = null;
       p.rarityBoost = null;
       p.crossedFatesPartner = null;
+      p.secretPokemonIndex = null;
     });
 
     io.to(gameId).emit('game_started', {
@@ -2104,6 +2281,121 @@ io.on('connection', (socket) => {
     });
 
     startTurnForPlayers(game);
+  });
+
+  // ---------------------------------------------------------------
+  // GAMEMODE "DEVINE LE POKÉMON" — sélection du secret + tours chronométrés.
+  // ---------------------------------------------------------------
+
+  // Choix du Pokémon secret (une case de guessBoard). Une fois choisi, définitif pour
+  // toute la partie (aucun event pour le modifier, cf. spec section 16 anti-cheat).
+  socket.on('select_secret_pokemon', ({ index } = {}) => {
+    const gameId = socket.data.gameId;
+    const game = games[gameId];
+
+    if (!game) {
+      socket.emit('error_message', 'Partie introuvable.');
+      return;
+    }
+    if (game.gameMode !== 'guess' || game.status !== 'playing') {
+      socket.emit('error_message', "Action invalide.");
+      return;
+    }
+    const player = game.players.find(p => p.id === socket.id);
+    if (!player) {
+      socket.emit('error_message', 'Tu ne fais pas partie de cette partie.');
+      return;
+    }
+    if (player.secretPokemonIndex !== null) {
+      socket.emit('error_message', 'Pokémon secret déjà choisi.');
+      return;
+    }
+    if (!game.guessBoard || !game.guessBoard[index]) {
+      socket.emit('error_message', 'Case invalide.');
+      return;
+    }
+
+    player.secretPokemonIndex = index;
+
+    // Confirmation UNIQUEMENT à l'intéressé (jamais révélé à l'adversaire, même
+    // implicitement) : les autres joueurs ne reçoivent qu'un booléen via
+    // guess_players_updated (secretSelected), jamais l'index ni le nom.
+    socket.emit('secret_selection_confirmed', { index, name: game.guessBoard[index].name });
+    broadcastGuessPlayers(game);
+
+    const bothReady = game.players.length === 2 && game.players.every(p => p.secretPokemonIndex !== null);
+    if (bothReady) {
+      startGuessTurns(game);
+    }
+  });
+
+  // Le joueur ACTIF termine son tour avant les 25s. Le serveur revérifie que c'est
+  // bien son tour : un clic après expiration (course avec le timer serveur) ou d'un
+  // spectateur est silencieusement ignoré plutôt que de perturber le timer en cours.
+  socket.on('guess_finish_turn', () => {
+    const gameId = socket.data.gameId;
+    const game = games[gameId];
+
+    if (!game || game.gameMode !== 'guess' || game.status !== 'playing') return;
+    if (game.guessActivePlayerId !== socket.id) return;
+
+    advanceGuessTurn(game);
+  });
+
+  // Tentative de trouver le Pokémon secret de l'ADVERSAIRE. Comparaison faite
+  // EXCLUSIVEMENT côté serveur (jamais confiance au client, cf. spec section 15/16).
+  // "Dire ma réponse" engage le tour : la tentative (bonne ou mauvaise) le termine
+  // immédiatement, une seule utilisation possible par tour.
+  socket.on('guess_attempt', ({ index } = {}) => {
+    const gameId = socket.data.gameId;
+    const game = games[gameId];
+
+    if (!game) {
+      socket.emit('error_message', 'Partie introuvable.');
+      return;
+    }
+    if (game.gameMode !== 'guess' || game.status !== 'playing') {
+      socket.emit('error_message', "La partie n'est pas en cours.");
+      return;
+    }
+    if (game.guessActivePlayerId !== socket.id) {
+      socket.emit('error_message', "Ce n'est pas ton tour.");
+      return;
+    }
+    const player = game.players.find(p => p.id === socket.id);
+    const opponent = game.players.find(p => p.id !== socket.id);
+    if (!player || !opponent) {
+      socket.emit('error_message', 'Adversaire introuvable.');
+      return;
+    }
+    if (!game.guessBoard || !game.guessBoard[index]) {
+      socket.emit('error_message', 'Case invalide.');
+      return;
+    }
+
+    const correct = index === opponent.secretPokemonIndex;
+    const guessedMon = game.guessBoard[index];
+
+    // Diffusé aux DEUX joueurs, y compris en cas d'erreur : dans "Devine le Pokémon",
+    // savoir ce que l'adversaire a tenté (et raté) fait partie du jeu de déduction.
+    io.to(gameId).emit('guess_attempt_result', {
+      by: player.id,
+      index,
+      name: guessedMon.name,
+      correct
+    });
+
+    if (correct) {
+      finishGuessGame(game, player.id, opponent.secretPokemonIndex);
+    } else {
+      // "Dire ma réponse" engage TOUJOURS le tour : une tentative (bonne ou mauvaise)
+      // le termine immédiatement, jamais de seconde chance dans le même tour. Comme
+      // advanceGuessTurn() change game.guessActivePlayerId de façon synchrone avant que
+      // ce handler ne rende la main, une éventuelle deuxième tentative envoyée juste
+      // après échoue déjà naturellement au contrôle "Ce n'est pas ton tour" plus haut —
+      // aucun verrou supplémentaire n'est nécessaire pour garantir l'usage unique.
+      advanceGuessTurn(game);
+    }
   });
 
   // Rejouer avec les mêmes joueurs : crée une partie entièrement neuve (nouveau code,
@@ -2148,6 +2440,11 @@ io.on('connection', (socket) => {
       adminId: carriedAdminId,
       route: buildRoute(),
       turnTimer: null,
+      guessBoard: null,
+      guessActivePlayerId: null,
+      guessTurnEndsAt: null,
+      guessTurnTimer: null,
+      guessWinnerId: null,
       players: connectedOldPlayers.map(p => makePlayer(p.id, p.name, p.token)) // pity remis à 0, token conservé (cf. makePlayer)
     };
 
@@ -2744,7 +3041,15 @@ io.on('connection', (socket) => {
       gameMode: game.gameMode,
       adminId: game.adminId,
       hostId: game.hostId,
-      players: getPublicPlayers(game)
+      players: getPublicPlayers(game),
+      // Mode "guess" uniquement : sans ces champs, le client n'a aucun moyen de
+      // reconstruire la planche/le tour en cours après une reconnexion. mySecretIndex
+      // est UNIQUEMENT le sien (jamais celui de l'adversaire, cf. getPublicPlayers qui
+      // ne renvoie qu'un booléen) — sûr ici car rejoin_success cible ce seul socket.
+      guessBoard: game.gameMode === 'guess' ? game.guessBoard : undefined,
+      guessActivePlayerId: game.gameMode === 'guess' ? game.guessActivePlayerId : undefined,
+      guessTurnEndsAt: game.gameMode === 'guess' ? game.guessTurnEndsAt : undefined,
+      mySecretIndex: game.gameMode === 'guess' ? player.secretPokemonIndex : undefined
     });
 
     // Si une manche est en cours et que ce joueur n'a pas encore choisi, on lui renvoie
@@ -2752,7 +3057,7 @@ io.on('connection', (socket) => {
     // Cas plus rares volontairement non reconstruits ici (tour 4 spécial, événement rare
     // en cours) : le joueur retrouve quand même son score/équipe/tour à jour, et
     // rattrapera l'interactivité complète dès le tour suivant.
-    if (game.status === 'playing' && player.currentChoice === null) {
+    if (game.status === 'playing' && game.gameMode !== 'guess' && player.currentChoice === null) {
       if (game.gameMode === 'admin') {
         const joueur = game.players.find(p => p.id !== game.adminId);
         if (player.id === game.adminId && joueur && joueur.currentOptions) {
@@ -2784,7 +3089,11 @@ io.on('connection', (socket) => {
       }
     }
 
-    broadcastGameUpdated(game); // les autres voient le badge "hors ligne" disparaître
+    if (game.gameMode === 'guess') {
+      broadcastGuessPlayers(game); // les autres voient le badge "hors ligne" disparaître
+    } else {
+      broadcastGameUpdated(game);
+    }
   });
 
   socket.on('disconnect', () => {
