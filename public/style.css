@@ -471,6 +471,12 @@ input:focus {
   gap: 8px;
 }
 
+.guess-duration-options {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 6px;
+}
+
 .admin-role-btn {
   background: var(--bg-panel-alt);
   border: 1px solid var(--border);
@@ -2169,5 +2175,9 @@ input:focus {
 
   .guess-tile__name {
     font-size: 9px;
+  }
+
+  .guess-duration-options {
+    grid-template-columns: repeat(3, 1fr);
   }
 }

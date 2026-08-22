@@ -724,7 +724,11 @@ function pickAdminModeOptions() {
 // tel quel (aucune deuxième base de données) via un échantillonnage stratifié par palier
 // de rareté, pour éviter une planche qui ne contiendrait que des Pokémon très similaires.
 // -----------------------------------------------------------------
-const GUESS_TURN_DURATION_MS = 25000;
+// Durée d'un tour : réglable par l'hôte dans le lobby (cf. socket.on('set_guess_turn_duration')),
+// parmi ces valeurs seulement (jamais une valeur arbitraire envoyée par le client).
+// GUESS_TURN_DURATION_MS reste la valeur par défaut à la création d'une partie.
+const GUESS_TURN_DURATION_OPTIONS_MS = [20000, 30000, 45000, 60000, 90000];
+const GUESS_TURN_DURATION_MS = 30000;
 
 // Taille de la planche pilotée par la difficulté choisie dans le lobby (réutilise le
 // même sélecteur que Route du Boss — jamais un 2e réglage séparé). Plus de Pokémon en
@@ -793,6 +797,7 @@ function startGuessGame(game) {
     gameId: game.id,
     board: game.guessBoard,
     difficulty: game.selectedDifficulty,
+    turnDurationMs: game.guessTurnDurationMs || GUESS_TURN_DURATION_MS,
     players: getPublicPlayers(game)
   });
 }
@@ -806,15 +811,17 @@ function broadcastGuessPlayers(game) {
 function beginGuessTurn(game, activePlayerId) {
   if (game.guessTurnTimer) clearTimeout(game.guessTurnTimer);
 
+  const durationMs = game.guessTurnDurationMs || GUESS_TURN_DURATION_MS;
   game.guessActivePlayerId = activePlayerId;
-  game.guessTurnEndsAt = Date.now() + GUESS_TURN_DURATION_MS;
+  game.guessTurnEndsAt = Date.now() + durationMs;
 
   io.to(game.id).emit('guess_turn_started', {
     activePlayerId,
-    turnEndsAt: game.guessTurnEndsAt
+    turnEndsAt: game.guessTurnEndsAt,
+    turnDurationMs: durationMs
   });
 
-  game.guessTurnTimer = setTimeout(() => advanceGuessTurn(game), GUESS_TURN_DURATION_MS);
+  game.guessTurnTimer = setTimeout(() => advanceGuessTurn(game), durationMs);
 }
 
 // Premier tour de la partie, une fois que les DEUX joueurs ont choisi leur secret.
@@ -1763,7 +1770,8 @@ function broadcastGameUpdated(game) {
     maxTurns: game.maxTurns,
     route: game.route,
     players: getPublicPlayers(game),
-    hostId: game.hostId
+    hostId: game.hostId,
+    adminId: game.adminId
   });
 }
 
@@ -2137,6 +2145,7 @@ io.on('connection', (socket) => {
       guessTurnEndsAt: null,
       guessTurnTimer: null,
       guessWinnerId: null,
+      guessTurnDurationMs: GUESS_TURN_DURATION_MS, // réglable par l'hôte, cf. set_guess_turn_duration
       players: [makePlayer(socket.id, trimmed, token)]
     };
 
@@ -2150,7 +2159,8 @@ io.on('connection', (socket) => {
       hostId: games[gameId].hostId,
       difficulty: games[gameId].selectedDifficulty,
       gameMode: games[gameId].gameMode,
-      adminId: games[gameId].adminId
+      adminId: games[gameId].adminId,
+      guessTurnDurationMs: games[gameId].guessTurnDurationMs
     });
   });
 
@@ -2184,7 +2194,8 @@ io.on('connection', (socket) => {
         hostId: game.hostId,
         difficulty: game.selectedDifficulty,
         gameMode: game.gameMode,
-        adminId: game.adminId
+        adminId: game.adminId,
+        guessTurnDurationMs: game.guessTurnDurationMs
       });
       return;
     }
@@ -2205,7 +2216,8 @@ io.on('connection', (socket) => {
       hostId: game.hostId,
       difficulty: game.selectedDifficulty,
       gameMode: game.gameMode,
-      adminId: game.adminId
+      adminId: game.adminId,
+      guessTurnDurationMs: game.guessTurnDurationMs
     });
 
     broadcastPlayers(game);
@@ -2455,6 +2467,7 @@ io.on('connection', (socket) => {
       guessTurnEndsAt: null,
       guessTurnTimer: null,
       guessWinnerId: null,
+      guessTurnDurationMs: oldGame.guessTurnDurationMs || GUESS_TURN_DURATION_MS, // conservée, modifiable avant le lancement
       players: connectedOldPlayers.map(p => makePlayer(p.id, p.name, p.token)) // pity remis à 0, token conservé (cf. makePlayer)
     };
 
@@ -2478,7 +2491,8 @@ io.on('connection', (socket) => {
       hostId: newGame.hostId,
       difficulty: newGame.selectedDifficulty,
       gameMode: newGame.gameMode,
-      adminId: newGame.adminId
+      adminId: newGame.adminId,
+      guessTurnDurationMs: newGame.guessTurnDurationMs
     });
   });
 
@@ -2575,6 +2589,33 @@ io.on('connection', (socket) => {
 
     game.adminId = adminId;
     io.to(gameId).emit('admin_role_updated', { adminId: game.adminId });
+  });
+
+  // Durée d'un tour en mode "Devine le Pokémon", réglable par l'hôte dans le lobby.
+  // Uniquement parmi GUESS_TURN_DURATION_OPTIONS_MS (jamais une valeur arbitraire).
+  socket.on('set_guess_turn_duration', ({ durationMs } = {}) => {
+    const gameId = socket.data.gameId;
+    const game = games[gameId];
+
+    if (!game) {
+      socket.emit('error_message', 'Partie introuvable.');
+      return;
+    }
+    if (game.hostId !== socket.id) {
+      socket.emit('error_message', "Seul l'hôte peut régler la durée des tours.");
+      return;
+    }
+    if (game.status !== 'waiting') {
+      socket.emit('error_message', 'La durée des tours ne peut plus être modifiée.');
+      return;
+    }
+    if (!GUESS_TURN_DURATION_OPTIONS_MS.includes(durationMs)) {
+      socket.emit('error_message', 'Durée invalide.');
+      return;
+    }
+
+    game.guessTurnDurationMs = durationMs;
+    io.to(gameId).emit('guess_turn_duration_updated', { turnDurationMs: game.guessTurnDurationMs });
   });
 
   socket.on('player_choice', ({ choice } = {}) => {
@@ -3035,10 +3076,25 @@ io.on('connection', (socket) => {
       clearTimeout(player.disconnectTimer);
       player.disconnectTimer = null;
     }
+
+    const oldId = player.id; // avant rebranchement : tout ce qui référençait CE joueur
+    // référençait cet ancien id, désormais mort — à repointer vers le nouveau partout.
     player.disconnected = false;
     player.id = socket.id; // rebranche ce joueur sur sa nouvelle socket
     socket.join(gameId);
     socket.data.gameId = gameId;
+
+    // Tout champ qui stocke un id de joueur AILLEURS que sur l'objet joueur lui-même
+    // doit être repointé, sinon il continue de désigner une socket morte : perte du
+    // statut hôte/ADMIN, ou joueur bloqué "ce n'est pas ton tour" alors que si (mode
+    // "guess"). Repéré ici une bonne fois pour toutes plutôt que de laisser chaque
+    // fonctionnalité future réintroduire le même bug.
+    if (game.hostId === oldId) game.hostId = player.id;
+    if (game.adminId === oldId) game.adminId = player.id;
+    if (game.guessActivePlayerId === oldId) game.guessActivePlayerId = player.id;
+    game.players.forEach(p => {
+      if (p.crossedFatesPartner === oldId) p.crossedFatesPartner = player.id;
+    });
 
     socket.emit('rejoin_success', {
       gameId: game.id,
@@ -3059,6 +3115,7 @@ io.on('connection', (socket) => {
       guessBoard: game.gameMode === 'guess' ? game.guessBoard : undefined,
       guessActivePlayerId: game.gameMode === 'guess' ? game.guessActivePlayerId : undefined,
       guessTurnEndsAt: game.gameMode === 'guess' ? game.guessTurnEndsAt : undefined,
+      guessTurnDurationMs: game.gameMode === 'guess' ? (game.guessTurnDurationMs || GUESS_TURN_DURATION_MS) : undefined,
       mySecretIndex: game.gameMode === 'guess' ? player.secretPokemonIndex : undefined
     });
 

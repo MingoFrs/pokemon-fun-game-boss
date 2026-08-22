@@ -77,6 +77,8 @@ const gamemodeHintEl = document.getElementById('gamemode-hint');
 const adminRolePanelEl = document.getElementById('admin-role-panel');
 const adminRoleOptionsEl = document.getElementById('admin-role-options');
 const adminRoleStatusEl = document.getElementById('admin-role-status');
+const guessDurationPanelEl = document.getElementById('guess-duration-panel');
+const guessDurationButtons = Array.from(document.querySelectorAll('#guess-duration-options .admin-role-btn'));
 
 // ---------- Jeu ----------
 const bossPanelEl = document.getElementById('boss-panel');
@@ -240,6 +242,7 @@ function updateHostControls() {
   btnStart.classList.toggle('screen--hidden', !host);
   difficultyButtons.forEach(btn => { btn.disabled = !host; });
   gamemodeButtons.forEach(btn => { btn.disabled = !host; });
+  guessDurationButtons.forEach(btn => { btn.disabled = !host; });
   renderAdminRoleOptions(); // dépend aussi de isHost() (boutons désactivés pour l'invité)
   lobbyStatusEl.textContent = host
     ? 'Lance la partie quand tout le monde est prêt.'
@@ -272,6 +275,18 @@ function renderGameMode(gameMode) {
   if (currentGameMode === 'guess') {
     gamemodeHintEl.textContent = 'Ce mode nécessite exactement 2 joueurs.';
   }
+  guessDurationPanelEl.classList.toggle('screen--hidden', currentGameMode !== 'guess');
+}
+
+// Reflet local de la durée de tour choisie par l'hôte (mode "guess"). Le serveur reste
+// seul à décider réellement combien de temps un tour dure vraiment.
+let currentGuessTurnDurationMs = 30000;
+
+function renderGuessDuration(durationMs) {
+  currentGuessTurnDurationMs = durationMs || 30000;
+  guessDurationButtons.forEach(btn => {
+    btn.classList.toggle('admin-role-btn--selected', Number(btn.dataset.duration) === currentGuessTurnDurationMs);
+  });
 }
 
 // Reconstruit le picker ADMIN à partir de la dernière liste de joueurs connue. Affiché
@@ -1237,6 +1252,13 @@ gamemodeButtons.forEach(btn => {
   });
 });
 
+guessDurationButtons.forEach(btn => {
+  btn.addEventListener('click', () => {
+    if (!isHost()) return;
+    socket.emit('set_guess_turn_duration', { durationMs: Number(btn.dataset.duration) });
+  });
+});
+
 btnCopyCode.addEventListener('click', async () => {
   const code = gameCodeEl.textContent.trim();
   try {
@@ -1442,7 +1464,7 @@ socket.on('rejoin_failed', () => {
   endReconnectAttempt();
 });
 
-socket.on('game_created', ({ gameId, players, hostId: hId, difficulty, gameMode, adminId }) => {
+socket.on('game_created', ({ gameId, players, hostId: hId, difficulty, gameMode, adminId, guessTurnDurationMs }) => {
   resetGameUI();
   hostId = hId;
   gameCodeEl.textContent = gameId;
@@ -1451,11 +1473,12 @@ socket.on('game_created', ({ gameId, players, hostId: hId, difficulty, gameMode,
   renderLobbyPlayers(players);
   renderDifficulty(difficulty);
   renderGameMode(gameMode);
+  renderGuessDuration(guessTurnDurationMs);
   updateHostControls();
   showScreen(screenLobby);
 });
 
-socket.on('game_joined', ({ gameId, players, hostId: hId, difficulty, gameMode, adminId }) => {
+socket.on('game_joined', ({ gameId, players, hostId: hId, difficulty, gameMode, adminId, guessTurnDurationMs }) => {
   resetGameUI();
   hostId = hId;
   gameCodeEl.textContent = gameId;
@@ -1464,11 +1487,12 @@ socket.on('game_joined', ({ gameId, players, hostId: hId, difficulty, gameMode, 
   renderLobbyPlayers(players);
   renderDifficulty(difficulty);
   renderGameMode(gameMode);
+  renderGuessDuration(guessTurnDurationMs);
   updateHostControls();
   showScreen(screenLobby);
 });
 
-socket.on('game_replayed', ({ gameId, players, hostId: hId, difficulty, gameMode, adminId }) => {
+socket.on('game_replayed', ({ gameId, players, hostId: hId, difficulty, gameMode, adminId, guessTurnDurationMs }) => {
   resetGameUI();
   hostId = hId;
   gameCodeEl.textContent = gameId;
@@ -1479,6 +1503,7 @@ socket.on('game_replayed', ({ gameId, players, hostId: hId, difficulty, gameMode
   renderLobbyPlayers(players);
   renderDifficulty(difficulty);
   renderGameMode(gameMode);
+  renderGuessDuration(guessTurnDurationMs);
   updateHostControls();
   showScreen(screenLobby);
 });
@@ -1500,6 +1525,11 @@ socket.on('game_mode_updated', ({ gameMode, adminId }) => {
 socket.on('admin_role_updated', ({ adminId }) => {
   currentAdminId = adminId || null;
   renderAdminRoleOptions();
+});
+
+// Idem pour la durée des tours en mode "guess" (hôte uniquement, avant le lancement).
+socket.on('guess_turn_duration_updated', ({ turnDurationMs }) => {
+  renderGuessDuration(turnDurationMs);
 });
 
 socket.on('players_updated', ({ players, hostId: hId }) => {
@@ -1648,8 +1678,9 @@ socket.on('choice_result', ({ pokemon, rarity, basePoints, effect, pointsGained,
   updateMyScore(score, pointsGained);
 });
 
-socket.on('game_updated', ({ status, turn, maxTurns, route, players, hostId: hId }) => {
+socket.on('game_updated', ({ status, turn, maxTurns, route, players, hostId: hId, adminId }) => {
   if (hId) hostId = hId;
+  if (adminId !== undefined) currentAdminId = adminId;
   applyGameState({ status, turn, maxTurns, route, players });
 });
 
@@ -1880,7 +1911,9 @@ const guessFinishedStatusEl = document.getElementById('guess-finished-status');
 const btnLeaveGuessFinished = document.getElementById('btn-leave-guess-finished');
 
 // ---------- État local ----------
-const GUESS_TURN_DURATION_MS = 25000; // purement cosmétique (barre de temps) ; le serveur seul fait foi pour l'expiration réelle
+// currentGuessTurnDurationMs (déclarée plus haut, section lobby) sert aussi ici pour le
+// calcul de la barre de temps : purement cosmétique, le serveur seul fait foi pour
+// l'expiration réelle (turnEndsAt).
 let guessBoard = [];
 let guessMySecretIndex = null; // ma propre sélection UNIQUEMENT (jamais celle de l'adversaire)
 let guessActivePlayerId = null;
@@ -2056,14 +2089,17 @@ btnGuessConfirmOk.addEventListener('click', () => {
 
 // Purement visuelle : la barre/le chiffre se recalculent depuis turnEndsAt (fourni par
 // le serveur) à chaque tick, jamais depuis un décompte local qui pourrait dériver.
-function startGuessTimerDisplay(turnEndsAt) {
+// durationMs (optionnel) resynchronise currentGuessTurnDurationMs si fourni — sinon la
+// dernière valeur connue est réutilisée (ex: relance interne sans nouvelle donnée).
+function startGuessTimerDisplay(turnEndsAt, durationMs) {
   clearInterval(guessTimerInterval);
+  if (durationMs) currentGuessTurnDurationMs = durationMs;
 
   function tick() {
     const remainingMs = Math.max(0, turnEndsAt - Date.now());
     const remainingSec = Math.ceil(remainingMs / 1000);
     guessTimerValueEl.textContent = remainingSec;
-    const pct = Math.max(0, Math.min(100, (remainingMs / GUESS_TURN_DURATION_MS) * 100));
+    const pct = Math.max(0, Math.min(100, (remainingMs / currentGuessTurnDurationMs) * 100));
     guessTimerBarEl.style.width = `${pct}%`;
     guessTimerBarEl.classList.toggle('guess-timer-bar--low', remainingSec <= 5);
     if (remainingMs <= 0) clearInterval(guessTimerInterval);
@@ -2134,7 +2170,7 @@ socket.on('guess_players_updated', ({ players }) => {
   renderGuessPlayers(players);
 });
 
-socket.on('guess_turn_started', ({ activePlayerId, turnEndsAt }) => {
+socket.on('guess_turn_started', ({ activePlayerId, turnEndsAt, turnDurationMs }) => {
   guessActivePlayerId = activePlayerId;
   guessSelectionPanelEl.classList.add('screen--hidden');
   guessTurnPanelEl.classList.remove('screen--hidden');
@@ -2150,7 +2186,7 @@ socket.on('guess_turn_started', ({ activePlayerId, turnEndsAt }) => {
   setGuessBoardMode('idle');
   btnGuessAnswer.textContent = 'Dire ma réponse';
 
-  startGuessTimerDisplay(turnEndsAt);
+  startGuessTimerDisplay(turnEndsAt, turnDurationMs);
 });
 
 // Diffusé aux DEUX joueurs, bonne ou mauvaise réponse : ça fait partie du jeu de
