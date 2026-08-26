@@ -138,7 +138,7 @@ const UNCOMMON_RAW = [
   { id: 77, name: 'Ponyta', points: 252 },
   { id: 47, name: 'Parasect', points: 252 },
   { id: 256, name: 'Galifeu', points: 252 },
-  { id: 400, name: 'Bibarel', points: 253 },
+  { id: 400, name: 'Castorno', points: 253 },
   { id: 262, name: 'Grahyèna', points: 257 },
   { id: 264, name: 'Linéon', points: 258 },
   { id: 104, name: 'Osselait', points: 261 },
@@ -2958,8 +2958,9 @@ io.on('connection', (socket) => {
 
   // Easter egg : clique sur un Métamorph dans TON équipe -> il copie le sprite d'un
   // autre Pokémon au hasard dans la même équipe et prend 75% de sa valeur actuelle.
-  // Rejouable à volonté (re-tire un nouveau membre à chaque clic) : jamais de croissance
-  // infinie, toujours borné par 0.75× la valeur d'un membre déjà présent dans l'équipe.
+  // Valable UNE SEULE FOIS par Métamorph (mon.metamorphUsed), dans les deux modes
+  // d'équipe (normal + admin vs joueur) : une fois transformé, le slot reste figé sur
+  // sa nouvelle forme pour le reste de la partie.
   // Aucun lien avec le tour en cours : peut être cliqué à tout moment pendant la partie.
   socket.on('transform_metamorph', ({ index } = {}) => {
     const gameId = socket.data.gameId;
@@ -2982,6 +2983,10 @@ io.on('connection', (socket) => {
     const mon = player.team[index];
     if (!mon || mon.id !== METAMORPH_DEX_ID) {
       socket.emit('error_message', "Ce n'est pas un Métamorph.");
+      return;
+    }
+    if (mon.metamorphUsed) {
+      socket.emit('error_message', 'Ce Métamorph a déjà pris sa forme.');
       return;
     }
 
@@ -3009,6 +3014,7 @@ io.on('connection', (socket) => {
       m.basePoints = targetContribution;
       m.multiplier = METAMORPH_TRANSFORM_MULTIPLIER;
       m.effectName = 'Transformé';
+      m.metamorphUsed = true; // verrou définitif : usage unique pour ce Métamorph
       // m.name INTENTIONNELLEMENT jamais réécrit : reste "Métamorph" pour toujours.
     });
 

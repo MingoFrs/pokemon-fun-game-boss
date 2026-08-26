@@ -7,61 +7,104 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
+<!-- Applique thème de fond + réduction d'animations AVANT le premier rendu, pour
+     éviter un flash visuel (contenu défini par le panneau Réglages, cf. client.js). -->
+<script>
+(function () {
+  try {
+    var s = JSON.parse(localStorage.getItem('rdb_settings_v1')) || {};
+    if (s.theme) document.documentElement.dataset.theme = s.theme;
+    if (s.reduceMotion) document.documentElement.classList.add('reduce-motion');
+  } catch (e) {}
+})();
+</script>
 </head>
-<body>
+<body data-screen="home">
 
 <div class="bg-glow" aria-hidden="true"></div>
 
+<!-- Chrome persistant : présent sur TOUS les écrans (accueil compris). Le hero plein
+     format (gros logo/tagline) reste, lui, propre à #screen-home (cf. plus bas) — cette
+     barre est volontairement compacte pour ne jamais concurrencer le contenu de jeu. -->
+<header class="app-bar">
+  <div class="app-bar__brand">
+    <svg class="app-bar__mark" viewBox="0 0 40 40" fill="none" aria-hidden="true">
+      <circle cx="20" cy="6" r="4" class="node node--boss"/>
+      <path d="M20 10 L20 15" class="edge edge--trunk"/>
+      <circle cx="12" cy="21" r="3" class="node node--haut"/>
+      <circle cx="28" cy="21" r="3" class="node node--bas"/>
+      <path d="M20 15 L12 18" class="edge edge--haut"/>
+      <path d="M20 15 L28 18" class="edge edge--bas"/>
+      <path d="M12 24 L18 31" class="edge edge--haut"/>
+      <path d="M28 24 L22 31" class="edge edge--bas"/>
+      <circle cx="20" cy="34" r="4" class="node node--start"/>
+    </svg>
+    <span class="app-bar__title">Route du Boss</span>
+  </div>
+  <button id="btn-settings" type="button" class="app-bar__settings" aria-label="Réglages">
+    <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="3"></circle>
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+    </svg>
+  </button>
+</header>
+
 <main class="app">
 
-  <header class="hero">
-    <svg class="hero__path" viewBox="0 0 220 320" fill="none" aria-hidden="true">
-      <circle cx="110" cy="24" r="14" class="node node--boss"/>
-      <path d="M110 38 L110 66" class="edge edge--trunk"/>
-      <circle cx="110" cy="80" r="9" class="node"/>
-      <path d="M110 89 L58 128" class="edge edge--haut"/>
-      <path d="M110 89 L162 128" class="edge edge--bas"/>
-      <circle cx="58" cy="132" r="8" class="node node--haut"/>
-      <circle cx="162" cy="132" r="8" class="node node--bas"/>
-      <path d="M58 140 L58 176" class="edge edge--haut"/>
-      <path d="M162 140 L162 176" class="edge edge--bas"/>
-      <circle cx="58" cy="184" r="7" class="node node--haut"/>
-      <circle cx="162" cy="184" r="7" class="node node--bas"/>
-      <path d="M58 191 L94 224" class="edge edge--haut"/>
-      <path d="M162 191 L126 224" class="edge edge--bas"/>
-      <circle cx="110" cy="232" r="9" class="node"/>
-      <path d="M110 241 L110 268" class="edge edge--trunk"/>
-      <circle cx="110" cy="284" r="12" class="node node--start"/>
-    </svg>
-    <p class="eyebrow">Multijoueur temps réel</p>
-    <h1>Route du Boss</h1>
-    <p class="tagline">Choisis HAUT ou BAS à chaque tour. Capture des Pokémon. Atteins le boss.</p>
-  </header>
-
   <section id="screen-home" class="screen">
-    <p id="reconnect-status" class="lobby-status screen--hidden">Reconnexion à ta partie...</p>
+    <div class="home-shell">
 
-    <div id="home-forms" class="field">
-      <label for="pseudo-input">Pseudo</label>
-      <input id="pseudo-input" type="text" maxlength="16" placeholder="Ton nom de dresseur" autocomplete="off">
-    </div>
-
-    <div id="home-cards" class="cards">
-      <div class="card">
-        <h2>Créer une partie</h2>
-        <p class="card__hint">Génère un code et invite tes amis.</p>
-        <button id="btn-create" class="btn btn--haut">Créer une partie</button>
+      <div class="home-hero">
+        <svg class="hero__path" viewBox="0 0 220 320" fill="none" aria-hidden="true">
+          <circle cx="110" cy="24" r="14" class="node node--boss"/>
+          <path d="M110 38 L110 66" class="edge edge--trunk"/>
+          <circle cx="110" cy="80" r="9" class="node"/>
+          <path d="M110 89 L58 128" class="edge edge--haut"/>
+          <path d="M110 89 L162 128" class="edge edge--bas"/>
+          <circle cx="58" cy="132" r="8" class="node node--haut"/>
+          <circle cx="162" cy="132" r="8" class="node node--bas"/>
+          <path d="M58 140 L58 176" class="edge edge--haut"/>
+          <path d="M162 140 L162 176" class="edge edge--bas"/>
+          <circle cx="58" cy="184" r="7" class="node node--haut"/>
+          <circle cx="162" cy="184" r="7" class="node node--bas"/>
+          <path d="M58 191 L94 224" class="edge edge--haut"/>
+          <path d="M162 191 L126 224" class="edge edge--bas"/>
+          <circle cx="110" cy="232" r="9" class="node"/>
+          <path d="M110 241 L110 268" class="edge edge--trunk"/>
+          <circle cx="110" cy="284" r="12" class="node node--start"/>
+        </svg>
+        <p class="eyebrow">Multijoueur temps réel</p>
+        <h1>Route du Boss</h1>
+        <p class="tagline">Choisis HAUT ou BAS à chaque tour. Capture des Pokémon. Atteins le boss.</p>
       </div>
 
-      <div class="card">
-        <h2>Rejoindre une partie</h2>
-        <p class="card__hint">Entre le code reçu de l'hôte.</p>
-        <input id="code-input" type="text" maxlength="6" placeholder="CODE" class="input-code" autocomplete="off">
-        <button id="btn-join" class="btn btn--bas">Rejoindre</button>
-      </div>
-    </div>
+      <div class="home-panel">
+        <p id="reconnect-status" class="lobby-status screen--hidden">Reconnexion à ta partie...</p>
 
-    <p id="error-message" class="error-message" role="alert"></p>
+        <div id="home-forms" class="field">
+          <label for="pseudo-input">Pseudo</label>
+          <input id="pseudo-input" type="text" maxlength="16" placeholder="Ton nom de dresseur" autocomplete="off">
+        </div>
+
+        <div id="home-cards" class="cards">
+          <div class="card">
+            <h2>Créer une partie</h2>
+            <p class="card__hint">Génère un code et invite tes amis.</p>
+            <button id="btn-create" class="btn btn--haut">Créer une partie</button>
+          </div>
+
+          <div class="card">
+            <h2>Rejoindre une partie</h2>
+            <p class="card__hint">Entre le code reçu de l'hôte.</p>
+            <input id="code-input" type="text" maxlength="6" placeholder="CODE" class="input-code" autocomplete="off">
+            <button id="btn-join" class="btn btn--bas">Rejoindre</button>
+          </div>
+        </div>
+
+        <p id="error-message" class="error-message" role="alert"></p>
+      </div>
+
+    </div>
   </section>
 
   <section id="screen-lobby" class="screen screen--hidden">
@@ -77,46 +120,52 @@
       <button id="btn-leave" class="btn btn--ghost">Quitter</button>
     </div>
 
-    <div class="players-panel">
-      <h2>Joueurs <span id="players-count">(0)</span></h2>
-      <ul id="players-list" class="players-list"></ul>
-    </div>
-
-    <div class="difficulty-panel">
-      <p class="eyebrow">Difficulté du boss</p>
-      <div id="difficulty-options" class="difficulty-options">
-        <button type="button" class="difficulty-btn" data-difficulty="easy">Facile</button>
-        <button type="button" class="difficulty-btn" data-difficulty="medium">Moyen</button>
-        <button type="button" class="difficulty-btn" data-difficulty="hard">Difficile</button>
-        <button type="button" class="difficulty-btn" data-difficulty="extreme">Extrême</button>
+    <div class="lobby-grid">
+      <div class="lobby-col lobby-col--players">
+        <div class="players-panel">
+          <h2>Joueurs <span id="players-count">(0)</span></h2>
+          <ul id="players-list" class="players-list"></ul>
+        </div>
       </div>
-    </div>
 
-    <div class="gamemode-panel">
-      <p class="eyebrow">Mode de jeu</p>
-      <div id="gamemode-options" class="gamemode-options">
-        <button type="button" class="gamemode-btn" data-mode="normal">Mode normal</button>
-        <button type="button" class="gamemode-btn" data-mode="admin">Admin vs Joueur</button>
-        <button type="button" class="gamemode-btn" data-mode="guess">Devine le Pokémon</button>
-      </div>
-    </div>
+      <div class="lobby-col lobby-col--config">
+        <div class="difficulty-panel">
+          <p class="eyebrow">Difficulté du boss</p>
+          <div id="difficulty-options" class="difficulty-options">
+            <button type="button" class="difficulty-btn" data-difficulty="easy">Facile</button>
+            <button type="button" class="difficulty-btn" data-difficulty="medium">Moyen</button>
+            <button type="button" class="difficulty-btn" data-difficulty="hard">Difficile</button>
+            <button type="button" class="difficulty-btn" data-difficulty="extreme">Extrême</button>
+          </div>
+        </div>
 
-    <p id="gamemode-hint" class="gamemode-hint screen--hidden"></p>
+        <div class="gamemode-panel">
+          <p class="eyebrow">Mode de jeu</p>
+          <div id="gamemode-options" class="gamemode-options">
+            <button type="button" class="gamemode-btn" data-mode="normal">Mode normal</button>
+            <button type="button" class="gamemode-btn" data-mode="admin">Admin vs Joueur</button>
+            <button type="button" class="gamemode-btn" data-mode="guess">Devine le Pokémon</button>
+          </div>
+        </div>
 
-    <div id="admin-role-panel" class="admin-role-panel screen--hidden">
-      <p class="eyebrow">Choisir l'ADMIN</p>
-      <div id="admin-role-options" class="admin-role-options"></div>
-      <p id="admin-role-status" class="admin-role-status"></p>
-    </div>
+        <p id="gamemode-hint" class="gamemode-hint screen--hidden"></p>
 
-    <div id="guess-duration-panel" class="admin-role-panel screen--hidden">
-      <p class="eyebrow">Durée d'un tour</p>
-      <div id="guess-duration-options" class="guess-duration-options">
-        <button type="button" class="admin-role-btn" data-duration="20000">20s</button>
-        <button type="button" class="admin-role-btn" data-duration="30000">30s</button>
-        <button type="button" class="admin-role-btn" data-duration="45000">45s</button>
-        <button type="button" class="admin-role-btn" data-duration="60000">60s</button>
-        <button type="button" class="admin-role-btn" data-duration="90000">90s</button>
+        <div id="admin-role-panel" class="admin-role-panel screen--hidden">
+          <p class="eyebrow">Choisir l'ADMIN</p>
+          <div id="admin-role-options" class="admin-role-options"></div>
+          <p id="admin-role-status" class="admin-role-status"></p>
+        </div>
+
+        <div id="guess-duration-panel" class="admin-role-panel screen--hidden">
+          <p class="eyebrow">Durée d'un tour</p>
+          <div id="guess-duration-options" class="guess-duration-options">
+            <button type="button" class="admin-role-btn" data-duration="20000">20s</button>
+            <button type="button" class="admin-role-btn" data-duration="30000">30s</button>
+            <button type="button" class="admin-role-btn" data-duration="45000">45s</button>
+            <button type="button" class="admin-role-btn" data-duration="60000">60s</button>
+            <button type="button" class="admin-role-btn" data-duration="90000">90s</button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -126,140 +175,150 @@
 
   <section id="screen-game" class="screen screen--hidden">
 
-    <div class="boss-panel" id="boss-panel">
-      <p class="eyebrow">Boss de fin</p>
-      <img id="boss-sprite" class="boss-sprite" src="" alt="">
-      <h2 id="boss-name" class="boss-name">ARCEUS</h2>
-      <p class="boss-target">Objectif : <span id="boss-target-value">2500</span> PTS</p>
-      <div class="my-score-row">
-        <span id="my-score-label" class="my-score-label">Ton score</span>
-        <span class="my-score-value-wrap">
-          <span id="my-score-value" class="my-score-value">0</span>
-          <span id="my-score-popup" class="my-score-popup"></span>
-        </span>
-      </div>
-    </div>
+    <div class="game-grid">
+      <div class="game-sidebar">
 
-    <div class="route-panel">
-      <p class="eyebrow">Route</p>
-      <div id="route-track" class="route-track"></div>
-    </div>
-
-    <div class="turn-panel">
-      <p class="turn-label">TOUR <span id="turn-current">1</span> / <span id="turn-max">6</span></p>
-      <p id="turn-status" class="turn-status">Choisis ton chemin</p>
-
-      <div id="choice-cards" class="choice-cards">
-        <button id="btn-haut" type="button" class="choice-card choice-card--haut">
-          <img id="choice-haut-sprite" class="choice-card__sprite" src="" alt="">
-          <p id="choice-haut-name" class="choice-card__name">???</p>
-          <span class="choice-card__label">🔼 HAUT</span>
-        </button>
-        <button id="btn-bas" type="button" class="choice-card choice-card--bas">
-          <img id="choice-bas-sprite" class="choice-card__sprite" src="" alt="">
-          <p id="choice-bas-name" class="choice-card__name">???</p>
-          <span class="choice-card__label">🔽 BAS</span>
-        </button>
-      </div>
-
-      <!-- Mode ADMIN VS JOUEUR, écran de l'ADMIN : lecture seule, aucun bouton de choix.
-           Remplace #choice-cards (masqué) pour ce rôle. -->
-      <div id="admin-view-panel" class="admin-view-panel screen--hidden">
-        <p class="admin-view-hint">Tu es l'ADMIN — indique au JOUEUR ce que tu vois (ou mens-lui).</p>
-        <p class="admin-view-target">
-          Joueur observé : <span id="admin-view-player-name">—</span> ·
-          <span id="admin-view-player-score">0</span> PTS
-        </p>
-        <div class="admin-view-cards">
-          <div class="admin-view-card admin-view-card--haut">
-            <span class="admin-view-card__label">🔼 HAUT</span>
-            <img id="admin-view-haut-sprite" class="admin-view-card__sprite" src="" alt="">
-            <p id="admin-view-haut-name" class="admin-view-card__name">???</p>
-            <p id="admin-view-haut-rarity" class="admin-view-card__rarity"></p>
-            <p id="admin-view-haut-points" class="admin-view-card__points"></p>
-            <p id="admin-view-haut-effect" class="admin-view-card__effect"></p>
-          </div>
-          <div class="admin-view-card admin-view-card--bas">
-            <span class="admin-view-card__label">🔽 BAS</span>
-            <img id="admin-view-bas-sprite" class="admin-view-card__sprite" src="" alt="">
-            <p id="admin-view-bas-name" class="admin-view-card__name">???</p>
-            <p id="admin-view-bas-rarity" class="admin-view-card__rarity"></p>
-            <p id="admin-view-bas-points" class="admin-view-card__points"></p>
-            <p id="admin-view-bas-effect" class="admin-view-card__effect"></p>
+        <div class="boss-panel" id="boss-panel">
+          <p class="eyebrow">Boss de fin</p>
+          <img id="boss-sprite" class="boss-sprite" src="" alt="">
+          <h2 id="boss-name" class="boss-name">ARCEUS</h2>
+          <p class="boss-target">Objectif : <span id="boss-target-value">2500</span> PTS</p>
+          <div class="my-score-row">
+            <span id="my-score-label" class="my-score-label">Ton score</span>
+            <span class="my-score-value-wrap">
+              <span id="my-score-value" class="my-score-value">0</span>
+              <span id="my-score-popup" class="my-score-popup"></span>
+            </span>
           </div>
         </div>
+
+        <div class="route-panel">
+          <p class="eyebrow">Route</p>
+          <div id="route-track" class="route-track"></div>
+        </div>
+
+        <div class="team-panel">
+          <p class="eyebrow">Ton équipe</p>
+          <div id="team-slots" class="team-slots"></div>
+        </div>
+
       </div>
 
-      <!-- Tour 4 uniquement : POKÉMON (chemin normal) ou BONUS (sacrifie le Pokémon du tour). -->
-      <div id="advantage-panel" class="choice-cards screen--hidden">
-        <button id="btn-advantage-pokemon" type="button" class="choice-card choice-card--haut">
-          <span class="choice-card__icon">🎴</span>
-          <p class="choice-card__name">POKÉMON</p>
-          <span class="choice-card__label">Chemin normal</span>
-        </button>
-        <button id="btn-advantage-bonus" type="button" class="choice-card choice-card--bas">
-          <span class="choice-card__icon">✨</span>
-          <p class="choice-card__name">BONUS</p>
-          <span class="choice-card__label">Sacrifie ce Pokémon</span>
-        </button>
+      <div class="game-main">
+
+        <div class="turn-panel">
+          <p class="turn-label">TOUR <span id="turn-current">1</span> / <span id="turn-max">6</span></p>
+          <p id="turn-status" class="turn-status">Choisis ton chemin</p>
+
+          <div id="choice-cards" class="choice-cards">
+            <button id="btn-haut" type="button" class="choice-card choice-card--haut">
+              <img id="choice-haut-sprite" class="choice-card__sprite" src="" alt="">
+              <p id="choice-haut-name" class="choice-card__name">???</p>
+              <span class="choice-card__label">🔼 HAUT</span>
+            </button>
+            <button id="btn-bas" type="button" class="choice-card choice-card--bas">
+              <img id="choice-bas-sprite" class="choice-card__sprite" src="" alt="">
+              <p id="choice-bas-name" class="choice-card__name">???</p>
+              <span class="choice-card__label">🔽 BAS</span>
+            </button>
+          </div>
+
+          <!-- Mode ADMIN VS JOUEUR, écran de l'ADMIN : lecture seule, aucun bouton de choix.
+               Remplace #choice-cards (masqué) pour ce rôle. -->
+          <div id="admin-view-panel" class="admin-view-panel screen--hidden">
+            <p class="admin-view-hint">Tu es l'ADMIN — indique au JOUEUR ce que tu vois (ou mens-lui).</p>
+            <p class="admin-view-target">
+              Joueur observé : <span id="admin-view-player-name">—</span> ·
+              <span id="admin-view-player-score">0</span> PTS
+            </p>
+            <div class="admin-view-cards">
+              <div class="admin-view-card admin-view-card--haut">
+                <span class="admin-view-card__label">🔼 HAUT</span>
+                <img id="admin-view-haut-sprite" class="admin-view-card__sprite" src="" alt="">
+                <p id="admin-view-haut-name" class="admin-view-card__name">???</p>
+                <p id="admin-view-haut-rarity" class="admin-view-card__rarity"></p>
+                <p id="admin-view-haut-points" class="admin-view-card__points"></p>
+                <p id="admin-view-haut-effect" class="admin-view-card__effect"></p>
+              </div>
+              <div class="admin-view-card admin-view-card--bas">
+                <span class="admin-view-card__label">🔽 BAS</span>
+                <img id="admin-view-bas-sprite" class="admin-view-card__sprite" src="" alt="">
+                <p id="admin-view-bas-name" class="admin-view-card__name">???</p>
+                <p id="admin-view-bas-rarity" class="admin-view-card__rarity"></p>
+                <p id="admin-view-bas-points" class="admin-view-card__points"></p>
+                <p id="admin-view-bas-effect" class="admin-view-card__effect"></p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Tour 4 uniquement : POKÉMON (chemin normal) ou BONUS (sacrifie le Pokémon du tour). -->
+          <div id="advantage-panel" class="choice-cards screen--hidden">
+            <button id="btn-advantage-pokemon" type="button" class="choice-card choice-card--haut">
+              <span class="choice-card__icon">🎴</span>
+              <p class="choice-card__name">POKÉMON</p>
+              <span class="choice-card__label">Chemin normal</span>
+            </button>
+            <button id="btn-advantage-bonus" type="button" class="choice-card choice-card--bas">
+              <span class="choice-card__icon">✨</span>
+              <p class="choice-card__name">BONUS</p>
+              <span class="choice-card__label">Sacrifie ce Pokémon</span>
+            </button>
+          </div>
+
+          <!-- Les 2 bonus tirés par le serveur (jamais choisis par le client). -->
+          <div id="bonus-panel" class="choice-cards screen--hidden">
+            <button id="bonus-card-a" type="button" class="choice-card choice-card--haut">
+              <span class="choice-card__icon">🎁</span>
+              <p id="bonus-card-a-label" class="choice-card__name">???</p>
+              <span id="bonus-card-a-desc" class="choice-card__label"></span>
+            </button>
+            <button id="bonus-card-b" type="button" class="choice-card choice-card--bas">
+              <span class="choice-card__icon">🎁</span>
+              <p id="bonus-card-b-label" class="choice-card__name">???</p>
+              <span id="bonus-card-b-desc" class="choice-card__label"></span>
+            </button>
+          </div>
+
+          <!-- Cible du bonus choisi : Pokémon évoluables (Bonbon XP) ou toute l'équipe (Objet Mystère). -->
+          <div id="bonus-target-panel" class="bonus-target-panel screen--hidden">
+            <p id="bonus-target-title" class="bonus-target-title"></p>
+            <div id="bonus-target-list" class="bonus-target-list"></div>
+          </div>
+        </div>
+
+        <div id="result-panel" class="result-panel result-panel--hidden">
+          <p class="eyebrow">Résultat</p>
+          <p id="result-rarity" class="result-rarity"></p>
+          <img id="result-sprite" class="result-sprite" src="" alt="">
+          <p id="result-name" class="result-name"></p>
+          <div class="result-breakdown">
+            <p class="result-line">Base : <span id="result-base">0</span> PTS</p>
+            <p class="result-line">Effet : <span id="result-effect">—</span></p>
+            <p class="result-final">Résultat : <span id="result-points">0</span> PTS</p>
+          </div>
+        </div>
+
+        <!-- Résultat d'un bonus (Bonbon XP / Objet Mystère / Charme Chroma) : même style que result-panel. -->
+        <div id="bonus-result-panel" class="result-panel result-panel--hidden">
+          <p class="eyebrow" id="bonus-result-title">Bonus</p>
+          <img id="bonus-result-sprite" class="result-sprite" src="" alt="">
+          <p id="bonus-result-detail" class="result-name"></p>
+          <p id="bonus-result-final" class="result-final"></p>
+        </div>
+
+        <button id="btn-skip" type="button" class="btn btn--ghost btn--block screen--hidden">Skip ⏩</button>
+
+        <!-- Easter egg Métamorph : révélation de transformation, masquée par défaut, jamais
+             confondue avec #bonus-result-panel (qui appartient au flux tour 4). -->
+        <div id="metamorph-result-panel" class="result-panel result-panel--hidden">
+          <p class="eyebrow">Métamorphose</p>
+          <p id="metamorph-result-title" class="result-name">Métamorphe se transforme ??!</p>
+          <img id="metamorph-result-sprite" class="result-sprite" src="" alt="">
+          <p id="metamorph-result-detail" class="result-name"></p>
+          <p id="metamorph-result-final" class="result-final"></p>
+        </div>
+
       </div>
-
-      <!-- Les 2 bonus tirés par le serveur (jamais choisis par le client). -->
-      <div id="bonus-panel" class="choice-cards screen--hidden">
-        <button id="bonus-card-a" type="button" class="choice-card choice-card--haut">
-          <span class="choice-card__icon">🎁</span>
-          <p id="bonus-card-a-label" class="choice-card__name">???</p>
-          <span id="bonus-card-a-desc" class="choice-card__label"></span>
-        </button>
-        <button id="bonus-card-b" type="button" class="choice-card choice-card--bas">
-          <span class="choice-card__icon">🎁</span>
-          <p id="bonus-card-b-label" class="choice-card__name">???</p>
-          <span id="bonus-card-b-desc" class="choice-card__label"></span>
-        </button>
-      </div>
-
-      <!-- Cible du bonus choisi : Pokémon évoluables (Bonbon XP) ou toute l'équipe (Objet Mystère). -->
-      <div id="bonus-target-panel" class="bonus-target-panel screen--hidden">
-        <p id="bonus-target-title" class="bonus-target-title"></p>
-        <div id="bonus-target-list" class="bonus-target-list"></div>
-      </div>
-    </div>
-
-    <div id="result-panel" class="result-panel result-panel--hidden">
-      <p class="eyebrow">Résultat</p>
-      <p id="result-rarity" class="result-rarity"></p>
-      <img id="result-sprite" class="result-sprite" src="" alt="">
-      <p id="result-name" class="result-name"></p>
-      <div class="result-breakdown">
-        <p class="result-line">Base : <span id="result-base">0</span> PTS</p>
-        <p class="result-line">Effet : <span id="result-effect">—</span></p>
-        <p class="result-final">Résultat : <span id="result-points">0</span> PTS</p>
-      </div>
-    </div>
-
-    <!-- Résultat d'un bonus (Bonbon XP / Objet Mystère / Charme Chroma) : même style que result-panel. -->
-    <div id="bonus-result-panel" class="result-panel result-panel--hidden">
-      <p class="eyebrow" id="bonus-result-title">Bonus</p>
-      <img id="bonus-result-sprite" class="result-sprite" src="" alt="">
-      <p id="bonus-result-detail" class="result-name"></p>
-      <p id="bonus-result-final" class="result-final"></p>
-    </div>
-
-    <button id="btn-skip" type="button" class="btn btn--ghost btn--block screen--hidden">Skip ⏩</button>
-
-    <div class="team-panel">
-      <p class="eyebrow">Ton équipe</p>
-      <div id="team-slots" class="team-slots"></div>
-    </div>
-
-    <!-- Easter egg Métamorph : révélation de transformation, masquée par défaut, jamais
-         confondue avec #bonus-result-panel (qui appartient au flux tour 4). -->
-    <div id="metamorph-result-panel" class="result-panel result-panel--hidden">
-      <p class="eyebrow">Métamorphose</p>
-      <p id="metamorph-result-title" class="result-name">Métamorphe se transforme ??!</p>
-      <img id="metamorph-result-sprite" class="result-sprite" src="" alt="">
-      <p id="metamorph-result-detail" class="result-name"></p>
-      <p id="metamorph-result-final" class="result-final"></p>
     </div>
 
     <div class="players-panel">
@@ -272,26 +331,33 @@
 
   <section id="screen-finished" class="screen screen--hidden">
     <p id="finished-outcome" class="finished-outcome"></p>
-    <img id="finished-boss-sprite" class="boss-sprite" src="" alt="">
-    <h2 id="finished-boss-name" class="boss-name"></h2>
-    <p id="finished-difficulty" class="finished-difficulty-badge"></p>
 
-    <div class="finished-stats">
-      <div class="finished-stat">
-        <p id="finished-my-score-label" class="eyebrow">Ton score</p>
-        <p id="finished-my-score" class="finished-stat__value">0 PTS</p>
+    <div class="finished-grid">
+      <div class="finished-col">
+        <img id="finished-boss-sprite" class="boss-sprite" src="" alt="">
+        <h2 id="finished-boss-name" class="boss-name"></h2>
+        <p id="finished-difficulty" class="finished-difficulty-badge"></p>
+
+        <div class="finished-stats">
+          <div class="finished-stat">
+            <p id="finished-my-score-label" class="eyebrow">Ton score</p>
+            <p id="finished-my-score" class="finished-stat__value">0 PTS</p>
+          </div>
+          <div class="finished-stat">
+            <p class="eyebrow">Objectif</p>
+            <p id="finished-target" class="finished-stat__value finished-stat__value--muted">0 PTS</p>
+          </div>
+        </div>
       </div>
-      <div class="finished-stat">
-        <p class="eyebrow">Objectif</p>
-        <p id="finished-target" class="finished-stat__value finished-stat__value--muted">0 PTS</p>
+
+      <div class="finished-col">
+        <p id="finished-my-team-label" class="eyebrow finished-ranking-title">Ton équipe</p>
+        <div id="finished-my-team" class="finished-my-team"></div>
+
+        <p class="eyebrow finished-ranking-title">Classement</p>
+        <div id="finished-results" class="finished-results"></div>
       </div>
     </div>
-
-    <p id="finished-my-team-label" class="eyebrow finished-ranking-title">Ton équipe</p>
-    <div id="finished-my-team" class="finished-my-team"></div>
-
-    <p class="eyebrow finished-ranking-title">Classement</p>
-    <div id="finished-results" class="finished-results"></div>
 
     <button id="btn-replay" class="btn btn--haut btn--block screen--hidden">Rejouer</button>
     <p class="lobby-status" id="finished-status"></p>
@@ -306,37 +372,48 @@
       <button id="btn-leave-guess" class="btn btn--ghost">Quitter</button>
     </header>
 
-    <!-- Phase 1 : sélection du secret, avant que les 2 joueurs soient prêts. -->
-    <div id="guess-selection-panel" class="guess-panel">
-      <h2 id="guess-selection-title">Choisis ton Pokémon secret</h2>
-      <p id="guess-selection-status" class="lobby-status">Clique sur une case de la planche.</p>
-    </div>
-
-    <!-- Phase 2 : tours chronométrés, une fois les 2 secrets choisis. -->
-    <div id="guess-turn-panel" class="guess-panel screen--hidden">
-      <p class="guess-turn-label">Tour de : <span id="guess-active-name">—</span></p>
-      <p id="guess-turn-hint" class="guess-turn-hint"></p>
-      <div class="guess-timer-wrap">
-        <div class="guess-timer-track"><div id="guess-timer-bar" class="guess-timer-bar"></div></div>
-        <span id="guess-timer-value" class="guess-timer-value">25</span>
+    <div class="guess-status-stack">
+      <!-- Phase 1 : sélection du secret, avant que les 2 joueurs soient prêts. -->
+      <div id="guess-selection-panel" class="guess-panel">
+        <h2 id="guess-selection-title">Choisis ton Pokémon secret</h2>
+        <p id="guess-selection-status" class="lobby-status">Clique sur une case de la planche.</p>
       </div>
-      <div id="guess-active-actions" class="guess-active-actions screen--hidden">
-        <button id="btn-guess-answer" type="button" class="btn btn--haut">Dire ma réponse</button>
-        <button id="btn-guess-finish-turn" type="button" class="btn btn--ghost">Finir le tour</button>
+
+      <!-- Phase 2 : tours chronométrés, une fois les 2 secrets choisis. -->
+      <div id="guess-turn-panel" class="guess-panel screen--hidden">
+        <p class="guess-turn-label">Tour de : <span id="guess-active-name">—</span></p>
+        <p id="guess-turn-hint" class="guess-turn-hint"></p>
+        <div class="guess-timer-wrap">
+          <div class="guess-timer-track"><div id="guess-timer-bar" class="guess-timer-bar"></div></div>
+          <span id="guess-timer-value" class="guess-timer-value">25</span>
+        </div>
+        <div id="guess-active-actions" class="guess-active-actions screen--hidden">
+          <button id="btn-guess-answer" type="button" class="btn btn--haut">Dire ma réponse</button>
+          <button id="btn-guess-finish-turn" type="button" class="btn btn--ghost">Finir le tour</button>
+        </div>
+      </div>
+
+      <!-- Dernière tentative (publique aux 2 joueurs), masquée par défaut. -->
+      <div id="guess-last-attempt" class="guess-last-attempt screen--hidden"></div>
+    </div>
+
+    <div class="guess-grid">
+      <!-- Planche partagée : mêmes Pokémon, mêmes cases, pour les 2 joueurs. -->
+      <div class="guess-board-panel">
+        <div id="guess-board" class="guess-board"></div>
+      </div>
+
+      <div class="players-panel">
+        <h2>Joueurs</h2>
+        <ul id="guess-players-list" class="players-list"></ul>
       </div>
     </div>
 
-    <!-- Dernière tentative (publique aux 2 joueurs), masquée par défaut. -->
-    <div id="guess-last-attempt" class="guess-last-attempt screen--hidden"></div>
-
-    <!-- Planche partagée : mêmes Pokémon, mêmes cases, pour les 2 joueurs. -->
-    <div class="guess-board-panel">
-      <div id="guess-board" class="guess-board"></div>
-    </div>
-
-    <div class="players-panel">
-      <h2>Joueurs</h2>
-      <ul id="guess-players-list" class="players-list"></ul>
+    <!-- Case fixe en bas : rappel visuel du Pokémon secret choisi. -->
+    <div id="guess-my-secret" class="guess-my-secret screen--hidden">
+      <span class="guess-my-secret__label">Ton secret</span>
+      <img id="guess-my-secret-sprite" class="guess-my-secret__sprite" alt="">
+      <span id="guess-my-secret-name" class="guess-my-secret__name"></span>
     </div>
   </section>
 
@@ -366,6 +443,52 @@
     <p class="event-modal__eyebrow">✨ Événement rare</p>
     <h3 id="event-title" class="event-modal__title"></h3>
     <div id="event-body" class="event-modal__body"></div>
+  </div>
+</div>
+
+<!-- Menu Réglages : réduction d'animations, thème de fond, crédits. Persisté en
+     localStorage (rdb_settings_v1) et appliqué via le script anti-flash dans <head>. -->
+<div id="settings-overlay" class="event-overlay screen--hidden" role="dialog" aria-modal="true">
+  <div class="event-modal settings-modal">
+    <p class="event-modal__eyebrow">Réglages</p>
+    <h3 class="event-modal__title">Réglages</h3>
+
+    <div class="event-modal__body settings-body">
+
+      <div class="settings-section">
+        <p class="settings-section__title">Affichage</p>
+        <label class="settings-toggle">
+          <span class="settings-toggle__label">Réduire les animations</span>
+          <input type="checkbox" id="settings-reduce-motion" class="settings-toggle__input">
+          <span class="settings-toggle__track"><span class="settings-toggle__thumb"></span></span>
+        </label>
+      </div>
+
+      <div class="settings-section">
+        <p class="settings-section__title">Couleur de fond</p>
+        <div id="settings-theme-options" class="settings-theme-options">
+          <button type="button" class="settings-theme-swatch" data-theme="default" style="--swatch: #f5a623;" aria-label="Défaut"></button>
+          <button type="button" class="settings-theme-swatch" data-theme="violet" style="--swatch: #9d5cff;" aria-label="Violet"></button>
+          <button type="button" class="settings-theme-swatch" data-theme="crimson" style="--swatch: #e8615d;" aria-label="Rouge"></button>
+          <button type="button" class="settings-theme-swatch" data-theme="emerald" style="--swatch: #3fd096;" aria-label="Vert"></button>
+          <button type="button" class="settings-theme-swatch" data-theme="ocean" style="--swatch: #4fa9e8;" aria-label="Bleu"></button>
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <p class="settings-section__title">Crédits</p>
+        <ul class="settings-credits">
+          <li>Fait principalement avec l'IA Claude</li>
+          <li>Créateur : <strong>MingoFr</strong></li>
+          <li>Inspiré par les vidéos de <strong>PsakBarney</strong></li>
+        </ul>
+      </div>
+
+    </div>
+
+    <div class="event-modal__actions">
+      <button id="btn-settings-close" type="button" class="btn btn--ghost btn--block">Fermer</button>
+    </div>
   </div>
 </div>
 

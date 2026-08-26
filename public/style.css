@@ -1,9 +1,12 @@
 :root {
-  --bg-base: #0b0e14;
+  --bg-base: #070a10;
+  --bg-void: #04060a;
   --bg-panel: #141a24;
   --bg-panel-alt: #1a2230;
+  --bg-panel-raised: #1c2433;
   --border: #262f3d;
-  --text-primary: #e8eaf0;
+  --border-soft: #1a212c;
+  --text-primary: #eef0f5;
   --text-muted: #8a93a6;
   --accent-haut: #f5a623;
   --accent-haut-dim: #7a5518;
@@ -20,6 +23,62 @@
   --font-display: 'Chakra Petch', sans-serif;
   --font-body: 'Inter', sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
+
+  --app-bar-h: 60px;
+  --shell-wide: 1180px;
+  --shell-home: 1240px;
+
+  --glow-a: rgba(245, 166, 35, 0.09);
+  --glow-b: rgba(63, 208, 201, 0.09);
+  --glow-c: rgba(63, 208, 201, 0.05);
+}
+
+/* ---------- Thèmes de fond (Réglages > Couleur de fond) ----------
+   Ne touchent QUE l'ambiance de fond (glow + bg-base) : les couleurs HAUT/BAS
+   restent constantes partout, elles sont liées à la mécanique de jeu, pas au thème. */
+html[data-theme="violet"] {
+  --bg-base: #0a0714;
+  --bg-void: #06050f;
+  --glow-a: rgba(157, 92, 255, 0.13);
+  --glow-b: rgba(120, 60, 220, 0.11);
+  --glow-c: rgba(157, 92, 255, 0.06);
+}
+
+html[data-theme="crimson"] {
+  --bg-base: #0d0708;
+  --bg-void: #090405;
+  --glow-a: rgba(232, 97, 93, 0.13);
+  --glow-b: rgba(180, 40, 50, 0.11);
+  --glow-c: rgba(232, 97, 93, 0.05);
+}
+
+html[data-theme="emerald"] {
+  --bg-base: #070d0a;
+  --bg-void: #050908;
+  --glow-a: rgba(63, 208, 150, 0.11);
+  --glow-b: rgba(40, 160, 120, 0.10);
+  --glow-c: rgba(63, 208, 150, 0.05);
+}
+
+html[data-theme="ocean"] {
+  --bg-base: #060a12;
+  --bg-void: #04070c;
+  --glow-a: rgba(79, 169, 232, 0.13);
+  --glow-b: rgba(50, 110, 200, 0.11);
+  --glow-c: rgba(79, 169, 232, 0.05);
+}
+
+/* ---------- Réduction d'animations (Réglages > Affichage, perf) ----------
+   Coupe TOUTES les animations/transitions du site en une seule règle plutôt que
+   de traquer chaque classe (route-step--pulse, my-score-value--pulse, hero flottant,
+   etc.) : plus fiable, et couvre aussi les futurs ajouts. */
+html.reduce-motion *,
+html.reduce-motion *::before,
+html.reduce-motion *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+  scroll-behavior: auto !important;
 }
 
 * { box-sizing: border-box; }
@@ -43,9 +102,201 @@ body {
   inset: 0;
   z-index: 0;
   background:
-    radial-gradient(600px 400px at 20% -10%, rgba(245, 166, 35, 0.10), transparent 60%),
-    radial-gradient(600px 400px at 90% 10%, rgba(63, 208, 201, 0.10), transparent 60%);
+    radial-gradient(900px 560px at 15% -10%, var(--glow-a), transparent 60%),
+    radial-gradient(900px 560px at 100% 0%, var(--glow-b), transparent 60%),
+    radial-gradient(1200px 800px at 50% 120%, var(--glow-c), transparent 60%);
   pointer-events: none;
+  transition: background 0.4s ease;
+}
+
+/* ---------- Chrome persistant : barre d'app (toutes les pages) ---------- */
+
+.app-bar {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  height: var(--app-bar-h);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+  background: rgba(7, 10, 16, 0.82);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.app-bar__brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.app-bar__mark {
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+}
+
+.app-bar__title {
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  background: linear-gradient(90deg, var(--accent-haut), var(--accent-bas));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.app-bar__settings {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-panel);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease, transform 0.2s ease;
+}
+
+.app-bar__settings:hover {
+  color: var(--text-primary);
+  border-color: var(--accent-bas);
+}
+
+.app-bar__settings:active {
+  transform: scale(0.94);
+}
+
+.app-bar__settings svg {
+  transition: transform 0.4s ease;
+}
+
+.app-bar__settings:hover svg {
+  transform: rotate(45deg);
+}
+
+.settings-modal {
+  max-width: 420px;
+}
+
+.settings-body {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.settings-section__title {
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  margin: 0 0 10px;
+}
+
+.settings-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  cursor: pointer;
+}
+
+.settings-toggle__label {
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.settings-toggle__input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.settings-toggle__track {
+  position: relative;
+  width: 42px;
+  height: 24px;
+  flex-shrink: 0;
+  border-radius: 999px;
+  background: var(--bg-panel-alt);
+  border: 1px solid var(--border);
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.settings-toggle__thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  transition: transform 0.2s ease, background 0.2s ease;
+}
+
+.settings-toggle__input:checked + .settings-toggle__track {
+  background: var(--accent-bas-dim);
+  border-color: var(--accent-bas);
+}
+
+.settings-toggle__input:checked + .settings-toggle__track .settings-toggle__thumb {
+  transform: translateX(18px);
+  background: var(--accent-bas);
+}
+
+.settings-toggle__input:focus-visible + .settings-toggle__track {
+  outline: 2px solid var(--accent-bas);
+  outline-offset: 2px;
+}
+
+.settings-theme-options {
+  display: flex;
+  gap: 12px;
+}
+
+.settings-theme-swatch {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  padding: 0;
+  border: 2px solid var(--border);
+  background: var(--swatch);
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.settings-theme-swatch:hover {
+  transform: scale(1.1);
+}
+
+.settings-theme-swatch--selected {
+  border-color: var(--bg-panel);
+  box-shadow: 0 0 0 2px var(--swatch);
+}
+
+.settings-credits {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+.settings-credits strong {
+  color: var(--text-primary);
+  font-weight: 600;
 }
 
 .app {
@@ -54,13 +305,56 @@ body {
   max-width: 720px;
   margin: 0 auto;
   padding: 32px 20px 64px;
+  min-height: calc(100vh - var(--app-bar-h));
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
 
-/* ---------- Header / signature ---------- */
+body[data-screen="lobby"] .app,
+body[data-screen="game"] .app,
+body[data-screen="finished"] .app,
+body[data-screen="guess"] .app,
+body[data-screen="guess-finished"] .app {
+  justify-content: flex-start;
+  padding-top: 28px;
+}
 
-.hero {
+@media (min-width: 960px) {
+  .app {
+    padding-left: 40px;
+    padding-right: 40px;
+  }
+
+  body[data-screen="home"] .app {
+    max-width: none;
+    padding: 0;
+  }
+
+  body[data-screen="lobby"] .app,
+  body[data-screen="game"] .app,
+  body[data-screen="finished"] .app,
+  body[data-screen="guess"] .app,
+  body[data-screen="guess-finished"] .app {
+    max-width: var(--shell-wide);
+    padding-top: 40px;
+  }
+}
+
+/* ---------- Accueil : hero de branche + panneau d'action ---------- */
+
+.home-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 40px;
+}
+
+.home-hero {
   text-align: center;
-  margin-bottom: 32px;
+}
+
+.home-panel {
+  width: 100%;
 }
 
 .hero__path {
@@ -68,6 +362,61 @@ body {
   height: auto;
   margin: 0 auto 8px;
   display: block;
+}
+
+@media (min-width: 960px) {
+  .home-shell {
+    flex-direction: row;
+    align-items: stretch;
+    min-height: calc(100vh - var(--app-bar-h));
+  }
+
+  .home-hero {
+    flex: 0 0 46%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    padding: 40px;
+    background:
+      radial-gradient(480px 480px at 50% 42%, rgba(245, 166, 35, 0.07), transparent 65%);
+    border-right: 1px solid var(--border-soft);
+  }
+
+  .hero__path {
+    width: 168px;
+    margin-bottom: 8px;
+    animation: heroPathFloat 6s ease-in-out infinite;
+  }
+
+  .home-hero h1 {
+    font-size: clamp(44px, 4.4vw, 64px);
+  }
+
+  .home-hero .tagline {
+    max-width: 380px;
+    font-size: 16px;
+  }
+
+  .home-panel {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 56px;
+  }
+
+  .home-panel > * {
+    width: 100%;
+    max-width: 440px;
+  }
+}
+
+@keyframes heroPathFloat {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
 }
 
 .node { fill: var(--bg-panel-alt); stroke: var(--border); stroke-width: 2; }
@@ -288,6 +637,7 @@ input:focus {
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 20px;
+  margin-bottom: 16px;
 }
 
 .players-panel h2 {
@@ -1974,11 +2324,51 @@ input:focus {
 
 .guess-board-panel {
   margin-bottom: 16px;
+  padding-bottom: 68px;
+}
+
+.guess-my-secret {
+  position: fixed;
+  left: 50%;
+  bottom: 0;
+  transform: translateX(-50%);
+  width: 100%;
+  max-width: 720px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: var(--bg-panel);
+  border-top: 1px solid var(--accent-bas);
+  padding: 10px 16px;
+  z-index: 20;
+  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.35);
+}
+
+.guess-my-secret__label {
+  font-family: var(--font-display);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.guess-my-secret__sprite {
+  width: 36px;
+  height: 36px;
+  object-fit: contain;
+}
+
+.guess-my-secret__name {
+  font-family: var(--font-display);
+  font-size: 14px;
+  color: var(--accent-bas);
 }
 
 .guess-board {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+  grid-template-columns: repeat(var(--guess-cols, 5), minmax(0, 96px));
+  justify-content: center;
   gap: 8px;
 }
 
@@ -2093,6 +2483,68 @@ input:focus {
   margin: 0;
 }
 
+/* ---------- Mise en page large écran : lobby / partie / fin / devine ----------
+   Mobile = flux normal (comportement historique, inchangé). À partir de 960px,
+   chaque écran passe en grille pour exploiter la largeur au lieu d'empiler
+   verticalement une colonne étroite dans un grand vide. ---------- */
+
+.lobby-col + .lobby-col {
+  margin-top: 20px;
+}
+
+@media (min-width: 960px) {
+  .lobby-grid {
+    display: grid;
+    grid-template-columns: minmax(280px, 380px) 1fr;
+    gap: 24px;
+    align-items: start;
+    margin-bottom: 24px;
+  }
+
+  .lobby-col + .lobby-col {
+    margin-top: 0;
+  }
+
+  .game-grid {
+    display: grid;
+    grid-template-columns: minmax(300px, 340px) 1fr;
+    gap: 20px;
+    align-items: start;
+    margin-bottom: 16px;
+  }
+
+  .game-sidebar,
+  .game-main {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .game-sidebar > *,
+  .game-main > * {
+    margin-bottom: 0;
+  }
+
+  .finished-grid {
+    display: grid;
+    grid-template-columns: minmax(260px, 360px) 1fr;
+    gap: 32px;
+    align-items: start;
+    margin: 24px 0;
+  }
+
+  .guess-grid {
+    display: grid;
+    grid-template-columns: 1fr minmax(240px, 300px);
+    gap: 20px;
+    align-items: start;
+  }
+
+  body[data-screen="guess"] .guess-my-secret {
+    max-width: var(--shell-wide);
+  }
+}
+
 /* ---------- Responsive : corrections petits écrans ---------- */
 
 @media (max-width: 420px) {
@@ -2169,7 +2621,7 @@ input:focus {
   }
 
   .guess-board {
-    grid-template-columns: repeat(auto-fill, minmax(68px, 1fr));
+    grid-template-columns: repeat(var(--guess-cols, 5), minmax(0, 68px));
     gap: 6px;
   }
 

@@ -231,6 +231,10 @@ function clearError() {
 function showScreen(screen) {
   [screenHome, screenLobby, screenGame, screenFinished, screenGuess, screenGuessFinished].forEach(s => s.classList.add('screen--hidden'));
   screen.classList.remove('screen--hidden');
+  // Reflété en attribut sur <body> : la mise en page large écran (cf. style.css) en
+  // dépend pour savoir si l'écran actif est l'accueil (hero éclaté) ou un écran de jeu
+  // (grille resserrée), sans dupliquer la logique de visibilité elle-même.
+  document.body.dataset.screen = screen.id.replace('screen-', '');
 }
 
 function isHost() {
@@ -437,16 +441,20 @@ function renderTeam(team, interactive) {
       }
       // Easter egg : Métamorph cliquable -> se transforme en copiant le sprite d'un
       // autre membre de l'équipe (cf. socket.on('metamorph_transformed') plus bas).
-      // Verrouillage anti-spam : un clic désactive IMMÉDIATEMENT ce slot (avant même la
-      // réponse du serveur) ; renderTeam() étant systématiquement rappelé après le
-      // résultat, un slot Métamorph frais (donc réactivé) est recréé naturellement.
+      // Usage unique (pokemon.metamorphUsed, verrouillé côté serveur) : une fois utilisé,
+      // le slot reste figé (verrouillé visuellement) pour le reste de la partie, y compris
+      // après reconnexion. Avant usage, verrouillage anti-spam le temps de la réponse serveur.
       if (interactive && pokemon.id === METAMORPH_DEX_ID) {
         slot.classList.add('team-slot--metamorph');
-        slot.addEventListener('click', () => {
-          if (slot.classList.contains('team-slot--metamorph-locked')) return;
+        if (pokemon.metamorphUsed) {
           slot.classList.add('team-slot--metamorph-locked');
-          socket.emit('transform_metamorph', { index: i });
-        });
+        } else {
+          slot.addEventListener('click', () => {
+            if (slot.classList.contains('team-slot--metamorph-locked')) return;
+            slot.classList.add('team-slot--metamorph-locked');
+            socket.emit('transform_metamorph', { index: i });
+          });
+        }
       }
     }
     teamSlotsEl.appendChild(slot);
@@ -1900,6 +1908,9 @@ const btnGuessFinishTurn = document.getElementById('btn-guess-finish-turn');
 const guessLastAttemptEl = document.getElementById('guess-last-attempt');
 const guessBoardEl = document.getElementById('guess-board');
 const guessPlayersListEl = document.getElementById('guess-players-list');
+const guessMySecretEl = document.getElementById('guess-my-secret');
+const guessMySecretSpriteEl = document.getElementById('guess-my-secret-sprite');
+const guessMySecretNameEl = document.getElementById('guess-my-secret-name');
 const guessConfirmOverlayEl = document.getElementById('guess-confirm-overlay');
 const guessConfirmContentEl = document.getElementById('guess-confirm-content');
 const btnGuessConfirmCancel = document.getElementById('btn-guess-confirm-cancel');
@@ -1945,6 +1956,23 @@ function resetGuessUI() {
   guessBoardEl.innerHTML = '';
   guessPlayersListEl.innerHTML = '';
   btnGuessAnswer.textContent = 'Dire ma réponse';
+
+  guessMySecretEl.classList.add('screen--hidden');
+  guessMySecretSpriteEl.src = '';
+  guessMySecretNameEl.textContent = '';
+}
+
+// Affiche/actualise la case fixe du bas avec le Pokémon secret du joueur local.
+function renderGuessMySecret() {
+  if (guessMySecretIndex === null || !guessBoard[guessMySecretIndex]) {
+    guessMySecretEl.classList.add('screen--hidden');
+    return;
+  }
+  const mon = guessBoard[guessMySecretIndex];
+  guessMySecretSpriteEl.src = mon.sprite;
+  guessMySecretSpriteEl.alt = mon.name;
+  guessMySecretNameEl.textContent = mon.name;
+  guessMySecretEl.classList.remove('screen--hidden');
 }
 
 // Nom d'un joueur à partir de la dernière liste connue (jamais son secret, juste son nom).
@@ -1996,6 +2024,11 @@ function renderGuessPlayers(players) {
 function renderGuessBoard() {
   guessBoardEl.innerHTML = '';
 
+  // Nombre de colonnes calculé pour approcher un carré (au lieu de dépendre de la
+  // largeur du conteneur comme avec auto-fill) : cols = ceil(sqrt(n)), rows en découle.
+  const cols = Math.max(1, Math.ceil(Math.sqrt(guessBoard.length)));
+  guessBoardEl.style.setProperty('--guess-cols', cols);
+
   guessBoard.forEach(mon => {
     const tile = document.createElement('button');
     tile.type = 'button';
@@ -2017,6 +2050,8 @@ function renderGuessBoard() {
 
     guessBoardEl.appendChild(tile);
   });
+
+  renderGuessMySecret();
 }
 
 function setGuessBoardMode(mode) {
@@ -2228,4 +2263,92 @@ socket.on('guess_game_over', ({ winnerId, reason, secretPokemon, players }) => {
 
   updateGuessReplayControls();
   showScreen(screenGuessFinished);
+});
+// ============================================================
+// RÉGLAGES (chrome persistant, barre d'app)
+// ============================================================
+// Section volontairement isolée et indépendante de tout flux de partie : ouverture/
+// fermeture du panneau + 3 réglages (réduction d'animations, thème de fond, crédits
+// statiques). Persisté en localStorage et réappliqué au chargement AVANT le premier
+// rendu par le script anti-flash dans <head> (index.html) — ici on ne fait que
+// synchroniser l'UI du panneau avec l'état déjà appliqué, puis réagir aux clics.
+// Déclarée en toute fin de fichier car elle ne dépend d'aucune logique antérieure et
+// n'est dépendue par rien.
+const SETTINGS_STORAGE_KEY = 'rdb_settings_v1';
+
+const btnSettings = document.getElementById('btn-settings');
+const settingsOverlayEl = document.getElementById('settings-overlay');
+const btnSettingsClose = document.getElementById('btn-settings-close');
+const settingsReduceMotionInput = document.getElementById('settings-reduce-motion');
+const settingsThemeButtons = Array.from(document.querySelectorAll('.settings-theme-swatch'));
+
+function loadSettings() {
+  try {
+    return JSON.parse(localStorage.getItem(SETTINGS_STORAGE_KEY)) || {};
+  } catch (e) {
+    return {};
+  }
+}
+
+function saveSettings(settings) {
+  try {
+    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+  } catch (e) {
+    // localStorage indisponible (navigation privée, quota...) : le réglage reste actif
+    // pour la session en cours via les classes/attributs déjà posés sur <html>, seule
+    // la persistance entre sessions est perdue.
+  }
+}
+
+function applyTheme(theme) {
+  if (theme && theme !== 'default') {
+    document.documentElement.dataset.theme = theme;
+  } else {
+    delete document.documentElement.dataset.theme;
+  }
+  settingsThemeButtons.forEach(btn => {
+    btn.classList.toggle('settings-theme-swatch--selected', (theme || 'default') === btn.dataset.theme);
+  });
+}
+
+function applyReduceMotion(enabled) {
+  document.documentElement.classList.toggle('reduce-motion', !!enabled);
+  settingsReduceMotionInput.checked = !!enabled;
+}
+
+function openSettings() {
+  settingsOverlayEl.classList.remove('screen--hidden');
+}
+
+function closeSettings() {
+  settingsOverlayEl.classList.add('screen--hidden');
+}
+
+// Synchronise l'UI du panneau avec l'état déjà appliqué par le script anti-flash.
+(function initSettingsUI() {
+  const settings = loadSettings();
+  applyTheme(settings.theme || 'default');
+  applyReduceMotion(!!settings.reduceMotion);
+})();
+
+btnSettings.addEventListener('click', openSettings);
+btnSettingsClose.addEventListener('click', closeSettings);
+settingsOverlayEl.addEventListener('click', (e) => {
+  if (e.target === settingsOverlayEl) closeSettings(); // clic sur le fond, pas sur la modale
+});
+
+settingsReduceMotionInput.addEventListener('change', () => {
+  const settings = loadSettings();
+  settings.reduceMotion = settingsReduceMotionInput.checked;
+  saveSettings(settings);
+  applyReduceMotion(settings.reduceMotion);
+});
+
+settingsThemeButtons.forEach(btn => {
+  btn.addEventListener('click', () => {
+    const settings = loadSettings();
+    settings.theme = btn.dataset.theme;
+    saveSettings(settings);
+    applyTheme(settings.theme);
+  });
 });
