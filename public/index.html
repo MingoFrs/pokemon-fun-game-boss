@@ -114,6 +114,7 @@
         <div class="game-code-row">
           <div class="game-code" id="game-code">------</div>
           <button id="btn-copy-code" type="button" class="btn btn--ghost btn--copy">Copier</button>
+          <button id="btn-copy-link" type="button" class="btn btn--ghost btn--copy">Copier le lien</button>
         </div>
         <p id="copy-feedback" class="copy-feedback"></p>
       </div>
@@ -436,7 +437,46 @@
     <button id="btn-leave-guess-finished" class="btn btn--ghost btn--block">Quitter</button>
   </section>
 
+  <!-- ============ MODE SPECTATEUR ============
+       Rejoint automatiquement quand on entre le code d'une partie déjà commencée
+       (normal/admin uniquement, cf. socket.on('join_game') côté serveur). Vue minimale
+       et strictement en lecture readonly : boss + tour + joueurs (score, mini équipe,
+       a choisi ou non) — jamais le détail d'un choix ou d'une révélation. -->
+  <section id="screen-spectate" class="screen screen--hidden">
+    <header class="guess-header">
+      <p class="eyebrow">Mode spectateur</p>
+      <button id="btn-leave-spectate" class="btn btn--ghost">Quitter</button>
+    </header>
+
+    <div class="boss-panel">
+      <p class="eyebrow">Boss de fin</p>
+      <img id="spectate-boss-sprite" class="boss-sprite" src="" alt="">
+      <h2 id="spectate-boss-name" class="boss-name">—</h2>
+      <p class="boss-target">Objectif : <span id="spectate-boss-target">0</span> PTS</p>
+    </div>
+
+    <p id="spectate-turn" class="spectate-turn">Tour — / 6</p>
+
+    <div class="players-panel">
+      <h2>Joueurs</h2>
+      <ul id="spectate-players-list" class="players-list"></ul>
+    </div>
+
+    <p id="spectate-status" class="lobby-status"></p>
+  </section>
+
 </main>
+
+<!-- Réactions rapides : widget unique et partagé, visible en partie ou en spectateur
+     uniquement (cf. body[data-screen] dans style.css) — pas besoin de le dupliquer par
+     écran. -->
+<div id="reaction-bar" class="reaction-bar">
+  <button type="button" class="reaction-btn" data-emoji="🔥" aria-label="Réagir avec le feu">🔥</button>
+  <button type="button" class="reaction-btn" data-emoji="😭" aria-label="Réagir en pleurant">😭</button>
+  <button type="button" class="reaction-btn" data-emoji="💀" aria-label="Réagir avec la tête de mort">💀</button>
+  <button type="button" class="reaction-btn" data-emoji="⚡" aria-label="Réagir avec l'éclair">⚡</button>
+</div>
+<div id="reaction-bubbles" class="reaction-bubbles" aria-hidden="true"></div>
 
 <div id="event-overlay" class="event-overlay screen--hidden" role="dialog" aria-modal="true">
   <div id="event-modal" class="event-modal">

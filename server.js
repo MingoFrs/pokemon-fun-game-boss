@@ -210,7 +210,7 @@ const EPIC_RAW = [
 // Vrais pseudo-légendaires (évolution 3 stades, très puissants, mais pas légendaires).
 // NERF CIBLÉ (~12%, sur les points déjà nerfés de l'étape précédente) : seuls les Pokémon
 // clairement au-dessus de la moyenne de leur propre palier sont concernés.
-// Moyenne pseudo-légendaire ≈ 818 → Dragapult (890, +8.8%) est le seul net outlier.
+// Moyenne pseudo-légendaire ≈ 818 → Lanssorien (890, +8.8%) est le seul net outlier.
 const PSEUDO_LEGENDARY_RAW = [
   { id: 149, name: 'Dracolosse', points: 801 },
   { id: 248, name: 'Tyranocif', points: 801 },
@@ -218,7 +218,7 @@ const PSEUDO_LEGENDARY_RAW = [
   { id: 445, name: 'Carchacrok', points: 802 },
   { id: 376, name: 'Métalosse', points: 802 },
   { id: 635, name: 'Trioxhydre', points: 802 },
-  { id: 887, name: 'Dragapult', points: 802 },
+  { id: 887, name: 'Lanssorien', points: 802 },
   { id: 706, name: 'Muplodocus', points: 802 }
 ];
 
@@ -1661,7 +1661,10 @@ function buildRoute() {
 //   gameMode: "normal" | "admin" (cf. GAME_MODES), choisi dans le lobby, "normal" par défaut,
 //   adminId: id du joueur ADMIN si gameMode === "admin", sinon null (choisi par l'hôte,
 //            valide uniquement à exactement 2 joueurs — cf. set_admin_role),
-//   players: [player]
+//   players: [player],
+//   spectators: [{ id, name }] — observateurs en lecture seule d'une partie déjà démarrée
+//               (normal/admin uniquement), cf. socket.on('join_game') + removeSpectator/
+//               clearSpectators. Jamais dans players, aucun impact sur la logique de jeu.
 // }
 // player = {
 //   id, name, score, team, currentChoice,
@@ -1771,7 +1774,8 @@ function broadcastGameUpdated(game) {
     route: game.route,
     players: getPublicPlayers(game),
     hostId: game.hostId,
-    adminId: game.adminId
+    adminId: game.adminId,
+    spectatorCount: game.spectators ? game.spectators.length : 0
   });
 }
 
@@ -1977,6 +1981,8 @@ function finalizePlayerRemoval(game, gameId, leavingPlayer) {
 
   if (game.players.length === 0) {
     if (game.turnTimer) clearTimeout(game.turnTimer);
+    if (game.guessTurnTimer) clearTimeout(game.guessTurnTimer); // sinon timer zombie qui retient `game` en mémoire et peut encore tenter d'émettre sur un salon mort
+    clearSpectators(game, gameId);
     delete games[gameId];
     return;
   }
@@ -2041,12 +2047,53 @@ function leaveCurrentGame(socket) {
   finalizePlayerRemoval(game, gameId, leavingPlayer);
 }
 
+// ---------- MODE SPECTATEUR ----------
+// Rejoindre une partie déjà démarrée (normal/admin uniquement, cf. socket.on('join_game'))
+// place la socket en simple observateur : elle rejoint le même salon Socket.IO que les
+// joueurs, ce qui suffit à recevoir toutes les diffusions déjà PUBLIQUES (game_updated,
+// game_finished...) sans aucun changement côté serveur — tout ce qui est secret
+// (turn_options, choice_result, vue ADMIN...) est déjà ciblé individuellement par id de
+// joueur ailleurs dans ce fichier, jamais diffusé au salon entier. Un spectateur n'entre
+// JAMAIS dans game.players : aucun impact sur le tour, le score, ou la logique de partie.
+function removeSpectator(socket) {
+  const gameId = socket.data.spectateGameId;
+  if (!gameId) return;
+  socket.data.spectateGameId = null;
+  socket.leave(gameId);
+
+  const game = games[gameId];
+  if (!game || !game.spectators) return;
+  game.spectators = game.spectators.filter(s => s.id !== socket.id);
+  broadcastGameUpdated(game); // met à jour spectatorCount pour les joueurs restants
+}
+
+// Coupe proprement les spectateurs quand la partie elle-même disparaît (plus aucun
+// joueur), pour ne pas les laisser accrochés à un salon Socket.IO orphelin.
+function clearSpectators(game, gameId) {
+  if (!game.spectators || game.spectators.length === 0) return;
+  game.spectators.forEach(spec => {
+    const specSocket = io.sockets.sockets.get(spec.id);
+    if (specSocket) {
+      specSocket.emit('spectate_ended', { reason: 'no_players' });
+      specSocket.leave(gameId);
+      specSocket.data.spectateGameId = null;
+    }
+  });
+  game.spectators = [];
+}
+
 // Déconnexion RÉSEAU (perte de connexion, refresh de page, onglet fermé...) : jamais
 // distinguable côté serveur d'un abandon volontaire, donc on donne toujours le bénéfice
 // du doute si la partie est en cours (cf. RECONNECT_GRACE_MS). En lobby/partie finie,
 // les enjeux sont trop faibles pour justifier la complexité : retrait immédiat, comme
 // avant.
 function handleSocketDisconnect(socket) {
+  // Spectateur : aucun enjeu de partie (pas de délai de grâce), retrait immédiat.
+  if (socket.data.spectateGameId) {
+    removeSpectator(socket);
+    return;
+  }
+
   const gameId = socket.data.gameId;
   if (!gameId) return;
 
@@ -2124,6 +2171,7 @@ io.on('connection', (socket) => {
     // navigateur), on le retire proprement avant d'en créer une nouvelle : sinon son
     // ancienne entrée reste orpheline dans games[oldId], qui n'avance plus jamais.
     leaveCurrentGame(socket);
+    removeSpectator(socket); // idem si le socket observait une partie en spectateur
 
     const gameId = generateGameId();
 
@@ -2146,7 +2194,8 @@ io.on('connection', (socket) => {
       guessTurnTimer: null,
       guessWinnerId: null,
       guessTurnDurationMs: GUESS_TURN_DURATION_MS, // réglable par l'hôte, cf. set_guess_turn_duration
-      players: [makePlayer(socket.id, trimmed, token)]
+      players: [makePlayer(socket.id, trimmed, token)],
+      spectators: [] // cf. socket.on('join_game') : { id, name } uniquement, jamais de state de jeu
     };
 
     socket.join(gameId);
@@ -2178,7 +2227,44 @@ io.on('connection', (socket) => {
       return;
     }
     if (game.status !== 'waiting') {
-      socket.emit('error_message', 'Partie déjà commencée.');
+      // Partie déjà démarrée : mode spectateur (normal/admin uniquement — le mode
+      // "guess" n'a pas d'écran spectateur dédié pour l'instant, on garde l'ancien
+      // comportement pour lui). Un spectateur n'entre JAMAIS dans game.players : voir
+      // clearSpectators/removeSpectator plus haut pour le détail de ce que ça implique.
+      if (game.gameMode === 'guess') {
+        socket.emit('error_message', 'Partie déjà commencée.');
+        return;
+      }
+      if (!trimmedName) {
+        socket.emit('error_message', 'Pseudo requis.');
+        return;
+      }
+      // Même précaution que pour un joueur : ne jamais laisser une socket accrochée à
+      // deux parties/rôles à la fois.
+      if (socket.data.gameId) leaveCurrentGame(socket);
+      if (socket.data.spectateGameId && socket.data.spectateGameId !== id) removeSpectator(socket);
+
+      if (!game.spectators.some(s => s.id === socket.id)) {
+        game.spectators.push({ id: socket.id, name: trimmedName });
+      }
+      socket.join(id);
+      socket.data.spectateGameId = id;
+
+      socket.emit('spectate_joined', {
+        gameId: id,
+        status: game.status,
+        turn: game.turn,
+        maxTurns: game.maxTurns,
+        boss: game.boss,
+        route: game.route,
+        players: getPublicPlayers(game),
+        hostId: game.hostId,
+        gameMode: game.gameMode,
+        adminId: game.adminId,
+        difficulty: game.selectedDifficulty,
+        spectatorCount: game.spectators.length
+      });
+      broadcastGameUpdated(game); // les joueurs voient tout de suite le compteur de spectateurs bouger
       return;
     }
 
@@ -2202,6 +2288,7 @@ io.on('connection', (socket) => {
     if (socket.data.gameId) {
       leaveCurrentGame(socket);
     }
+    removeSpectator(socket); // idem si le socket observait une AUTRE partie en spectateur
 
     const newPlayer = makePlayer(socket.id, trimmedName, token);
     game.players.push(newPlayer);
@@ -2224,7 +2311,36 @@ io.on('connection', (socket) => {
   });
 
   socket.on('leave_game', () => {
+    if (socket.data.spectateGameId) {
+      removeSpectator(socket);
+      return;
+    }
     leaveCurrentGame(socket);
+  });
+
+  // ---------- Réactions rapides (🔥😭💀⚡) ----------
+  // Petite couche purement sociale, sans aucun effet sur la logique de jeu : diffusée à
+  // TOUT le salon (joueurs + spectateurs), avec juste assez de garde-fous pour éviter le
+  // spam (emoji whitelist + cooldown court par socket).
+  const REACTION_EMOJIS = ['🔥', '😭', '💀', '⚡'];
+  const REACTION_COOLDOWN_MS = 400;
+
+  socket.on('send_reaction', ({ emoji } = {}) => {
+    const gameId = socket.data.gameId || socket.data.spectateGameId;
+    const game = games[gameId];
+    if (!game) return;
+    if (!REACTION_EMOJIS.includes(emoji)) return;
+
+    const now = Date.now();
+    if (socket.data.lastReactionAt && now - socket.data.lastReactionAt < REACTION_COOLDOWN_MS) return;
+    socket.data.lastReactionAt = now;
+
+    const player = game.players.find(p => p.id === socket.id);
+    const spectator = !player && game.spectators ? game.spectators.find(s => s.id === socket.id) : null;
+    const playerName = player ? player.name : (spectator ? spectator.name : null);
+    if (!playerName) return; // ni joueur ni spectateur de cette partie : rien à diffuser
+
+    io.to(gameId).emit('reaction', { playerId: socket.id, playerName, emoji });
   });
 
   socket.on('start_game', () => {
@@ -2468,7 +2584,8 @@ io.on('connection', (socket) => {
       guessTurnTimer: null,
       guessWinnerId: null,
       guessTurnDurationMs: oldGame.guessTurnDurationMs || GUESS_TURN_DURATION_MS, // conservée, modifiable avant le lancement
-      players: connectedOldPlayers.map(p => makePlayer(p.id, p.name, p.token)) // pity remis à 0, token conservé (cf. makePlayer)
+      players: connectedOldPlayers.map(p => makePlayer(p.id, p.name, p.token)), // pity remis à 0, token conservé (cf. makePlayer)
+      spectators: []
     };
 
     games[newGameId] = newGame;
@@ -2483,6 +2600,12 @@ io.on('connection', (socket) => {
       }
     });
 
+    // Nouvelle partie = nouveau salon : les spectateurs de l'ancienne ne sont PAS
+    // reportés automatiquement (plus simple, et évite un salon fantôme) — ils devront
+    // rejoindre le nouveau code s'ils veulent continuer à observer.
+    if (oldGame.turnTimer) clearTimeout(oldGame.turnTimer); // filet de sécurité : status 'finished' devrait déjà l'avoir nettoyé
+    if (oldGame.guessTurnTimer) clearTimeout(oldGame.guessTurnTimer);
+    clearSpectators(oldGame, oldGameId);
     delete games[oldGameId];
 
     io.to(newGameId).emit('game_replayed', {

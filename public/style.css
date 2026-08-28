@@ -603,7 +603,8 @@ input:focus {
 .game-code-row {
   display: flex;
   align-items: center;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 10px;
 }
 
 .btn--copy {
@@ -662,13 +663,36 @@ input:focus {
 
 .players-list li {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
+  gap: 6px;
   background: var(--bg-panel-alt);
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 10px 14px;
   font-size: 14px;
+}
+
+.player-item__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* Mini équipe (cf. renderPlayers dans client.js) : aperçu compact en lecture seule des
+   Pokémon d'un joueur, visible par tout le monde (lobby : vide, rien ne s'affiche). */
+.player-item__team {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.player-item__team-icon {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+  background: var(--bg-panel);
+  border-radius: 4px;
+  border: 1px solid var(--border-soft);
 }
 
 .players-list .player-score {
@@ -2483,6 +2507,124 @@ input:focus {
   margin: 0;
 }
 
+/* ---------- Mode spectateur ---------- */
+
+.spectate-turn {
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text-muted);
+  margin: 4px 0 20px;
+}
+
+/* ---------- Réactions rapides (🔥😭💀⚡) ---------- */
+/* Widget unique et partagé (cf. index.html), affiché seulement en partie ou en
+   spectateur — la mise en page large écran de style.css pose déjà body[data-screen]. */
+
+.reaction-bar {
+  display: none;
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 30;
+  gap: 8px;
+  padding: 8px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+body[data-screen="game"] .reaction-bar,
+body[data-screen="spectate"] .reaction-bar {
+  display: flex;
+}
+
+.reaction-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--bg-panel-alt);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+
+.reaction-btn:hover {
+  transform: scale(1.12);
+  background: var(--bg-panel-raised);
+}
+
+.reaction-btn:active {
+  transform: scale(0.92);
+}
+
+.reaction-bubbles {
+  position: fixed;
+  right: 24px;
+  bottom: 78px;
+  z-index: 29;
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: flex-end;
+  gap: 6px;
+  pointer-events: none;
+}
+
+.reaction-bubble {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 13px;
+  white-space: nowrap;
+  animation: reactionFloat 2.2s ease forwards;
+}
+
+.reaction-bubble__emoji {
+  font-size: 16px;
+}
+
+.reaction-bubble__name {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+@keyframes reactionFloat {
+  0% { opacity: 0; transform: translateY(8px) scale(0.9); }
+  12% { opacity: 1; transform: translateY(0) scale(1); }
+  75% { opacity: 1; transform: translateY(-6px) scale(1); }
+  100% { opacity: 0; transform: translateY(-26px) scale(0.95); }
+}
+
+@media (max-width: 640px) {
+  .reaction-bar {
+    right: 12px;
+    bottom: 12px;
+    padding: 6px;
+    gap: 6px;
+  }
+
+  .reaction-btn {
+    width: 34px;
+    height: 34px;
+    font-size: 15px;
+  }
+
+  .reaction-bubbles {
+    right: 14px;
+    bottom: 60px;
+  }
+}
 /* ---------- Mise en page large écran : lobby / partie / fin / devine ----------
    Mobile = flux normal (comportement historique, inchangé). À partir de 960px,
    chaque écran passe en grille pour exploiter la largeur au lieu d'empiler

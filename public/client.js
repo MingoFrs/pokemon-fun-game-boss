@@ -16,6 +16,7 @@ const screenGame = document.getElementById('screen-game');
 const screenFinished = document.getElementById('screen-finished');
 const screenGuess = document.getElementById('screen-guess');
 const screenGuessFinished = document.getElementById('screen-guess-finished');
+const screenSpectate = document.getElementById('screen-spectate');
 
 // ---------- Reconnexion (cf. socket.on('rejoin_game') côté serveur) ----------
 // Token stable par navigateur, généré une seule fois et conservé en localStorage : c'est
@@ -62,6 +63,25 @@ const btnCreate = document.getElementById('btn-create');
 const btnJoin = document.getElementById('btn-join');
 const errorMessage = document.getElementById('error-message');
 
+// ---------- Lien d'invitation (?code=XXXXXX) ----------
+// Pré-remplit le code si on arrive via un lien partagé (ex: sur Discord), au lieu de
+// forcer un copier-coller manuel du code par l'hôte puis une saisie manuelle par
+// l'invité. Ignoré si une reconnexion automatique est déjà en cours : pendingRejoinGameId
+// (donc la partie en cours du visiteur) prend toujours la priorité sur un lien externe.
+const urlParams = new URLSearchParams(location.search);
+const inviteCode = urlParams.get('code');
+if (inviteCode && !pendingRejoinGameId) {
+  codeInput.value = inviteCode.toUpperCase().slice(0, 6);
+  pseudoInput.focus();
+}
+if (urlParams.has('code')) {
+  // Nettoie l'URL après lecture : évite qu'un refresh ou un partage du lien de la barre
+  // d'adresse ne re-remplisse le champ avec un code de partie potentiellement expirée.
+  urlParams.delete('code');
+  const cleanQuery = urlParams.toString();
+  history.replaceState(null, '', location.pathname + (cleanQuery ? `?${cleanQuery}` : ''));
+}
+
 // ---------- Lobby ----------
 const gameCodeEl = document.getElementById('game-code');
 const playersListEl = document.getElementById('players-list');
@@ -70,6 +90,7 @@ const btnStart = document.getElementById('btn-start');
 const btnLeave = document.getElementById('btn-leave');
 const lobbyStatusEl = document.getElementById('lobby-status');
 const btnCopyCode = document.getElementById('btn-copy-code');
+const btnCopyLink = document.getElementById('btn-copy-link');
 const copyFeedbackEl = document.getElementById('copy-feedback');
 const difficultyButtons = Array.from(document.querySelectorAll('.difficulty-btn'));
 const gamemodeButtons = Array.from(document.querySelectorAll('.gamemode-btn'));
@@ -184,6 +205,8 @@ let currentDifficulty = 'medium'; // reflet local de la difficulté choisie par 
 let currentGameMode = 'normal'; // 'normal' | 'admin' — reflet local, serveur = source de vérité
 let currentAdminId = null; // id du joueur ADMIN choisi par l'hôte (mode "admin" uniquement)
 let lastLobbyPlayers = []; // dernière liste de joueurs du lobby, réutilisée pour re-render le picker ADMIN
+let isSpectating = false; // true entre spectate_joined et un retour à l'accueil/spectate_ended
+let spectateBoss = null; // boss caché en local (jamais renvoyé par game_updated, seulement par spectate_joined)
 
 const RARITY_LABELS = {
   commun: 'Commun',
@@ -229,7 +252,7 @@ function clearError() {
 }
 
 function showScreen(screen) {
-  [screenHome, screenLobby, screenGame, screenFinished, screenGuess, screenGuessFinished].forEach(s => s.classList.add('screen--hidden'));
+  [screenHome, screenLobby, screenGame, screenFinished, screenGuess, screenGuessFinished, screenSpectate].forEach(s => s.classList.add('screen--hidden'));
   screen.classList.remove('screen--hidden');
   // Reflété en attribut sur <body> : la mise en page large écran (cf. style.css) en
   // dépend pour savoir si l'écran actif est l'accueil (hero éclaté) ou un écran de jeu
@@ -340,6 +363,9 @@ function renderPlayers(listEl, players) {
     const li = document.createElement('li');
     li.classList.toggle('player-item--disconnected', !!p.disconnected);
 
+    const row = document.createElement('div');
+    row.className = 'player-item__row';
+
     const name = document.createElement('span');
     name.textContent = p.name;
     if (p.id === hostId) {
@@ -365,8 +391,27 @@ function renderPlayers(listEl, players) {
     score.className = 'player-score';
     score.textContent = `${p.score} pts`;
 
-    li.appendChild(name);
-    li.appendChild(score);
+    row.appendChild(name);
+    row.appendChild(score);
+    li.appendChild(row);
+
+    // Mini équipe (sprites en petit) : uniquement une fois que le joueur a des Pokémon
+    // (lobby -> team toujours vide, rien ne s'affiche). Volontairement en LECTURE SEULE,
+    // aucune donnée secrète (pas d'effet/rareté/points), juste ce que tout le monde verra
+    // de toute façon à l'écran de fin.
+    if (p.team && p.team.length > 0) {
+      const teamRow = document.createElement('div');
+      teamRow.className = 'player-item__team';
+      p.team.forEach(mon => {
+        const icon = document.createElement('img');
+        icon.className = 'player-item__team-icon';
+        icon.src = pokemonSprite(mon);
+        icon.alt = mon.name;
+        teamRow.appendChild(icon);
+      });
+      li.appendChild(teamRow);
+    }
+
     listEl.appendChild(li);
   });
 }
@@ -1286,6 +1331,26 @@ btnCopyCode.addEventListener('click', async () => {
   copyFeedbackEl.classList.add('copy-feedback--play');
 });
 
+btnCopyLink.addEventListener('click', async () => {
+  const code = gameCodeEl.textContent.trim();
+  const link = `${location.origin}${location.pathname}?code=${code}`;
+  try {
+    await navigator.clipboard.writeText(link);
+  } catch (err) {
+    // Même solution de repli que btnCopyCode ci-dessus.
+    const tmpInput = document.createElement('input');
+    tmpInput.value = link;
+    document.body.appendChild(tmpInput);
+    tmpInput.select();
+    document.execCommand('copy');
+    document.body.removeChild(tmpInput);
+  }
+  copyFeedbackEl.textContent = 'Lien copié !';
+  copyFeedbackEl.classList.remove('copy-feedback--play');
+  void copyFeedbackEl.offsetWidth;
+  copyFeedbackEl.classList.add('copy-feedback--play');
+});
+
 // ---------- Actions : jeu ----------
 btnHaut.addEventListener('click', () => {
   if (hasChosenThisTurn) return;
@@ -1366,6 +1431,7 @@ socket.on('connect', () => {
 
 socket.on('rejoin_success', (payload) => {
   endReconnectAttempt();
+  isSpectating = false;
   hostId = payload.hostId;
   currentGameMode = payload.gameMode || 'normal';
   currentAdminId = payload.adminId || null;
@@ -1474,6 +1540,7 @@ socket.on('rejoin_failed', () => {
 
 socket.on('game_created', ({ gameId, players, hostId: hId, difficulty, gameMode, adminId, guessTurnDurationMs }) => {
   resetGameUI();
+  isSpectating = false;
   hostId = hId;
   gameCodeEl.textContent = gameId;
   currentAdminId = adminId || null;
@@ -1488,6 +1555,7 @@ socket.on('game_created', ({ gameId, players, hostId: hId, difficulty, gameMode,
 
 socket.on('game_joined', ({ gameId, players, hostId: hId, difficulty, gameMode, adminId, guessTurnDurationMs }) => {
   resetGameUI();
+  isSpectating = false;
   hostId = hId;
   gameCodeEl.textContent = gameId;
   currentAdminId = adminId || null;
@@ -1502,6 +1570,7 @@ socket.on('game_joined', ({ gameId, players, hostId: hId, difficulty, gameMode, 
 
 socket.on('game_replayed', ({ gameId, players, hostId: hId, difficulty, gameMode, adminId, guessTurnDurationMs }) => {
   resetGameUI();
+  isSpectating = false;
   hostId = hId;
   gameCodeEl.textContent = gameId;
   copyFeedbackEl.textContent = '';
@@ -1689,6 +1758,10 @@ socket.on('choice_result', ({ pokemon, rarity, basePoints, effect, pointsGained,
 socket.on('game_updated', ({ status, turn, maxTurns, route, players, hostId: hId, adminId }) => {
   if (hId) hostId = hId;
   if (adminId !== undefined) currentAdminId = adminId;
+  if (isSpectating) {
+    renderSpectateView({ status, turn, maxTurns, boss: spectateBoss, players });
+    return;
+  }
   applyGameState({ status, turn, maxTurns, route, players });
 });
 
@@ -2263,6 +2336,103 @@ socket.on('guess_game_over', ({ winnerId, reason, secretPokemon, players }) => {
 
   updateGuessReplayControls();
   showScreen(screenGuessFinished);
+});
+
+// ============================================================
+// MODE SPECTATEUR
+// ============================================================
+// Rejoint automatiquement via socket.on('join_game') côté serveur quand le code entré
+// correspond à une partie déjà démarrée (normal/admin). Vue strictement en lecture :
+// aucun bouton de choix nulle part sur cet écran. isSpectating (déclaré en haut du
+// fichier avec le reste de l'état local) sert de garde pour savoir si le prochain
+// game_updated doit rafraîchir CET écran plutôt que #screen-game.
+const btnLeaveSpectate = document.getElementById('btn-leave-spectate');
+const spectateBossSpriteEl = document.getElementById('spectate-boss-sprite');
+const spectateBossNameEl = document.getElementById('spectate-boss-name');
+const spectateBossTargetEl = document.getElementById('spectate-boss-target');
+const spectateTurnEl = document.getElementById('spectate-turn');
+const spectatePlayersListEl = document.getElementById('spectate-players-list');
+const spectateStatusEl = document.getElementById('spectate-status');
+
+function renderSpectateView({ status, turn, maxTurns, boss, players }) {
+  if (boss) {
+    spectateBossSpriteEl.src = boss.sprite;
+    spectateBossSpriteEl.alt = boss.name;
+    spectateBossNameEl.textContent = boss.name;
+    spectateBossTargetEl.textContent = boss.requiredPoints;
+  }
+  spectateTurnEl.textContent = status === 'finished'
+    ? 'Partie terminée'
+    : `Tour ${turn} / ${maxTurns}`;
+  renderPlayers(spectatePlayersListEl, players);
+  spectateStatusEl.textContent = status === 'finished' ? 'La partie est terminée.' : '';
+}
+
+socket.on('spectate_joined', (payload) => {
+  isSpectating = true;
+  hostId = payload.hostId;
+  spectateBoss = payload.boss;
+  renderSpectateView(payload);
+  showScreen(screenSpectate);
+});
+
+// La partie elle-même disparaît (plus aucun joueur) pendant qu'on observe : retour à
+// l'accueil plutôt que de rester accroché à un écran mort.
+socket.on('spectate_ended', () => {
+  isSpectating = false;
+  showScreen(screenHome);
+  errorMessage.textContent = "La partie s'est terminée (tous les joueurs sont partis).";
+});
+
+btnLeaveSpectate.addEventListener('click', () => {
+  socket.emit('leave_game');
+  isSpectating = false;
+  showScreen(screenHome);
+});
+
+// ============================================================
+// REACTIONS RAPIDES (feu / pleurs / tete de mort / eclair)
+// ============================================================
+// Purement social, aucun effet sur la logique de jeu. Widget unique et partagé entre
+// #screen-game et #screen-spectate (cf. index.html/style.css) : pas de duplication par
+// écran, la visibilité est gérée en CSS via body[data-screen].
+const reactionButtons = Array.from(document.querySelectorAll('.reaction-btn'));
+const reactionBubblesEl = document.getElementById('reaction-bubbles');
+const MAX_REACTION_BUBBLES = 6;
+
+function spawnReactionBubble(playerName, emoji) {
+  const bubble = document.createElement('div');
+  bubble.className = 'reaction-bubble';
+
+  const emojiSpan = document.createElement('span');
+  emojiSpan.className = 'reaction-bubble__emoji';
+  emojiSpan.textContent = emoji;
+
+  const nameSpan = document.createElement('span');
+  nameSpan.className = 'reaction-bubble__name';
+  nameSpan.textContent = playerName;
+
+  bubble.appendChild(emojiSpan);
+  bubble.appendChild(nameSpan);
+  reactionBubblesEl.appendChild(bubble);
+
+  setTimeout(() => bubble.remove(), 2300);
+
+  // Borne le nombre de bulles simultanées : en cas de spam, on ne laisse jamais la pile
+  // grossir indéfiniment (les plus anciennes sont retirées avant même leur propre timer).
+  while (reactionBubblesEl.children.length > MAX_REACTION_BUBBLES) {
+    reactionBubblesEl.removeChild(reactionBubblesEl.firstChild);
+  }
+}
+
+reactionButtons.forEach(btn => {
+  btn.addEventListener('click', () => {
+    socket.emit('send_reaction', { emoji: btn.dataset.emoji });
+  });
+});
+
+socket.on('reaction', ({ playerName, emoji }) => {
+  spawnReactionBubble(playerName, emoji);
 });
 // ============================================================
 // RÉGLAGES (chrome persistant, barre d'app)
