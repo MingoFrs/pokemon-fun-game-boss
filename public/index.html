@@ -151,6 +151,15 @@
 
         <p id="gamemode-hint" class="gamemode-hint screen--hidden"></p>
 
+        <!-- Visible uniquement si le mode est admin/guess ET qu'il y a plus de 2 joueurs
+             dans le lobby : l'hôte choisit qui joue, les autres deviennent spectateurs
+             automatiquement au lancement (cf. renderActivePlayersOptions). -->
+        <div id="active-players-panel" class="admin-role-panel screen--hidden">
+          <p class="eyebrow">Choisir les 2 joueurs qui jouent</p>
+          <div id="active-players-options" class="admin-role-options"></div>
+          <p id="active-players-status" class="admin-role-status"></p>
+        </div>
+
         <div id="admin-role-panel" class="admin-role-panel screen--hidden">
           <p class="eyebrow">Choisir l'ADMIN</p>
           <div id="admin-role-options" class="admin-role-options"></div>
@@ -448,7 +457,7 @@
       <button id="btn-leave-spectate" class="btn btn--ghost">Quitter</button>
     </header>
 
-    <div class="boss-panel">
+    <div class="boss-panel" id="spectate-boss-panel">
       <p class="eyebrow">Boss de fin</p>
       <img id="spectate-boss-sprite" class="boss-sprite" src="" alt="">
       <h2 id="spectate-boss-name" class="boss-name">—</h2>

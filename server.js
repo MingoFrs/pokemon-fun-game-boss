@@ -1998,6 +1998,12 @@ function finalizePlayerRemoval(game, gameId, leavingPlayer) {
       game.adminId = null;
       io.to(gameId).emit('admin_role_updated', { adminId: null });
     }
+    // Idem pour la sélection des 2 joueurs actifs (mode admin/guess à >2 joueurs) : si
+    // l'un des 2 choisis quitte, la sélection entière n'a plus de sens.
+    if (game.activePlayerIds && game.activePlayerIds.includes(leavingPlayer.id)) {
+      game.activePlayerIds = null;
+      io.to(gameId).emit('active_players_updated', { activePlayerIds: null, adminId: game.adminId });
+    }
     broadcastPlayers(game);
     return;
   }
@@ -2064,7 +2070,13 @@ function removeSpectator(socket) {
   const game = games[gameId];
   if (!game || !game.spectators) return;
   game.spectators = game.spectators.filter(s => s.id !== socket.id);
-  broadcastGameUpdated(game); // met à jour spectatorCount pour les joueurs restants
+  // broadcastGameUpdated() a un payload façonné pour Route du Boss (route/turn/maxTurns) :
+  // en mode "guess", ce n'est jamais ce que les 2 joueurs actifs écoutent (leurs mises à
+  // jour passent par guess_players_updated etc.), donc on ne diffuse le compteur de
+  // spectateurs que pour les modes normal/admin.
+  if (game.gameMode !== 'guess') {
+    broadcastGameUpdated(game); // met à jour spectatorCount pour les joueurs restants
+  }
 }
 
 // Coupe proprement les spectateurs quand la partie elle-même disparaît (plus aucun
@@ -2080,6 +2092,37 @@ function clearSpectators(game, gameId) {
     }
   });
   game.spectators = [];
+}
+
+// Mode admin/guess à >2 joueurs dans le lobby (cf. socket.on('start_game')) : les
+// joueurs non retenus par l'hôte (set_active_players) basculent en spectateurs de CETTE
+// MÊME partie au moment du lancement — déjà dans le salon Socket.IO (aucun join/leave
+// réseau nécessaire), juste un changement de rôle côté serveur + un spectate_joined pour
+// que leur client bascule sur #screen-spectate avant que game_started/guess_game_started
+// (diffusés à tout le salon juste après) n'arrivent.
+function benchExtraPlayersAsSpectators(game, gameId, benchedPlayers) {
+  if (!benchedPlayers || benchedPlayers.length === 0) return;
+  benchedPlayers.forEach(p => {
+    game.spectators.push({ id: p.id, name: p.name });
+    const s = io.sockets.sockets.get(p.id);
+    if (!s) return;
+    s.data.gameId = null;
+    s.data.spectateGameId = gameId;
+    s.emit('spectate_joined', {
+      gameId,
+      status: game.status,
+      turn: game.turn,
+      maxTurns: game.maxTurns,
+      boss: game.boss || null,
+      route: game.route,
+      players: getPublicPlayers(game),
+      hostId: game.hostId,
+      gameMode: game.gameMode,
+      adminId: game.adminId,
+      difficulty: game.selectedDifficulty,
+      spectatorCount: game.spectators.length
+    });
+  });
 }
 
 // Déconnexion RÉSEAU (perte de connexion, refresh de page, onglet fermé...) : jamais
@@ -2195,7 +2238,8 @@ io.on('connection', (socket) => {
       guessWinnerId: null,
       guessTurnDurationMs: GUESS_TURN_DURATION_MS, // réglable par l'hôte, cf. set_guess_turn_duration
       players: [makePlayer(socket.id, trimmed, token)],
-      spectators: [] // cf. socket.on('join_game') : { id, name } uniquement, jamais de state de jeu
+      spectators: [], // cf. socket.on('join_game') : { id, name } uniquement, jamais de state de jeu
+      activePlayerIds: null // [id, id] : qui joue réellement en mode admin/guess à >2 joueurs dans le lobby (cf. set_active_players) ; ignoré/null tant qu'il n'y a que 2 joueurs
     };
 
     socket.join(gameId);
@@ -2209,6 +2253,7 @@ io.on('connection', (socket) => {
       difficulty: games[gameId].selectedDifficulty,
       gameMode: games[gameId].gameMode,
       adminId: games[gameId].adminId,
+      activePlayerIds: games[gameId].activePlayerIds,
       guessTurnDurationMs: games[gameId].guessTurnDurationMs
     });
   });
@@ -2281,6 +2326,7 @@ io.on('connection', (socket) => {
         difficulty: game.selectedDifficulty,
         gameMode: game.gameMode,
         adminId: game.adminId,
+        activePlayerIds: game.activePlayerIds,
         guessTurnDurationMs: game.guessTurnDurationMs
       });
       return;
@@ -2304,6 +2350,7 @@ io.on('connection', (socket) => {
       difficulty: game.selectedDifficulty,
       gameMode: game.gameMode,
       adminId: game.adminId,
+      activePlayerIds: game.activePlayerIds,
       guessTurnDurationMs: game.guessTurnDurationMs
     });
 
@@ -2359,19 +2406,38 @@ io.on('connection', (socket) => {
       socket.emit('error_message', 'Partie déjà démarrée.');
       return;
     }
-    if (game.gameMode === 'admin') {
-      if (game.players.length !== 2) {
-        socket.emit('error_message', 'Le mode ADMIN VS JOUEUR nécessite exactement 2 joueurs.');
+
+    // Modes 2 joueurs (admin/guess) à PLUS de 2 joueurs dans le lobby : l'hôte doit avoir
+    // choisi les 2 qui jouent réellement (cf. set_active_players) avant de pouvoir
+    // démarrer — les autres basculeront en spectateurs juste plus bas.
+    if (game.gameMode === 'admin' || game.gameMode === 'guess') {
+      if (game.players.length < 2) {
+        socket.emit('error_message', 'Ce mode nécessite au moins 2 joueurs.');
         return;
       }
-      if (!game.adminId || !game.players.some(p => p.id === game.adminId)) {
+      if (game.players.length > 2) {
+        const active = game.activePlayerIds;
+        if (!active || active.length !== 2 || !active.every(id => game.players.some(p => p.id === id))) {
+          socket.emit('error_message', 'Choisis les 2 joueurs qui vont jouer avant de démarrer.');
+          return;
+        }
+      }
+    }
+    if (game.gameMode === 'admin') {
+      const eligibleIds = game.players.length === 2 ? game.players.map(p => p.id) : game.activePlayerIds;
+      if (!game.adminId || !eligibleIds.includes(game.adminId)) {
         socket.emit('error_message', "Choisis l'ADMIN avant de démarrer.");
         return;
       }
     }
-    if (game.gameMode === 'guess' && game.players.length !== 2) {
-      socket.emit('error_message', 'Ce mode nécessite exactement 2 joueurs.');
-      return;
+
+    // Mise sur le banc AVANT toute génération d'état de partie : au-delà de 2 joueurs en
+    // mode admin/guess, seuls les 2 actifs choisis par l'hôte jouent réellement.
+    let benchedPlayers = [];
+    if ((game.gameMode === 'admin' || game.gameMode === 'guess') && game.players.length > 2) {
+      const activeIds = game.activePlayerIds;
+      benchedPlayers = game.players.filter(p => !activeIds.includes(p.id));
+      game.players = game.players.filter(p => activeIds.includes(p.id));
     }
 
     game.status = 'playing';
@@ -2381,6 +2447,7 @@ io.on('connection', (socket) => {
     // startGuessGame(). On sort ici avant de toucher aux champs Route du Boss.
     if (game.gameMode === 'guess') {
       game.players.forEach(p => { p.secretPokemonIndex = null; });
+      benchExtraPlayersAsSpectators(game, gameId, benchedPlayers);
       startGuessGame(game);
       return;
     }
@@ -2404,6 +2471,8 @@ io.on('connection', (socket) => {
       p.crossedFatesPartner = null;
       p.secretPokemonIndex = null;
     });
+
+    benchExtraPlayersAsSpectators(game, gameId, benchedPlayers);
 
     io.to(gameId).emit('game_started', {
       gameId: game.id,
@@ -2585,7 +2654,8 @@ io.on('connection', (socket) => {
       guessWinnerId: null,
       guessTurnDurationMs: oldGame.guessTurnDurationMs || GUESS_TURN_DURATION_MS, // conservée, modifiable avant le lancement
       players: connectedOldPlayers.map(p => makePlayer(p.id, p.name, p.token)), // pity remis à 0, token conservé (cf. makePlayer)
-      spectators: []
+      spectators: [],
+      activePlayerIds: null // nouvelle partie = nouvelle sélection à faire si jamais elle repasse à >2 joueurs
     };
 
     games[newGameId] = newGame;
@@ -2600,12 +2670,36 @@ io.on('connection', (socket) => {
       }
     });
 
-    // Nouvelle partie = nouveau salon : les spectateurs de l'ancienne ne sont PAS
-    // reportés automatiquement (plus simple, et évite un salon fantôme) — ils devront
-    // rejoindre le nouveau code s'ils veulent continuer à observer.
+    // Idem pour les spectateurs encore connectés : Rejouer ne doit pas les éjecter vers
+    // l'accueil, ils suivent automatiquement la partie dans son nouveau salon (comme les
+    // joueurs juste au-dessus), avec un spectate_joined frais reflétant le nouvel état
+    // (statut 'waiting', pas encore de boss tant que l'hôte n'a pas relancé).
+    const connectedOldSpectators = (oldGame.spectators || []).filter(s => io.sockets.sockets.has(s.id));
+    newGame.spectators = connectedOldSpectators.map(s => ({ id: s.id, name: s.name }));
+    connectedOldSpectators.forEach(s => {
+      const specSocket = io.sockets.sockets.get(s.id);
+      if (!specSocket) return;
+      specSocket.leave(oldGameId);
+      specSocket.join(newGameId);
+      specSocket.data.spectateGameId = newGameId;
+      specSocket.emit('spectate_joined', {
+        gameId: newGameId,
+        status: newGame.status,
+        turn: newGame.turn,
+        maxTurns: newGame.maxTurns,
+        boss: newGame.boss,
+        route: newGame.route,
+        players: getPublicPlayers(newGame),
+        hostId: newGame.hostId,
+        gameMode: newGame.gameMode,
+        adminId: newGame.adminId,
+        difficulty: newGame.selectedDifficulty,
+        spectatorCount: newGame.spectators.length
+      });
+    });
+
     if (oldGame.turnTimer) clearTimeout(oldGame.turnTimer); // filet de sécurité : status 'finished' devrait déjà l'avoir nettoyé
     if (oldGame.guessTurnTimer) clearTimeout(oldGame.guessTurnTimer);
-    clearSpectators(oldGame, oldGameId);
     delete games[oldGameId];
 
     io.to(newGameId).emit('game_replayed', {
@@ -2615,6 +2709,7 @@ io.on('connection', (socket) => {
       difficulty: newGame.selectedDifficulty,
       gameMode: newGame.gameMode,
       adminId: newGame.adminId,
+      activePlayerIds: newGame.activePlayerIds,
       guessTurnDurationMs: newGame.guessTurnDurationMs
     });
   });
@@ -2674,7 +2769,51 @@ io.on('connection', (socket) => {
 
     game.gameMode = mode;
     game.adminId = null;
-    io.to(gameId).emit('game_mode_updated', { gameMode: game.gameMode, adminId: game.adminId });
+    game.activePlayerIds = null;
+    io.to(gameId).emit('game_mode_updated', { gameMode: game.gameMode, adminId: game.adminId, activePlayerIds: game.activePlayerIds });
+  });
+
+  // Choix des 2 joueurs qui jouent réellement (mode admin/guess à >2 joueurs dans le
+  // lobby, cf. socket.on('start_game') plus bas pour la mise sur le banc effective au
+  // lancement). Sans effet à exactement 2 joueurs : ils sont alors automatiquement les
+  // 2 actifs, pas besoin de ce picker.
+  socket.on('set_active_players', ({ playerIds } = {}) => {
+    const gameId = socket.data.gameId;
+    const game = games[gameId];
+
+    if (!game) {
+      socket.emit('error_message', 'Partie introuvable.');
+      return;
+    }
+    if (game.hostId !== socket.id) {
+      socket.emit('error_message', "Seul l'hôte peut choisir les joueurs actifs.");
+      return;
+    }
+    if (game.status !== 'waiting') {
+      socket.emit('error_message', 'La sélection des joueurs actifs ne peut plus être modifiée.');
+      return;
+    }
+    if (game.gameMode !== 'admin' && game.gameMode !== 'guess') {
+      socket.emit('error_message', "Ce mode ne nécessite pas de choisir les joueurs actifs.");
+      return;
+    }
+    if (!Array.isArray(playerIds) || playerIds.length !== 2) {
+      socket.emit('error_message', 'Choisis exactement 2 joueurs.');
+      return;
+    }
+    const uniqueIds = [...new Set(playerIds)];
+    if (uniqueIds.length !== 2 || !uniqueIds.every(id => game.players.some(p => p.id === id))) {
+      socket.emit('error_message', 'Sélection de joueurs invalide.');
+      return;
+    }
+
+    game.activePlayerIds = uniqueIds;
+    // L'ADMIN précédemment choisi n'est peut-être plus parmi les 2 actifs : on le
+    // réinitialise plutôt que de laisser une incohérence (ADMIN sur le banc).
+    if (game.gameMode === 'admin' && game.adminId && !uniqueIds.includes(game.adminId)) {
+      game.adminId = null;
+    }
+    io.to(gameId).emit('active_players_updated', { activePlayerIds: game.activePlayerIds, adminId: game.adminId });
   });
 
   // Choix du joueur ADMIN dans le lobby (mode "admin" uniquement). Réservé à l'hôte,
@@ -2701,11 +2840,23 @@ io.on('connection', (socket) => {
       socket.emit('error_message', "Le mode ADMIN VS JOUEUR n'est pas sélectionné.");
       return;
     }
-    if (game.players.length !== 2) {
-      socket.emit('error_message', 'Le mode ADMIN VS JOUEUR nécessite exactement 2 joueurs.');
+    if (game.players.length < 2) {
+      socket.emit('error_message', 'Le mode ADMIN VS JOUEUR nécessite au moins 2 joueurs.');
       return;
     }
-    if (!game.players.some(p => p.id === adminId)) {
+
+    // À exactement 2 joueurs dans le lobby, les 2 sont automatiquement les "actifs" (pas
+    // besoin de set_active_players). Au-delà, l'ADMIN doit obligatoirement être l'un des
+    // 2 joueurs déjà choisis comme actifs — jamais un joueur resté sur le banc.
+    const eligibleIds = game.players.length === 2
+      ? game.players.map(p => p.id)
+      : (game.activePlayerIds || []);
+
+    if (game.players.length > 2 && eligibleIds.length !== 2) {
+      socket.emit('error_message', "Choisis d'abord les 2 joueurs qui vont jouer.");
+      return;
+    }
+    if (!eligibleIds.includes(adminId)) {
       socket.emit('error_message', 'Joueur invalide.');
       return;
     }
@@ -3235,6 +3386,7 @@ io.on('connection', (socket) => {
       difficulty: game.selectedDifficulty,
       gameMode: game.gameMode,
       adminId: game.adminId,
+      activePlayerIds: game.activePlayerIds,
       hostId: game.hostId,
       players: getPublicPlayers(game),
       // Mode "guess" uniquement : sans ces champs, le client n'a aucun moyen de

@@ -98,6 +98,9 @@ const gamemodeHintEl = document.getElementById('gamemode-hint');
 const adminRolePanelEl = document.getElementById('admin-role-panel');
 const adminRoleOptionsEl = document.getElementById('admin-role-options');
 const adminRoleStatusEl = document.getElementById('admin-role-status');
+const activePlayersPanelEl = document.getElementById('active-players-panel');
+const activePlayersOptionsEl = document.getElementById('active-players-options');
+const activePlayersStatusEl = document.getElementById('active-players-status');
 const guessDurationPanelEl = document.getElementById('guess-duration-panel');
 const guessDurationButtons = Array.from(document.querySelectorAll('#guess-duration-options .admin-role-btn'));
 
@@ -204,9 +207,11 @@ let lastRenderedTurn = 0;
 let currentDifficulty = 'medium'; // reflet local de la difficulté choisie par l'hôte (le serveur reste source de vérité)
 let currentGameMode = 'normal'; // 'normal' | 'admin' — reflet local, serveur = source de vérité
 let currentAdminId = null; // id du joueur ADMIN choisi par l'hôte (mode "admin" uniquement)
+let currentActivePlayerIds = []; // [id, id] : qui joue réellement en mode admin/guess à >2 joueurs (cf. set_active_players) ; toujours vide/non pertinent à 2 joueurs pile
 let lastLobbyPlayers = []; // dernière liste de joueurs du lobby, réutilisée pour re-render le picker ADMIN
 let isSpectating = false; // true entre spectate_joined et un retour à l'accueil/spectate_ended
-let spectateBoss = null; // boss caché en local (jamais renvoyé par game_updated, seulement par spectate_joined)
+let spectateBoss = null; // boss caché en local (jamais renvoyé par game_updated, seulement par spectate_joined/game_started)
+let spectateGameMode = null; // idem : certains broadcasts (game_updated) ne portent pas gameMode, on retombe sur ce cache
 
 const RARITY_LABELS = {
   commun: 'Commun',
@@ -270,6 +275,7 @@ function updateHostControls() {
   difficultyButtons.forEach(btn => { btn.disabled = !host; });
   gamemodeButtons.forEach(btn => { btn.disabled = !host; });
   guessDurationButtons.forEach(btn => { btn.disabled = !host; });
+  renderActivePlayersOptions(); // dépend aussi de isHost() (boutons désactivés pour l'invité)
   renderAdminRoleOptions(); // dépend aussi de isHost() (boutons désactivés pour l'invité)
   lobbyStatusEl.textContent = host
     ? 'Lance la partie quand tout le monde est prêt.'
@@ -285,22 +291,27 @@ function renderDifficulty(difficulty) {
   });
 }
 
-// Met à jour l'affichage du mode de jeu + affiche/masque le picker ADMIN. N'émet
-// jamais rien : uniquement du rendu à partir de ce que le serveur a confirmé.
+// Met à jour l'affichage du mode de jeu + affiche/masque les pickers ADMIN et
+// "joueurs actifs". N'émet jamais rien : uniquement du rendu à partir de ce que le
+// serveur a confirmé.
 function renderGameMode(gameMode) {
   currentGameMode = gameMode || 'normal';
   gamemodeButtons.forEach(btn => {
     btn.classList.toggle('gamemode-btn--selected', btn.dataset.mode === currentGameMode);
   });
   adminRolePanelEl.classList.toggle('screen--hidden', currentGameMode !== 'admin');
+  renderActivePlayersOptions();
   renderAdminRoleOptions();
 
   // "Devine le Pokémon" : pas de rôle à choisir (contrairement à ADMIN VS JOUEUR), juste
-  // un rappel que ce mode nécessite exactement 2 joueurs (le serveur revalide de toute
-  // façon au démarrage, ce message n'est qu'un confort visuel).
-  gamemodeHintEl.classList.toggle('screen--hidden', currentGameMode !== 'guess');
-  if (currentGameMode === 'guess') {
-    gamemodeHintEl.textContent = 'Ce mode nécessite exactement 2 joueurs.';
+  // un rappel du nombre de joueurs nécessaire — le serveur revalide de toute façon au
+  // démarrage, ce message n'est qu'un confort visuel.
+  const needsGuessHint = currentGameMode === 'guess';
+  gamemodeHintEl.classList.toggle('screen--hidden', !needsGuessHint);
+  if (needsGuessHint) {
+    gamemodeHintEl.textContent = lastLobbyPlayers.length > 2
+      ? 'Choisis les 2 joueurs qui vont jouer ci-dessous — les autres seront spectateurs.'
+      : 'Ce mode nécessite exactement 2 joueurs.';
   }
   guessDurationPanelEl.classList.toggle('screen--hidden', currentGameMode !== 'guess');
 }
@@ -316,21 +327,65 @@ function renderGuessDuration(durationMs) {
   });
 }
 
+// Picker "qui joue" (mode admin/guess, UNIQUEMENT quand il y a plus de 2 joueurs dans le
+// lobby — à exactement 2, ils sont automatiquement les 2 actifs, ce picker n'a pas lieu
+// d'être). Sélection à bascule plafonnée à 2 : le 3e clic remplace le plus ancien choisi.
+function renderActivePlayersOptions() {
+  const needsPicker = (currentGameMode === 'admin' || currentGameMode === 'guess') && lastLobbyPlayers.length > 2;
+  activePlayersPanelEl.classList.toggle('screen--hidden', !needsPicker);
+  if (!needsPicker) return;
+
+  activePlayersOptionsEl.innerHTML = '';
+  const host = isHost();
+
+  lastLobbyPlayers.forEach(p => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'admin-role-btn';
+    btn.classList.toggle('admin-role-btn--selected', currentActivePlayerIds.includes(p.id));
+    btn.disabled = !host;
+    btn.textContent = p.name;
+    btn.addEventListener('click', () => {
+      if (!isHost()) return;
+      let next = currentActivePlayerIds.includes(p.id)
+        ? currentActivePlayerIds.filter(id => id !== p.id)
+        : [...currentActivePlayerIds, p.id];
+      if (next.length > 2) next = next.slice(next.length - 2); // garde les 2 derniers cliqués
+      socket.emit('set_active_players', { playerIds: next });
+    });
+    activePlayersOptionsEl.appendChild(btn);
+  });
+
+  activePlayersStatusEl.textContent = currentActivePlayerIds.length === 2
+    ? ''
+    : host ? 'Sélectionne les 2 joueurs qui vont jouer.' : "En attente que l'hôte choisisse...";
+}
+
 // Reconstruit le picker ADMIN à partir de la dernière liste de joueurs connue. Affiché
-// uniquement en mode "admin". Nécessite exactement 2 joueurs pour proposer un choix ;
-// sinon affiche juste un message explicite (le serveur revalidera de toute façon).
+// uniquement en mode "admin". À exactement 2 joueurs, les 2 sont directement proposés ;
+// au-delà, uniquement parmi les 2 joueurs actifs déjà choisis via renderActivePlayersOptions
+// (jamais un joueur resté sur le banc) — sinon affiche juste un message explicite.
 function renderAdminRoleOptions() {
   if (currentGameMode !== 'admin') return;
 
   adminRoleOptionsEl.innerHTML = '';
   const host = isHost();
 
-  if (lastLobbyPlayers.length !== 2) {
-    adminRoleStatusEl.textContent = 'Exactement 2 joueurs sont nécessaires pour ce mode.';
+  if (lastLobbyPlayers.length < 2) {
+    adminRoleStatusEl.textContent = 'Au moins 2 joueurs sont nécessaires pour ce mode.';
     return;
   }
 
-  lastLobbyPlayers.forEach(p => {
+  const candidates = lastLobbyPlayers.length === 2
+    ? lastLobbyPlayers
+    : lastLobbyPlayers.filter(p => currentActivePlayerIds.includes(p.id));
+
+  if (lastLobbyPlayers.length > 2 && candidates.length !== 2) {
+    adminRoleStatusEl.textContent = "Choisis d'abord les 2 joueurs qui vont jouer ci-dessus.";
+    return;
+  }
+
+  candidates.forEach(p => {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'admin-role-btn';
@@ -1435,6 +1490,7 @@ socket.on('rejoin_success', (payload) => {
   hostId = payload.hostId;
   currentGameMode = payload.gameMode || 'normal';
   currentAdminId = payload.adminId || null;
+  currentActivePlayerIds = payload.activePlayerIds || [];
   rememberActiveGame(payload.gameId);
 
   // Mode "Devine le Pokémon" : structure d'état complètement différente (planche/secret/
@@ -1538,12 +1594,13 @@ socket.on('rejoin_failed', () => {
   endReconnectAttempt();
 });
 
-socket.on('game_created', ({ gameId, players, hostId: hId, difficulty, gameMode, adminId, guessTurnDurationMs }) => {
+socket.on('game_created', ({ gameId, players, hostId: hId, difficulty, gameMode, adminId, activePlayerIds, guessTurnDurationMs }) => {
   resetGameUI();
   isSpectating = false;
   hostId = hId;
   gameCodeEl.textContent = gameId;
   currentAdminId = adminId || null;
+  currentActivePlayerIds = activePlayerIds || [];
   rememberActiveGame(gameId);
   renderLobbyPlayers(players);
   renderDifficulty(difficulty);
@@ -1553,12 +1610,13 @@ socket.on('game_created', ({ gameId, players, hostId: hId, difficulty, gameMode,
   showScreen(screenLobby);
 });
 
-socket.on('game_joined', ({ gameId, players, hostId: hId, difficulty, gameMode, adminId, guessTurnDurationMs }) => {
+socket.on('game_joined', ({ gameId, players, hostId: hId, difficulty, gameMode, adminId, activePlayerIds, guessTurnDurationMs }) => {
   resetGameUI();
   isSpectating = false;
   hostId = hId;
   gameCodeEl.textContent = gameId;
   currentAdminId = adminId || null;
+  currentActivePlayerIds = activePlayerIds || [];
   rememberActiveGame(gameId);
   renderLobbyPlayers(players);
   renderDifficulty(difficulty);
@@ -1568,14 +1626,20 @@ socket.on('game_joined', ({ gameId, players, hostId: hId, difficulty, gameMode, 
   showScreen(screenLobby);
 });
 
-socket.on('game_replayed', ({ gameId, players, hostId: hId, difficulty, gameMode, adminId, guessTurnDurationMs }) => {
+socket.on('game_replayed', ({ gameId, players, hostId: hId, difficulty, gameMode, adminId, activePlayerIds, guessTurnDurationMs }) => {
+  // Diffusé à tout le nouveau salon (io.to(newGameId).emit), donc reçu aussi par un
+  // spectateur transféré depuis l'ancienne partie (cf. socket.on('play_again') côté
+  // serveur) : celui-ci vient de recevoir SON propre spectate_joined juste avant, il ne
+  // doit surtout pas être traité comme un membre du lobby ici.
+  if (isSpectating) return;
+
   resetGameUI();
-  isSpectating = false;
   hostId = hId;
   gameCodeEl.textContent = gameId;
   copyFeedbackEl.textContent = '';
   copyFeedbackEl.classList.remove('copy-feedback--play');
   currentAdminId = adminId || null;
+  currentActivePlayerIds = activePlayerIds || [];
   rememberActiveGame(gameId);
   renderLobbyPlayers(players);
   renderDifficulty(difficulty);
@@ -1593,14 +1657,23 @@ socket.on('difficulty_updated', ({ difficulty }) => {
 
 // Idem pour le mode de jeu : changer de mode réinitialise toujours adminId côté serveur
 // (cf. set_game_mode), donc les deux se mettent à jour ensemble ici.
-socket.on('game_mode_updated', ({ gameMode, adminId }) => {
+socket.on('game_mode_updated', ({ gameMode, adminId, activePlayerIds }) => {
   currentAdminId = adminId || null;
+  currentActivePlayerIds = activePlayerIds || [];
   renderGameMode(gameMode);
 });
 
 // Le rôle ADMIN change (hôte uniquement) : les deux joueurs voient le nouveau choix en direct.
 socket.on('admin_role_updated', ({ adminId }) => {
   currentAdminId = adminId || null;
+  renderAdminRoleOptions();
+});
+
+// Idem pour la sélection des 2 joueurs actifs (mode admin/guess à >2 joueurs dans le lobby).
+socket.on('active_players_updated', ({ activePlayerIds, adminId }) => {
+  currentActivePlayerIds = activePlayerIds || [];
+  if (adminId !== undefined) currentAdminId = adminId || null;
+  renderActivePlayersOptions();
   renderAdminRoleOptions();
 });
 
@@ -1629,7 +1702,18 @@ function applyGameStarted({ status, turn, maxTurns, route, boss, players, gameMo
   showScreen(screenGame);
 }
 
-socket.on('game_started', applyGameStarted);
+socket.on('game_started', (payload) => {
+  if (isSpectating) {
+    // Le salon reçoit game_started en broadcast room-wide ; un spectateur présent au
+    // moment où l'hôte relance (Rejouer -> Démarrer) ne doit PAS basculer sur
+    // applyGameStarted (vue joueur, non pertinente pour lui) mais rafraîchir SA vue
+    // en lecture seule avec l'état frais de la partie qui vient de démarrer.
+    spectateBoss = payload.boss;
+    renderSpectateView(payload);
+    return;
+  }
+  applyGameStarted(payload);
+});
 
 // Options individuelles du joueur pour ce tour : sprite + nom visibles, points/effet cachés.
 // display remis à '' au cas où le panneau vient d'un tour caché (mode ADMIN VS JOUEUR,
@@ -1928,7 +2012,17 @@ function applyGameFinished({ boss, difficulty, gameMode, adminId, reason, player
   showScreen(screenFinished);
 }
 
-socket.on('game_finished', applyGameFinished);
+socket.on('game_finished', (payload) => {
+  if (isSpectating) {
+    // Même logique que game_started ci-dessus : un spectateur reste dans le salon
+    // jusqu'à la fin de partie, mais ne doit jamais atterrir sur #screen-finished (vue
+    // joueur avec "ton score"/"ton équipe", sans objet pour lui).
+    spectateBoss = payload.boss;
+    renderSpectateView({ status: 'finished', boss: payload.boss, players: payload.players, gameMode: payload.gameMode });
+    return;
+  }
+  applyGameFinished(payload);
+});
 
 // ---------- Événements serveur : événements rares ----------
 // Peuvent arriver à tout moment pendant screen-game, indépendamment du flux de tour
@@ -2259,6 +2353,15 @@ btnGuessFinishTurn.addEventListener('click', () => {
 
 // ---------- Événements serveur ----------
 socket.on('guess_game_started', ({ gameId, board, players }) => {
+  if (isSpectating) {
+    // Mis sur le banc en mode "Devine le Pokémon" à >2 joueurs (cf. start_game côté
+    // serveur) : pas de vue plateau dédiée pour l'instant, juste un statut simple sur
+    // l'écran spectateur générique (planche + secrets restent invisibles, comme pour
+    // les 2 joueurs actifs eux-mêmes tant qu'ils n'ont pas révélé quoi que ce soit).
+    spectateBoss = null;
+    renderSpectateView({ status: 'playing', gameMode: 'guess', players });
+    return;
+  }
   resetGuessUI();
   rememberActiveGame(gameId);
   guessBoard = board;
@@ -2275,10 +2378,16 @@ socket.on('secret_selection_confirmed', ({ index, name }) => {
 });
 
 socket.on('guess_players_updated', ({ players }) => {
+  if (isSpectating) {
+    renderSpectateView({ status: 'playing', gameMode: 'guess', boss: spectateBoss, players });
+    return;
+  }
   renderGuessPlayers(players);
 });
 
 socket.on('guess_turn_started', ({ activePlayerId, turnEndsAt, turnDurationMs }) => {
+  if (isSpectating) return; // pas de minuteur/tour à afficher côté spectateur pour l'instant
+
   guessActivePlayerId = activePlayerId;
   guessSelectionPanelEl.classList.add('screen--hidden');
   guessTurnPanelEl.classList.remove('screen--hidden');
@@ -2300,6 +2409,8 @@ socket.on('guess_turn_started', ({ activePlayerId, turnEndsAt, turnDurationMs })
 // Diffusé aux DEUX joueurs, bonne ou mauvaise réponse : ça fait partie du jeu de
 // déduction (cf. spec section 5/9/10). Une mauvaise réponse ne change rien d'autre.
 socket.on('guess_attempt_result', ({ by, index, name, correct }) => {
+  if (isSpectating) return; // écran spectateur générique : pas de fil de tentatives pour l'instant
+
   guessLastAttemptEl.classList.remove('guess-last-attempt--correct', 'guess-last-attempt--wrong');
   guessLastAttemptEl.classList.add(correct ? 'guess-last-attempt--correct' : 'guess-last-attempt--wrong');
   guessLastAttemptEl.textContent = correct
@@ -2309,6 +2420,13 @@ socket.on('guess_attempt_result', ({ by, index, name, correct }) => {
 });
 
 socket.on('guess_game_over', ({ winnerId, reason, secretPokemon, players }) => {
+  if (isSpectating) {
+    // Même logique que game_finished pour Route du Boss : ne jamais rediriger un
+    // spectateur vers #screen-guess-finished (vue "victoire/défaite" propre aux 2
+    // joueurs actifs, sans objet pour lui).
+    renderSpectateView({ status: 'finished', gameMode: 'guess', boss: spectateBoss, players });
+    return;
+  }
   clearInterval(guessTimerInterval);
   lastGuessPlayers = players;
 
@@ -2353,17 +2471,40 @@ const spectateBossTargetEl = document.getElementById('spectate-boss-target');
 const spectateTurnEl = document.getElementById('spectate-turn');
 const spectatePlayersListEl = document.getElementById('spectate-players-list');
 const spectateStatusEl = document.getElementById('spectate-status');
+const spectateBossPanelEl = document.getElementById('spectate-boss-panel');
 
-function renderSpectateView({ status, turn, maxTurns, boss, players }) {
-  if (boss) {
-    spectateBossSpriteEl.src = boss.sprite;
-    spectateBossSpriteEl.alt = boss.name;
-    spectateBossNameEl.textContent = boss.name;
-    spectateBossTargetEl.textContent = boss.requiredPoints;
+function renderSpectateView({ status, turn, maxTurns, boss, players, gameMode }) {
+  if (gameMode) spectateGameMode = gameMode; // certains appelants (game_updated) n'ont pas ce champ
+  const isGuess = spectateGameMode === 'guess';
+  // Mode "Devine le Pokémon" : aucun concept de boss/route, le panneau n'a pas de sens.
+  spectateBossPanelEl.classList.toggle('screen--hidden', isGuess);
+
+  if (!isGuess) {
+    if (boss) {
+      spectateBossSpriteEl.src = boss.sprite;
+      spectateBossSpriteEl.alt = boss.name;
+      spectateBossNameEl.textContent = boss.name;
+      spectateBossTargetEl.textContent = boss.requiredPoints;
+    } else {
+      // Partie relancée (Rejouer) : nouveau salon en attente, pas encore de boss tiré.
+      spectateBossSpriteEl.src = '';
+      spectateBossSpriteEl.alt = '';
+      spectateBossNameEl.textContent = '—';
+      spectateBossTargetEl.textContent = '0';
+    }
   }
-  spectateTurnEl.textContent = status === 'finished'
-    ? 'Partie terminée'
-    : `Tour ${turn} / ${maxTurns}`;
+
+  if (status === 'finished') {
+    spectateTurnEl.textContent = 'Partie terminée';
+  } else if (status === 'waiting') {
+    spectateTurnEl.textContent = "En attente du lancement de la partie...";
+  } else if (isGuess) {
+    // Pas de vue plateau dédiée pour l'instant côté spectateur (planche/secrets restent
+    // invisibles) : juste un statut simple, cf. socket.on('guess_game_started') plus haut.
+    spectateTurnEl.textContent = 'Duel Devine le Pokémon en cours...';
+  } else {
+    spectateTurnEl.textContent = `Tour ${turn} / ${maxTurns}`;
+  }
   renderPlayers(spectatePlayersListEl, players);
   spectateStatusEl.textContent = status === 'finished' ? 'La partie est terminée.' : '';
 }
