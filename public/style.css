@@ -208,6 +208,10 @@ body {
   cursor: pointer;
 }
 
+.settings-toggle + .settings-toggle {
+  margin-top: 12px;
+}
+
 .settings-toggle__label {
   font-size: 14px;
   color: var(--text-primary);

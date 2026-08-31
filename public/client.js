@@ -1413,6 +1413,7 @@ btnHaut.addEventListener('click', () => {
   setChoiceButtonsEnabled(false);
   markChoiceSelected(btnHaut, btnBas);
   turnStatusEl.textContent = 'Choix enregistré !';
+  playClickSound();
   socket.emit('player_choice', { choice: 'HAUT' });
 });
 
@@ -1422,6 +1423,7 @@ btnBas.addEventListener('click', () => {
   setChoiceButtonsEnabled(false);
   markChoiceSelected(btnBas, btnHaut);
   turnStatusEl.textContent = 'Choix enregistré !';
+  playClickSound();
   socket.emit('player_choice', { choice: 'BAS' });
 });
 
@@ -1835,6 +1837,7 @@ socket.on('choice_result', ({ pokemon, rarity, basePoints, effect, pointsGained,
   resultPointsEl.textContent = pointsGained;
   resultPanelEl.classList.remove('result-panel--hidden');
   playRevealAnimation();
+  playRevealSound();
   renderTeam(team, true); // toujours ta propre équipe (résultat de ton propre choix)
   updateMyScore(score, pointsGained);
 });
@@ -1935,6 +1938,7 @@ function applyGameFinished({ boss, difficulty, gameMode, adminId, reason, player
   finishedOutcomeEl.textContent = outcomeText;
   finishedOutcomeEl.classList.toggle('finished-outcome--victory', !!me && me.result === 'victory');
   finishedOutcomeEl.classList.toggle('finished-outcome--defeat', !!me && me.result !== 'victory');
+  if (me && me.result === 'victory') playVictorySound(); else playDefeatSound();
 
   finishedBossSpriteEl.src = boss.sprite;
   finishedBossNameEl.textContent = boss.name.toUpperCase();
@@ -2234,6 +2238,7 @@ function setGuessBoardMode(mode) {
 //   avoir cliqué "Dire ma réponse", ou pendant le tour de l'adversaire) -> simple
 //   coche personnelle "pas ça" (aide-mémoire, jamais envoyée au serveur).
 function handleGuessTileClick(index) {
+  playClickSound();
   if (guessBoardMode === 'select-secret' && guessMySecretIndex === null) {
     socket.emit('select_secret_pokemon', { index });
     return;
@@ -2434,6 +2439,7 @@ socket.on('guess_game_over', ({ winnerId, reason, secretPokemon, players }) => {
   guessFinishedOutcomeEl.textContent = won ? 'VICTOIRE !' : 'DÉFAITE';
   guessFinishedOutcomeEl.classList.toggle('finished-outcome--victory', won);
   guessFinishedOutcomeEl.classList.toggle('finished-outcome--defeat', !won);
+  if (won) playVictorySound(); else playDefeatSound();
 
   guessFinishedDetailEl.innerHTML = '';
   if (reason === 'forfeit') {
@@ -2576,21 +2582,90 @@ socket.on('reaction', ({ playerName, emoji }) => {
   spawnReactionBubble(playerName, emoji);
 });
 // ============================================================
+// SONS COURTS (Réglages > Affichage > Sons)
+// ============================================================
+// Générés à la volée via Web Audio API (oscillateurs) plutôt que des fichiers audio à
+// charger : aucun asset à servir/mettre en cache, fonctionne offline, zéro dépendance.
+// Désactivés par défaut (soundEnabled, cf. section RÉGLAGES juste en dessous qui
+// l'initialise depuis localStorage) : les navigateurs bloquent de toute façon l'audio
+// tant qu'il n'y a pas eu de geste utilisateur, donc pas de perte à rester silencieux
+// jusqu'à la première interaction.
+let audioCtx = null;
+let soundEnabled = false;
+
+function getAudioContext() {
+  if (!audioCtx) {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) return null; // navigateur trop ancien : silencieux, jamais bloquant
+    audioCtx = new AudioCtx();
+  }
+  return audioCtx;
+}
+
+function playTone({ freq, duration, type = 'sine', volume = 0.15, delay = 0 }) {
+  if (!soundEnabled) return;
+  try {
+    const ctx = getAudioContext();
+    if (!ctx) return;
+    if (ctx.state === 'suspended') ctx.resume();
+
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = type;
+    osc.frequency.value = freq;
+
+    const startTime = ctx.currentTime + delay;
+    gain.gain.setValueAtTime(0, startTime);
+    gain.gain.linearRampToValueAtTime(volume, startTime + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.001, startTime + duration);
+
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(startTime);
+    osc.stop(startTime + duration + 0.02);
+  } catch (e) {
+    // Web Audio indisponible/bloqué (permissions, contexte non déverrouillé...) :
+    // le son est un confort, jamais une raison de casser le reste de l'interaction.
+  }
+}
+
+function playClickSound() {
+  playTone({ freq: 720, duration: 0.06, type: 'sine', volume: 0.12 });
+}
+
+function playRevealSound() {
+  playTone({ freq: 520, duration: 0.09, type: 'triangle', volume: 0.14 });
+  playTone({ freq: 780, duration: 0.12, type: 'triangle', volume: 0.1, delay: 0.06 });
+}
+
+function playVictorySound() {
+  [523.25, 659.25, 783.99, 1046.5].forEach((freq, i) => {
+    playTone({ freq, duration: 0.22, type: 'triangle', volume: 0.13, delay: i * 0.09 });
+  });
+}
+
+function playDefeatSound() {
+  [440, 349.23, 293.66].forEach((freq, i) => {
+    playTone({ freq, duration: 0.28, type: 'sawtooth', volume: 0.1, delay: i * 0.12 });
+  });
+}
+
+// ============================================================
 // RÉGLAGES (chrome persistant, barre d'app)
 // ============================================================
 // Section volontairement isolée et indépendante de tout flux de partie : ouverture/
-// fermeture du panneau + 3 réglages (réduction d'animations, thème de fond, crédits
+// fermeture du panneau + 4 réglages (réduction d'animations, son, thème de fond, crédits
 // statiques). Persisté en localStorage et réappliqué au chargement AVANT le premier
-// rendu par le script anti-flash dans <head> (index.html) — ici on ne fait que
-// synchroniser l'UI du panneau avec l'état déjà appliqué, puis réagir aux clics.
-// Déclarée en toute fin de fichier car elle ne dépend d'aucune logique antérieure et
-// n'est dépendue par rien.
+// rendu par le script anti-flash dans <head> (index.html) pour thème/animations — le son
+// reste désactivé par défaut tant que le visiteur n'a pas interagi une première fois
+// (cf. plus bas, contrainte des navigateurs sur l'audio).
 const SETTINGS_STORAGE_KEY = 'rdb_settings_v1';
 
 const btnSettings = document.getElementById('btn-settings');
 const settingsOverlayEl = document.getElementById('settings-overlay');
 const btnSettingsClose = document.getElementById('btn-settings-close');
 const settingsReduceMotionInput = document.getElementById('settings-reduce-motion');
+const settingsSoundInput = document.getElementById('settings-sound');
 const settingsThemeButtons = Array.from(document.querySelectorAll('.settings-theme-swatch'));
 
 function loadSettings() {
@@ -2627,6 +2702,11 @@ function applyReduceMotion(enabled) {
   settingsReduceMotionInput.checked = !!enabled;
 }
 
+function applySoundSetting(enabled) {
+  soundEnabled = !!enabled;
+  settingsSoundInput.checked = soundEnabled;
+}
+
 function openSettings() {
   settingsOverlayEl.classList.remove('screen--hidden');
 }
@@ -2640,6 +2720,7 @@ function closeSettings() {
   const settings = loadSettings();
   applyTheme(settings.theme || 'default');
   applyReduceMotion(!!settings.reduceMotion);
+  applySoundSetting(!!settings.sound);
 })();
 
 btnSettings.addEventListener('click', openSettings);
@@ -2653,6 +2734,17 @@ settingsReduceMotionInput.addEventListener('change', () => {
   settings.reduceMotion = settingsReduceMotionInput.checked;
   saveSettings(settings);
   applyReduceMotion(settings.reduceMotion);
+});
+
+settingsSoundInput.addEventListener('change', () => {
+  const settings = loadSettings();
+  settings.sound = settingsSoundInput.checked;
+  saveSettings(settings);
+  applySoundSetting(settings.sound);
+  // Le clic qui active le son EST le geste utilisateur requis par les navigateurs pour
+  // débloquer l'audio : on joue un petit son de confirmation immédiatement, ce qui
+  // "débloque" le contexte audio pour tous les sons suivants de la session.
+  if (soundEnabled) playClickSound();
 });
 
 settingsThemeButtons.forEach(btn => {
