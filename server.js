@@ -9,6 +9,17 @@ const io = new Server(server);
 
 app.use(express.static(path.join(__dirname, 'public')));
 
+// Manifeste des sprites (tous les dex id du pool + des boss) : le client s'en sert au
+// chargement pour précharger discrètement les images en arrière-plan pendant le lobby,
+// AVANT qu'une partie ne les demande réellement pour un tour. Supprime le petit flash de
+// chargement visible sinon à chaque nouveau Pokémon tiré. Calculé à la demande (route peu
+// appelée, une fois par chargement de page) plutôt qu'en variable globale figée : évite
+// tout souci d'ordre de déclaration avec BOSSES, défini plus loin dans ce fichier.
+app.get('/api/sprite-ids', (req, res) => {
+  const ids = [...new Set([...ALL_DEX_IDS, ...BOSSES.map(b => b.id)])].sort((a, b) => a - b);
+  res.json(ids);
+});
+
 // ---------------------------------------------------------------
 // Configuration du jeu
 // ---------------------------------------------------------------
@@ -664,6 +675,15 @@ const POKEMON_POOLS = {
   legendaire: buildPool('legendaire', LEGENDARY_RAW)
 };
 
+// Liste à plat de tous les dex id uniques du pool (tous paliers confondus), calculée une
+// seule fois au démarrage. Sert uniquement au préchargement client des sprites (cf.
+// app.get('/api/sprite-ids') plus bas + client.js) : le but est que le navigateur ait
+// déjà les images en cache AVANT qu'un tour ne les demande réellement, pour supprimer le
+// petit flash/délai de chargement visible autrement à chaque nouveau Pokémon tiré.
+const ALL_DEX_IDS = [...new Set(
+  Object.values(POKEMON_POOLS).flat().map(mon => mon.id)
+)].sort((a, b) => a - b);
+
 // Probabilité de tirage de chaque rareté (somme = 1). Commun très fréquent,
 // légendaire extrêmement rare, mais assez généreux pour qu'une partie complète
 // (6 tours × 2 options) ait de bonnes chances de croiser au moins un Pokémon fort.
@@ -1105,6 +1125,189 @@ function buildGuessBoard(difficulty) {
 // Démarre une partie "guess" : nouvelle planche, secrets réinitialisés. Appelé UNIQUEMENT
 // par start_game (jamais par play_again directement : la planche précédente ne doit
 // jamais être réutilisée, cf. section 20 de la spec).
+// ===================================================================
+// MODE "DRAFT / ENCHÈRES" (gameMode === 'auction')
+// ===================================================================
+// Isolé dans sa propre section, comme le mode "guess" juste en dessous : structure de
+// données totalement différente (budget, lots, historique), jamais mélangée avec les
+// champs Route du Boss (turn/route/boss/team) ni avec ceux du mode guess.
+
+// Tire un pool de lots varié et SANS RÉPÉTITION depuis POKEMON_POOLS (même mécanisme que
+// buildGuessBoard : shuffleArray + slice par palier, jamais une nouvelle base de données).
+// Un lot ne garde que ce qui doit un jour être visible à un joueur (id/name/sprite/points)
+// — jamais le champ `rarity` brut, qui n'a pas de sens côté enchère.
+function buildAuctionPool() {
+  const picked = [];
+  for (const [tier, count] of Object.entries(AUCTION_POOL_TIER_COUNTS)) {
+    const shuffled = shuffleArray(POKEMON_POOLS[tier]);
+    picked.push(...shuffled.slice(0, count));
+  }
+  return shuffleArray(picked).map(p => ({ id: p.id, name: p.name, sprite: p.sprite, points: p.points }));
+}
+
+// Prix de départ dérivé du barème de points déjà établi pour tout le reste du jeu (jamais
+// une nouvelle échelle inventée) : ~10 points = 1M, plancher à 5M pour qu'un commun reste
+// un minimum crédible à enchérir.
+function auctionStartingPrice(points) {
+  return Math.max(5_000_000, Math.round(points / 10) * 1_000_000);
+}
+
+function getPublicAuctionPlayers(game) {
+  return game.players.map(p => ({
+    id: p.id,
+    name: p.name,
+    disconnected: !!p.disconnected,
+    budget: p.budget,
+    team: p.auctionTeam,
+    teamCount: p.auctionTeam.length
+  }));
+}
+
+function auctionPlayerCanBid(player) {
+  return player.auctionTeam.length < AUCTION_TEAM_SIZE;
+}
+
+function auctionBothTeamsFull(game) {
+  return game.players.every(p => p.auctionTeam.length >= AUCTION_TEAM_SIZE);
+}
+
+function startAuctionGame(game) {
+  game.auctionPool = buildAuctionPool();
+  game.auctionHistory = [];
+  game.players.forEach(p => {
+    p.budget = AUCTION_STARTING_BUDGET;
+    p.auctionTeam = [];
+  });
+  // Premier voyant en semi-aveugle : le premier joueur de la liste (arbitraire mais
+  // déterministe) ; startNextAuctionLot() fait alterner vers l'AUTRE joueur à chaque lot,
+  // donc ce choix initial ne favorise jamais durablement le même joueur.
+  game.auctionBlindSeerId = game.players[1] ? game.players[1].id : null;
+
+  io.to(game.id).emit('auction_game_started', {
+    gameId: game.id,
+    auctionType: game.auctionType,
+    players: getPublicAuctionPlayers(game)
+  });
+
+  startNextAuctionLot(game);
+}
+
+// Envoie l'état du lot en cours à CHAQUE joueur individuellement (io.to(playerId), jamais
+// un broadcast salon unique) : c'est ce qui garantit qu'en semi-aveugle, le payload reçu
+// par le joueur qui ne doit pas voir ne contient tout simplement PAS le champ `pokemon`,
+// plutôt qu'un champ à masquer côté client. Voir section 6 du brief : un `hidden:true`
+// caché en CSS serait une fuite de données, jamais acceptable ici.
+function broadcastAuctionLot(game) {
+  const lot = game.auctionLot;
+  const publicPlayers = getPublicAuctionPlayers(game);
+  game.players.forEach(p => {
+    const canSeePokemon = game.auctionType !== 'semi_blind' || lot.seerId === p.id;
+    io.to(p.id).emit('auction_lot_started', {
+      pokemon: canSeePokemon ? lot.pokemon : null,
+      mystery: !canSeePokemon,
+      isSeer: canSeePokemon,
+      startingPrice: lot.startingPrice,
+      currentBid: lot.currentBid,
+      currentBidderId: lot.currentBidderId,
+      endsAt: lot.endsAt,
+      canBid: auctionPlayerCanBid(p),
+      lotsRemaining: game.auctionPool.length,
+      players: publicPlayers
+    });
+  });
+}
+
+function startNextAuctionLot(game) {
+  if (game.auctionLotTimer) {
+    clearTimeout(game.auctionLotTimer);
+    game.auctionLotTimer = null;
+  }
+
+  if (auctionBothTeamsFull(game) || game.auctionPool.length === 0) {
+    // Pool épuisé avant que les 2 aient 6 Pokémon : cas limite improbable (30 lots pour
+    // 12 achats max) mais on termine proprement plutôt que de bloquer la partie.
+    finishAuctionGame(game, 'complete');
+    return;
+  }
+
+  const mon = game.auctionPool.shift();
+  const startingPrice = auctionStartingPrice(mon.points);
+
+  let seerId = null;
+  if (game.auctionType === 'semi_blind') {
+    const other = game.players.find(p => p.id !== game.auctionBlindSeerId);
+    seerId = other ? other.id : game.players[0].id;
+    game.auctionBlindSeerId = seerId;
+  }
+
+  game.auctionLot = {
+    pokemon: mon,
+    startingPrice,
+    currentBid: null,
+    currentBidderId: null,
+    endsAt: Date.now() + AUCTION_LOT_TIMER_MS,
+    seerId
+  };
+
+  broadcastAuctionLot(game);
+  game.auctionLotTimer = setTimeout(() => resolveAuctionLot(game), AUCTION_LOT_TIMER_MS);
+}
+
+function resolveAuctionLot(game) {
+  game.auctionLotTimer = null;
+  const lot = game.auctionLot;
+  if (!lot) return;
+
+  const winner = lot.currentBidderId ? game.players.find(p => p.id === lot.currentBidderId) : null;
+
+  if (winner) {
+    winner.budget -= lot.currentBid;
+    winner.auctionTeam.push({ id: lot.pokemon.id, name: lot.pokemon.name, sprite: lot.pokemon.sprite });
+  }
+
+  // Révélé aux DEUX joueurs ici, même en semi-aveugle : le bluff ne dure que le temps du
+  // lot, ensuite tout le monde découvre ce qui vient vraiment de se vendre (section 33).
+  game.auctionHistory.push({
+    pokemon: { id: lot.pokemon.id, name: lot.pokemon.name, sprite: lot.pokemon.sprite },
+    winnerId: winner ? winner.id : null,
+    winnerName: winner ? winner.name : null,
+    price: winner ? lot.currentBid : null
+  });
+
+  game.auctionLot = null;
+
+  io.to(game.id).emit('auction_lot_resolved', {
+    pokemon: { id: lot.pokemon.id, name: lot.pokemon.name, sprite: lot.pokemon.sprite },
+    winnerId: winner ? winner.id : null,
+    winnerName: winner ? winner.name : null,
+    price: winner ? lot.currentBid : null,
+    players: getPublicAuctionPlayers(game)
+  });
+
+  startNextAuctionLot(game);
+}
+
+function finishAuctionGame(game, reason) {
+  if (game.auctionLotTimer) {
+    clearTimeout(game.auctionLotTimer);
+    game.auctionLotTimer = null;
+  }
+  game.auctionLot = null;
+  game.status = 'finished';
+  io.to(game.id).emit('auction_game_over', {
+    reason: reason || 'complete', // 'complete' (les 2 équipes sont pleines / pool épuisé) | 'forfeit'
+    players: getPublicAuctionPlayers(game),
+    history: game.auctionHistory
+  });
+}
+
+// Déconnexion en cours de draft (cf. finalizePlayerRemoval) : pas de "défaite" à proprement
+// parler (l'enchère n'a pas de score à comparer), juste une fin de partie prématurée —
+// chacun repart avec l'équipe qu'il avait au moment de la coupure.
+function finishAuctionGameByForfeit(game, leavingPlayer) {
+  finishAuctionGame(game, 'forfeit');
+}
+
 function startGuessGame(game) {
   game.guessBoard = buildGuessBoard(game.selectedDifficulty);
   game.guessActivePlayerId = null;
@@ -2007,7 +2210,43 @@ const games = {};
 // mode admin sera ajoutée aux étapes suivantes (génération des options, diffusion
 // différenciée admin/joueur, interfaces dédiées).
 // -----------------------------------------------------------------
-const GAME_MODES = ['normal', 'admin', 'guess'];
+const GAME_MODES = ['normal', 'admin', 'guess', 'auction'];
+
+// -----------------------------------------------------------------
+// MODE "DRAFT / ENCHÈRES" (gameMode === 'auction') — strictement 2 joueurs, aucun
+// mécanisme de banc/spectateur (contrairement à admin/guess) : le lobby doit être à
+// exactement 2 joueurs pour démarrer, point final (cf. socket.on('start_game')).
+//
+// Deux variantes, choisies par l'hôte avant le lancement (cf. set_auction_type) :
+// - 'complete'   : les 2 joueurs voient toujours le vrai Pokémon du lot en cours.
+// - 'semi_blind' : à chaque lot, UN SEUL des 2 voit le vrai Pokémon (rotation stricte à
+//   chaque lot, cf. game.auctionBlindSeerId) ; l'autre ne reçoit RIEN qui permette de le
+//   deviner (jamais un champ "hidden:true" à masquer en CSS — cf. broadcastAuctionLot,
+//   qui envoie un payload PAR JOUEUR via io.to(playerId).emit, jamais un broadcast salon
+//   unique). Le vrai Pokémon est révélé aux deux une fois le lot résolu (achat ou non).
+// -----------------------------------------------------------------
+const AUCTION_TYPES = ['complete', 'semi_blind'];
+const AUCTION_STARTING_BUDGET = 500_000_000;
+const AUCTION_TEAM_SIZE = 6;
+const AUCTION_LOT_TIMER_MS = 20_000;
+const AUCTION_EXTEND_THRESHOLD_MS = 5_000; // une enchère à moins de 5s de la fin...
+const AUCTION_EXTEND_TO_MS = 5_000;        // ...repousse la fin à 5s (anti-sniping)
+const AUCTION_POOL_TIER_COUNTS = {
+  // Mélange volontairement large et varié (30 lots), tiré sans répétition depuis
+  // POKEMON_POOLS (cf. buildAuctionPool) — largement assez pour que les 2 joueurs
+  // puissent chacun compléter une équipe de 6, même si plusieurs lots ne trouvent
+  // aucun acheteur (cf. section 26 du brief : Pokémon retiré si personne n'enchérit).
+  commun: 8,
+  peu_commun: 6,
+  rare: 6,
+  epique: 5,
+  pseudo_legendaire: 3,
+  legendaire: 2
+};
+
+function formatAuctionMoney(amount) {
+  return `${Math.round(amount / 1_000_000)}M`;
+}
 
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // sans 0/O/1/I
 
@@ -2347,6 +2586,13 @@ function finalizePlayerRemoval(game, gameId, leavingPlayer) {
     return;
   }
 
+  // Mode DRAFT/ENCHÈRES : strictement 2 joueurs, aucun banc/spectateur pour continuer
+  // seul — fin de partie immédiate, chacun repart avec l'équipe qu'il avait.
+  if (game.status === 'playing' && game.gameMode === 'auction') {
+    finishAuctionGameByForfeit(game, leavingPlayer);
+    return;
+  }
+
   broadcastGameUpdated(game);
   maybeScheduleTurnTransition(game);
 }
@@ -2549,7 +2795,7 @@ io.on('connection', (socket) => {
       hostId: socket.id,
       boss: null, // choisi aléatoirement au démarrage (start_game), identique pour tous les joueurs
       selectedDifficulty: 'medium', // choisi par l'hôte dans le lobby ; défaut = MOYEN
-      gameMode: 'normal', // 'normal' | 'admin' | 'guess' — choisi par l'hôte dans le lobby, cf. set_game_mode
+      gameMode: 'normal', // 'normal' | 'admin' | 'guess' | 'auction' — choisi par l'hôte dans le lobby, cf. set_game_mode
       adminId: null, // id du joueur ADMIN si gameMode === 'admin', cf. set_admin_role
       route: buildRoute(),
       turnTimer: null,
@@ -2562,7 +2808,14 @@ io.on('connection', (socket) => {
       guessTurnDurationMs: GUESS_TURN_DURATION_MS, // réglable par l'hôte, cf. set_guess_turn_duration
       players: [makePlayer(socket.id, trimmed, token)],
       spectators: [], // cf. socket.on('join_game') : { id, name } uniquement, jamais de state de jeu
-      activePlayerIds: null // [id, id] : qui joue réellement en mode admin/guess à >2 joueurs dans le lobby (cf. set_active_players) ; ignoré/null tant qu'il n'y a que 2 joueurs
+      activePlayerIds: null, // [id, id] : qui joue réellement en mode admin/guess à >2 joueurs dans le lobby (cf. set_active_players) ; ignoré/null tant qu'il n'y a que 2 joueurs
+      // ---- Mode "auction" (Draft / Enchères) uniquement, cf. startAuctionGame() ----
+      auctionType: null, // 'complete' | 'semi_blind', choisi par l'hôte avant de démarrer (cf. set_auction_type)
+      auctionPool: [], // lots restants (mélangés, sans répétition), rempli au démarrage
+      auctionHistory: [], // [{ pokemon:{id,name,sprite}, winnerId, winnerName, price }], dans l'ordre
+      auctionLot: null, // lot en cours : { pokemon, startingPrice, currentBid, currentBidderId, endsAt, seerId }
+      auctionLotTimer: null,
+      auctionBlindSeerId: null // id du joueur qui VOIT au lot en cours (semi_blind uniquement) ; alterne à chaque lot
     };
 
     socket.join(gameId);
@@ -2595,11 +2848,11 @@ io.on('connection', (socket) => {
       return;
     }
     if (game.status !== 'waiting') {
-      // Partie déjà démarrée : mode spectateur (normal/admin uniquement — le mode
-      // "guess" n'a pas d'écran spectateur dédié pour l'instant, on garde l'ancien
-      // comportement pour lui). Un spectateur n'entre JAMAIS dans game.players : voir
-      // clearSpectators/removeSpectator plus haut pour le détail de ce que ça implique.
-      if (game.gameMode === 'guess') {
+      // Partie déjà démarrée : mode spectateur (normal/admin uniquement — les modes
+      // "guess" et "auction" n'ont pas d'écran spectateur dédié pour l'instant, on garde
+      // l'ancien comportement pour eux). Un spectateur n'entre JAMAIS dans game.players :
+      // voir clearSpectators/removeSpectator plus haut pour le détail de ce que ça implique.
+      if (game.gameMode === 'guess' || game.gameMode === 'auction') {
         socket.emit('error_message', 'Partie déjà commencée.');
         return;
       }
@@ -2727,6 +2980,23 @@ io.on('connection', (socket) => {
     }
     if (game.status !== 'waiting') {
       socket.emit('error_message', 'Partie déjà démarrée.');
+      return;
+    }
+
+    // Mode "auction" (Draft/Enchères) : strictement 2 joueurs, JAMAIS de banc/spectateur
+    // comme admin/guess — le lobby doit être à exactement 2 pour démarrer, point final
+    // (section 1 du brief : ne démarre pas à 1, 3, ou plus).
+    if (game.gameMode === 'auction') {
+      if (game.players.length !== 2) {
+        socket.emit('error_message', 'Ce mode nécessite exactement 2 joueurs.');
+        return;
+      }
+      if (!AUCTION_TYPES.includes(game.auctionType)) {
+        socket.emit('error_message', "Choisis le type d'enchère avant de démarrer.");
+        return;
+      }
+      game.status = 'playing';
+      startAuctionGame(game);
       return;
     }
 
@@ -2928,6 +3198,80 @@ io.on('connection', (socket) => {
     }
   });
 
+  // ---------------------------------------------------------------
+  // GAMEMODE "DRAFT / ENCHÈRES" — enchère à montant libre (jamais de paliers/incréments
+  // fixes : le joueur écrit le montant exact qu'il propose). Toutes les validations de la
+  // section 15 du brief sont ici, dans cet ordre. Le serveur reste seul juge de : le
+  // budget réel, le prix actuel, le gagnant, le timer, l'équipe — jamais une valeur reçue
+  // du client n'est utilisée telle quelle pour autre chose que l'identifier.
+  socket.on('auction_bid', ({ amount } = {}) => {
+    const gameId = socket.data.gameId;
+    const game = games[gameId];
+
+    if (!game) {
+      socket.emit('error_message', 'Partie introuvable.');
+      return;
+    }
+    if (game.gameMode !== 'auction' || game.status !== 'playing') {
+      socket.emit('error_message', "La partie n'est pas en cours.");
+      return;
+    }
+    const player = game.players.find(p => p.id === socket.id);
+    if (!player) {
+      socket.emit('error_message', 'Tu ne fais pas partie de cette partie.');
+      return;
+    }
+    if (!auctionPlayerCanBid(player)) {
+      socket.emit('error_message', 'Ton équipe est déjà complète (6 Pokémon).');
+      return;
+    }
+    const lot = game.auctionLot;
+    if (!lot) {
+      socket.emit('error_message', 'Aucune enchère en cours.');
+      return;
+    }
+
+    // Rejette explicitement tout ce qui n'est pas un entier fini normal : NaN, Infinity,
+    // décimales, chaînes non numériques, valeurs négatives ou nulles (section 39).
+    const bid = Number(amount);
+    if (!Number.isInteger(bid) || !Number.isFinite(bid) || bid <= 0) {
+      socket.emit('error_message', 'Montant invalide.');
+      return;
+    }
+
+    // Le tout premier enchérisseur peut égaler le prix de départ affiché ; ensuite,
+    // chaque enchère doit strictement dépasser la précédente (section 13).
+    const minBid = lot.currentBid !== null ? lot.currentBid + 1 : lot.startingPrice;
+    if (bid < minBid) {
+      socket.emit('error_message', `Ton enchère doit être d'au moins ${formatAuctionMoney(minBid)}.`);
+      return;
+    }
+    if (bid > player.budget) {
+      socket.emit('error_message', "Tu ne possèdes pas assez d'argent.");
+      return;
+    }
+
+    lot.currentBid = bid;
+    lot.currentBidderId = player.id;
+
+    // Anti-sniping (section 22) : une enchère acceptée à moins de 5s de la fin repousse
+    // la fin à 5s pile, jamais un simple "+5s" cumulatif qui allongerait indéfiniment.
+    const remaining = lot.endsAt - Date.now();
+    if (remaining < AUCTION_EXTEND_THRESHOLD_MS) {
+      lot.endsAt = Date.now() + AUCTION_EXTEND_TO_MS;
+      if (game.auctionLotTimer) clearTimeout(game.auctionLotTimer);
+      game.auctionLotTimer = setTimeout(() => resolveAuctionLot(game), AUCTION_EXTEND_TO_MS);
+    }
+
+    io.to(gameId).emit('auction_bid_update', {
+      currentBid: lot.currentBid,
+      currentBidderId: lot.currentBidderId,
+      currentBidderName: player.name,
+      endsAt: lot.endsAt,
+      players: getPublicAuctionPlayers(game)
+    });
+  });
+
   // Rejouer avec les mêmes joueurs : crée une partie entièrement neuve (nouveau code,
   // nouveau boss, nouveaux Pokémon/modificateurs, scores/équipes/route à zéro) et déplace
   // uniquement les joueurs encore connectés dans ce nouveau salon. L'ancienne partie est
@@ -2978,7 +3322,17 @@ io.on('connection', (socket) => {
       guessTurnDurationMs: oldGame.guessTurnDurationMs || GUESS_TURN_DURATION_MS, // conservée, modifiable avant le lancement
       players: connectedOldPlayers.map(p => makePlayer(p.id, p.name, p.token)), // pity remis à 0, token conservé (cf. makePlayer)
       spectators: [],
-      activePlayerIds: null // nouvelle partie = nouvelle sélection à faire si jamais elle repasse à >2 joueurs
+      activePlayerIds: null, // nouvelle partie = nouvelle sélection à faire si jamais elle repasse à >2 joueurs
+      // ---- Mode "auction" : reset complet, y compris le type (l'hôte re-choisit avant
+      // de relancer) — startAuctionGame() réinitialise de toute façon tout ceci au
+      // lancement réel, mais explicite ici pour la même raison que guessBoard: null
+      // juste au-dessus : lisible d'un coup d'œil, pas de champ implicite.
+      auctionType: null,
+      auctionPool: [],
+      auctionHistory: [],
+      auctionLot: null,
+      auctionLotTimer: null,
+      auctionBlindSeerId: null
     };
 
     games[newGameId] = newGame;
@@ -3093,7 +3447,39 @@ io.on('connection', (socket) => {
     game.gameMode = mode;
     game.adminId = null;
     game.activePlayerIds = null;
+    game.auctionType = null; // repart de zéro si l'hôte change de mode puis revient sur "auction"
     io.to(gameId).emit('game_mode_updated', { gameMode: game.gameMode, adminId: game.adminId, activePlayerIds: game.activePlayerIds });
+  });
+
+  // Choix du type d'enchère (mode "auction" uniquement), avant le lancement. Cf.
+  // socket.on('start_game') : le type doit être choisi pour pouvoir démarrer.
+  socket.on('set_auction_type', ({ auctionType } = {}) => {
+    const gameId = socket.data.gameId;
+    const game = games[gameId];
+
+    if (!game) {
+      socket.emit('error_message', 'Partie introuvable.');
+      return;
+    }
+    if (game.hostId !== socket.id) {
+      socket.emit('error_message', "Seul l'hôte peut choisir le type d'enchère.");
+      return;
+    }
+    if (game.status !== 'waiting') {
+      socket.emit('error_message', "Le type d'enchère ne peut plus être modifié.");
+      return;
+    }
+    if (game.gameMode !== 'auction') {
+      socket.emit('error_message', "Le mode Draft/Enchères n'est pas sélectionné.");
+      return;
+    }
+    if (!AUCTION_TYPES.includes(auctionType)) {
+      socket.emit('error_message', "Type d'enchère invalide.");
+      return;
+    }
+
+    game.auctionType = auctionType;
+    io.to(gameId).emit('auction_type_updated', { auctionType: game.auctionType });
   });
 
   // Choix des 2 joueurs qui jouent réellement (mode admin/guess à >2 joueurs dans le
@@ -3695,6 +4081,11 @@ io.on('connection', (socket) => {
     if (game.hostId === oldId) game.hostId = player.id;
     if (game.adminId === oldId) game.adminId = player.id;
     if (game.guessActivePlayerId === oldId) game.guessActivePlayerId = player.id;
+    if (game.auctionBlindSeerId === oldId) game.auctionBlindSeerId = player.id;
+    if (game.auctionLot) {
+      if (game.auctionLot.seerId === oldId) game.auctionLot.seerId = player.id;
+      if (game.auctionLot.currentBidderId === oldId) game.auctionLot.currentBidderId = player.id;
+    }
     game.players.forEach(p => {
       if (p.crossedFatesPartner === oldId) p.crossedFatesPartner = player.id;
     });
@@ -3720,8 +4111,33 @@ io.on('connection', (socket) => {
       guessActivePlayerId: game.gameMode === 'guess' ? game.guessActivePlayerId : undefined,
       guessTurnEndsAt: game.gameMode === 'guess' ? game.guessTurnEndsAt : undefined,
       guessTurnDurationMs: game.gameMode === 'guess' ? (game.guessTurnDurationMs || GUESS_TURN_DURATION_MS) : undefined,
-      mySecretIndex: game.gameMode === 'guess' ? player.secretPokemonIndex : undefined
+      mySecretIndex: game.gameMode === 'guess' ? player.secretPokemonIndex : undefined,
+      // Mode "auction" uniquement : reflet direct (mêmes champs que game_created/joined)
+      // du budget/équipe/type déjà choisi, pour reconstruire l'écran de suite sans état
+      // intermédiaire manquant.
+      auctionType: game.gameMode === 'auction' ? game.auctionType : undefined
     });
+
+    // Mode "auction" : renvoie le lot en cours à CE seul joueur, avec la même règle de
+    // visibilité que broadcastAuctionLot (jamais le Pokémon s'il ne doit pas le voir).
+    // Sans ça, un joueur qui recharge la page reste bloqué sans aucun lot affiché jusqu'à
+    // ce que le suivant démarre (jusqu'à 20s+ d'écran vide).
+    if (game.status === 'playing' && game.gameMode === 'auction' && game.auctionLot) {
+      const lot = game.auctionLot;
+      const canSeePokemon = game.auctionType !== 'semi_blind' || lot.seerId === player.id;
+      socket.emit('auction_lot_started', {
+        pokemon: canSeePokemon ? lot.pokemon : null,
+        mystery: !canSeePokemon,
+        isSeer: canSeePokemon,
+        startingPrice: lot.startingPrice,
+        currentBid: lot.currentBid,
+        currentBidderId: lot.currentBidderId,
+        endsAt: lot.endsAt,
+        canBid: auctionPlayerCanBid(player),
+        lotsRemaining: game.auctionPool.length,
+        players: getPublicAuctionPlayers(game)
+      });
+    }
 
     // Si une manche est en cours et que ce joueur n'a pas encore choisi, on lui renvoie
     // ses options actuelles (mêmes règles de confidentialité qu'à l'assignation normale).

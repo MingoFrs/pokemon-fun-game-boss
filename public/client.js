@@ -2755,3 +2755,47 @@ settingsThemeButtons.forEach(btn => {
     applyTheme(settings.theme);
   });
 });
+
+// ============================================================
+// PRÉCHARGEMENT DES SPRITES (perf perçue)
+// ============================================================
+// Sans ça, chaque nouveau Pokémon jamais vu (tour, boss, case Devine le Pokémon...)
+// déclenche un premier chargement d'image visible (petit flash/pop-in) au moment même où
+// il faudrait déjà l'afficher. Ici, on récupère la liste complète des dex id possibles
+// (cf. GET /api/sprite-ids côté serveur) et on précharge discrètement chaque sprite en
+// arrière-plan dès l'arrivée sur la page — l'essentiel du temps passé en lobby/accueil
+// sert de fenêtre de chargement gratuite, avant qu'une partie ne les demande "pour de
+// vrai". Par petits paquets espacés : la partie encore en cours (si reconnexion) ou les
+// premières images réellement affichées restent prioritaires, jamais concurrencées par
+// ce préchargement de fond.
+(function preloadSpritesInBackground() {
+  const BATCH_SIZE = 12;
+  const BATCH_DELAY_MS = 120;
+
+  // Même construction d'URL que spriteUrl() côté serveur (server.js) : le préchargement
+  // n'a aucune donnée Pokémon complète à disposition, juste des dex id bruts.
+  function spriteUrlFromId(dexId) {
+    return `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/${dexId}.png`;
+  }
+
+  fetch('/api/sprite-ids')
+    .then(res => res.ok ? res.json() : [])
+    .then(ids => {
+      if (!Array.isArray(ids) || ids.length === 0) return;
+      let i = 0;
+      function loadNextBatch() {
+        const batch = ids.slice(i, i + BATCH_SIZE);
+        batch.forEach(id => {
+          const img = new Image();
+          img.src = spriteUrlFromId(id); // sprite normal uniquement (le shiny, 2% de tirage, n'est pas préchargé pour limiter la bande passante)
+        });
+        i += BATCH_SIZE;
+        if (i < ids.length) setTimeout(loadNextBatch, BATCH_DELAY_MS);
+      }
+      loadNextBatch();
+    })
+    .catch(() => {
+      // Échec silencieux (offline, manifeste indisponible...) : simple dégradation vers
+      // le comportement précédent (chargement à la demande), jamais bloquant.
+    });
+})();

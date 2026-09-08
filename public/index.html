@@ -5,6 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Route du Boss</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
+<!-- Sprites Pokémon servis depuis GitHub : établir la connexion (DNS+TLS) tôt, avant même
+     de savoir quelles images seront demandées, réduit le délai visible sur la toute
+     première image chargée (cf. préchargement en arrière-plan dans client.js). -->
+<link rel="preconnect" href="https://raw.githubusercontent.com" crossorigin>
+<link rel="dns-prefetch" href="https://raw.githubusercontent.com">
 <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 <!-- Applique thème de fond + réduction d'animations AVANT le premier rendu, pour
