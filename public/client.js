@@ -331,6 +331,19 @@ function renderGameMode(gameMode) {
   auctionTypePanelEl.classList.toggle('screen--hidden', currentGameMode !== 'auction');
 }
 
+// Reflet local de la durée de tour choisie par l'hôte (mode "guess"). Le serveur reste
+// seul à décider réellement (cf. GUESS_TURN_DURATION_MS / set_guess_turn_duration côté
+// serveur) ; réutilisée aussi par startGuessTimerDisplay() plus bas pour calculer le %
+// de la barre de temps restant.
+let currentGuessTurnDurationMs = 30000;
+
+function renderGuessDuration(durationMs) {
+  currentGuessTurnDurationMs = durationMs || 30000;
+  guessDurationButtons.forEach(btn => {
+    btn.classList.toggle('admin-role-btn--selected', Number(btn.dataset.duration) === currentGuessTurnDurationMs);
+  });
+}
+
 // Reflet local du type de draft choisi par l'hôte (mode "auction"). Le serveur reste seul
 // à décider réellement ; null tant que rien n'est choisi (cf. AUCTION_TYPES côté serveur).
 let currentAuctionType = null;
