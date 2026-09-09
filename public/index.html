@@ -151,6 +151,7 @@
             <button type="button" class="gamemode-btn" data-mode="normal">Mode normal</button>
             <button type="button" class="gamemode-btn" data-mode="admin">Admin vs Joueur</button>
             <button type="button" class="gamemode-btn" data-mode="guess">Devine le Pokémon</button>
+            <button type="button" class="gamemode-btn" data-mode="auction">Draft/Enchères</button>
           </div>
         </div>
 
@@ -180,6 +181,17 @@
             <button type="button" class="admin-role-btn" data-duration="60000">60s</button>
             <button type="button" class="admin-role-btn" data-duration="90000">90s</button>
           </div>
+        </div>
+
+        <!-- Mode "auction" uniquement : type d'enchère à choisir avant de pouvoir démarrer
+             (cf. socket.on('start_game') côté serveur, qui bloque tant que rien n'est choisi). -->
+        <div id="auction-type-panel" class="admin-role-panel screen--hidden">
+          <p class="eyebrow">Type de draft</p>
+          <div id="auction-type-options" class="admin-role-options">
+            <button type="button" class="admin-role-btn" data-auctiontype="complete">Complet</button>
+            <button type="button" class="admin-role-btn" data-auctiontype="semi_blind">Semi-aveugle</button>
+          </div>
+          <p id="auction-type-status" class="admin-role-status"></p>
         </div>
       </div>
     </div>
@@ -449,6 +461,99 @@
     <button id="btn-guess-replay" class="btn btn--haut btn--block screen--hidden">Rejouer</button>
     <p class="lobby-status" id="guess-finished-status"></p>
     <button id="btn-leave-guess-finished" class="btn btn--ghost btn--block">Quitter</button>
+  </section>
+
+  <!-- ============ MODE DRAFT/ENCHÈRES ============
+       Strictement 2 joueurs, aucun banc/spectateur (cf. socket.on('join_game') côté
+       serveur : "Partie déjà commencée" pour quiconque tenterait de rejoindre en cours).
+       Type "complete" : les 2 voient le Pokémon en vente. Type "semi_blind" : un seul
+       joueur (auction-seer-name) le voit, rotation à chaque lot — l'autre enchérit à
+       l'aveugle sur la seule base du prix de départ. -->
+
+  <section id="screen-auction" class="screen screen--hidden">
+    <header class="guess-header">
+      <p class="eyebrow">Draft/Enchères — <span id="auction-lots-remaining">30</span> lots restants</p>
+      <button id="btn-leave-auction" class="btn btn--ghost">Quitter</button>
+    </header>
+
+    <div class="auction-budgets">
+      <div class="auction-budget-card" id="auction-budget-me">
+        <span class="auction-budget-card__label">Toi</span>
+        <span class="auction-budget-card__value" id="auction-my-budget">500M</span>
+      </div>
+      <div class="auction-budget-card" id="auction-budget-opp">
+        <span class="auction-budget-card__label" id="auction-opp-name">Adversaire</span>
+        <span class="auction-budget-card__value" id="auction-opp-budget">500M</span>
+      </div>
+    </div>
+
+    <div id="auction-lot-panel" class="guess-panel">
+      <!-- Semi-aveugle, ce joueur n'est PAS le voyant : jamais de sprite/nom envoyé par
+           le serveur pour ce lot (cf. broadcastAuctionLot), pas juste masqué en CSS. -->
+      <div id="auction-lot-mystery" class="auction-lot-mystery screen--hidden">
+        <p class="auction-lot-mystery__icon">❔</p>
+        <p class="auction-lot-mystery__text">Pokémon mystère — seul <span id="auction-seer-name">—</span> le voit</p>
+      </div>
+      <div id="auction-lot-reveal" class="auction-lot-reveal screen--hidden">
+        <img id="auction-lot-sprite" class="auction-lot-sprite" src="" alt="">
+        <h2 id="auction-lot-name" class="auction-lot-name">—</h2>
+      </div>
+
+      <div class="guess-timer-wrap">
+        <div class="guess-timer-track"><div id="auction-timer-bar" class="guess-timer-bar"></div></div>
+        <span id="auction-timer-value" class="guess-timer-value">20</span>
+      </div>
+
+      <p class="auction-current-bid">
+        Enchère actuelle : <span id="auction-current-bid-value">—</span>
+        <span id="auction-current-bidder" class="auction-current-bidder"></span>
+      </p>
+      <p id="auction-starting-price" class="guess-turn-hint">Prix de départ : —</p>
+
+      <div id="auction-bid-controls" class="auction-bid-controls">
+        <input id="auction-bid-input" type="number" step="1000000" min="0" inputmode="numeric" placeholder="Montant (ex: 15000000)">
+        <button id="btn-auction-bid" type="button" class="btn btn--haut">Enchérir</button>
+      </div>
+      <p id="auction-bid-hint" class="auction-bid-hint"></p>
+    </div>
+
+    <div class="auction-teams">
+      <div class="auction-team-col">
+        <p class="eyebrow">Ton équipe <span id="auction-my-team-count">(0/6)</span></p>
+        <div id="auction-my-team-slots" class="team-slots"></div>
+      </div>
+      <div class="auction-team-col">
+        <p class="eyebrow"><span id="auction-opp-team-label">Équipe adverse</span> <span id="auction-opp-team-count">(0/6)</span></p>
+        <div id="auction-opp-team-slots" class="team-slots"></div>
+      </div>
+    </div>
+
+    <div id="auction-history-panel" class="auction-history-panel">
+      <p class="eyebrow">Derniers lots vendus</p>
+      <ul id="auction-history-list" class="auction-history-list"></ul>
+    </div>
+  </section>
+
+  <section id="screen-auction-finished" class="screen screen--hidden">
+    <p id="auction-finished-title" class="finished-outcome">Draft terminé</p>
+    <p id="auction-finished-reason" class="lobby-status"></p>
+
+    <div class="auction-teams auction-teams--finished">
+      <div class="auction-team-col">
+        <p class="eyebrow">Ton équipe</p>
+        <div id="auction-finished-my-slots" class="team-slots"></div>
+        <p class="auction-budget-card__value" id="auction-finished-my-budget"></p>
+      </div>
+      <div class="auction-team-col">
+        <p class="eyebrow" id="auction-finished-opp-label">Équipe adverse</p>
+        <div id="auction-finished-opp-slots" class="team-slots"></div>
+        <p class="auction-budget-card__value" id="auction-finished-opp-budget"></p>
+      </div>
+    </div>
+
+    <button id="btn-auction-replay" class="btn btn--haut btn--block screen--hidden">Rejouer</button>
+    <p class="lobby-status" id="auction-finished-status"></p>
+    <button id="btn-leave-auction-finished" class="btn btn--ghost btn--block">Quitter</button>
   </section>
 
   <!-- ============ MODE SPECTATEUR ============

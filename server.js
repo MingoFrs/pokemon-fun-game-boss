@@ -2830,7 +2830,8 @@ io.on('connection', (socket) => {
       gameMode: games[gameId].gameMode,
       adminId: games[gameId].adminId,
       activePlayerIds: games[gameId].activePlayerIds,
-      guessTurnDurationMs: games[gameId].guessTurnDurationMs
+      guessTurnDurationMs: games[gameId].guessTurnDurationMs,
+      auctionType: games[gameId].auctionType
     });
   });
 
@@ -2903,7 +2904,8 @@ io.on('connection', (socket) => {
         gameMode: game.gameMode,
         adminId: game.adminId,
         activePlayerIds: game.activePlayerIds,
-        guessTurnDurationMs: game.guessTurnDurationMs
+        guessTurnDurationMs: game.guessTurnDurationMs,
+        auctionType: game.auctionType
       });
       return;
     }
@@ -2927,7 +2929,8 @@ io.on('connection', (socket) => {
       gameMode: game.gameMode,
       adminId: game.adminId,
       activePlayerIds: game.activePlayerIds,
-      guessTurnDurationMs: game.guessTurnDurationMs
+      guessTurnDurationMs: game.guessTurnDurationMs,
+      auctionType: game.auctionType
     });
 
     broadcastPlayers(game);
@@ -3387,7 +3390,8 @@ io.on('connection', (socket) => {
       gameMode: newGame.gameMode,
       adminId: newGame.adminId,
       activePlayerIds: newGame.activePlayerIds,
-      guessTurnDurationMs: newGame.guessTurnDurationMs
+      guessTurnDurationMs: newGame.guessTurnDurationMs,
+      auctionType: newGame.auctionType
     });
   });
 
@@ -3448,7 +3452,7 @@ io.on('connection', (socket) => {
     game.adminId = null;
     game.activePlayerIds = null;
     game.auctionType = null; // repart de zéro si l'hôte change de mode puis revient sur "auction"
-    io.to(gameId).emit('game_mode_updated', { gameMode: game.gameMode, adminId: game.adminId, activePlayerIds: game.activePlayerIds });
+    io.to(gameId).emit('game_mode_updated', { gameMode: game.gameMode, adminId: game.adminId, activePlayerIds: game.activePlayerIds, auctionType: game.auctionType });
   });
 
   // Choix du type d'enchère (mode "auction" uniquement), avant le lancement. Cf.
@@ -4102,7 +4106,14 @@ io.on('connection', (socket) => {
       adminId: game.adminId,
       activePlayerIds: game.activePlayerIds,
       hostId: game.hostId,
-      players: getPublicPlayers(game),
+      // Mode "auction" : getPublicPlayers() ne renvoie que score/team (champs Route du
+      // Boss) — budget/auctionTeam en sont absents. Sans ce remplacement, un joueur qui
+      // se reconnecte après la fin d'un draft (écran final) verrait des équipes/budgets
+      // vides jusqu'au prochain événement, qui n'arrive jamais une fois la partie finie.
+      // Uniquement si status !== 'waiting' : p.budget/p.auctionTeam ne sont initialisés
+      // que par startAuctionGame() (au lancement réel) — y accéder avant planterait
+      // (getPublicAuctionPlayers fait p.auctionTeam.length sur un champ encore undefined).
+      players: (game.gameMode === 'auction' && game.status !== 'waiting') ? getPublicAuctionPlayers(game) : getPublicPlayers(game),
       // Mode "guess" uniquement : sans ces champs, le client n'a aucun moyen de
       // reconstruire la planche/le tour en cours après une reconnexion. mySecretIndex
       // est UNIQUEMENT le sien (jamais celui de l'adversaire, cf. getPublicPlayers qui
@@ -4114,8 +4125,10 @@ io.on('connection', (socket) => {
       mySecretIndex: game.gameMode === 'guess' ? player.secretPokemonIndex : undefined,
       // Mode "auction" uniquement : reflet direct (mêmes champs que game_created/joined)
       // du budget/équipe/type déjà choisi, pour reconstruire l'écran de suite sans état
-      // intermédiaire manquant.
-      auctionType: game.gameMode === 'auction' ? game.auctionType : undefined
+      // intermédiaire manquant. auctionHistory permet de reconstruire l'écran final
+      // (liste des lots vendus) si la reconnexion arrive après la fin du draft.
+      auctionType: game.gameMode === 'auction' ? game.auctionType : undefined,
+      auctionHistory: game.gameMode === 'auction' ? game.auctionHistory : undefined
     });
 
     // Mode "auction" : renvoie le lot en cours à CE seul joueur, avec la même règle de
@@ -4192,3 +4205,8 @@ const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
   console.log(`Serveur lancé sur http://localhost:${PORT}`);
 });
+
+// Export test-only : n'affecte rien en production (module.exports est ignoré quand ce
+// fichier est lancé directement via `node server.js`), utilisé uniquement par les
+// simulateurs Node en sandbox pour inspecter l'état interne sans réseau réel.
+module.exports = { games };

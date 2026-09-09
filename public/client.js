@@ -16,6 +16,8 @@ const screenGame = document.getElementById('screen-game');
 const screenFinished = document.getElementById('screen-finished');
 const screenGuess = document.getElementById('screen-guess');
 const screenGuessFinished = document.getElementById('screen-guess-finished');
+const screenAuction = document.getElementById('screen-auction');
+const screenAuctionFinished = document.getElementById('screen-auction-finished');
 const screenSpectate = document.getElementById('screen-spectate');
 
 // ---------- Reconnexion (cf. socket.on('rejoin_game') côté serveur) ----------
@@ -103,6 +105,9 @@ const activePlayersOptionsEl = document.getElementById('active-players-options')
 const activePlayersStatusEl = document.getElementById('active-players-status');
 const guessDurationPanelEl = document.getElementById('guess-duration-panel');
 const guessDurationButtons = Array.from(document.querySelectorAll('#guess-duration-options .admin-role-btn'));
+const auctionTypePanelEl = document.getElementById('auction-type-panel');
+const auctionTypeButtons = Array.from(document.querySelectorAll('#auction-type-options .admin-role-btn'));
+const auctionTypeStatusEl = document.getElementById('auction-type-status');
 
 // ---------- Jeu ----------
 const bossPanelEl = document.getElementById('boss-panel');
@@ -257,7 +262,7 @@ function clearError() {
 }
 
 function showScreen(screen) {
-  [screenHome, screenLobby, screenGame, screenFinished, screenGuess, screenGuessFinished, screenSpectate].forEach(s => s.classList.add('screen--hidden'));
+  [screenHome, screenLobby, screenGame, screenFinished, screenGuess, screenGuessFinished, screenAuction, screenAuctionFinished, screenSpectate].forEach(s => s.classList.add('screen--hidden'));
   screen.classList.remove('screen--hidden');
   // Reflété en attribut sur <body> : la mise en page large écran (cf. style.css) en
   // dépend pour savoir si l'écran actif est l'accueil (hero éclaté) ou un écran de jeu
@@ -275,6 +280,7 @@ function updateHostControls() {
   difficultyButtons.forEach(btn => { btn.disabled = !host; });
   gamemodeButtons.forEach(btn => { btn.disabled = !host; });
   guessDurationButtons.forEach(btn => { btn.disabled = !host; });
+  auctionTypeButtons.forEach(btn => { btn.disabled = !host; });
   renderActivePlayersOptions(); // dépend aussi de isHost() (boutons désactivés pour l'invité)
   renderAdminRoleOptions(); // dépend aussi de isHost() (boutons désactivés pour l'invité)
   lobbyStatusEl.textContent = host
@@ -307,24 +313,36 @@ function renderGameMode(gameMode) {
   // un rappel du nombre de joueurs nécessaire — le serveur revalide de toute façon au
   // démarrage, ce message n'est qu'un confort visuel.
   const needsGuessHint = currentGameMode === 'guess';
-  gamemodeHintEl.classList.toggle('screen--hidden', !needsGuessHint);
+  // "Draft/Enchères" : AUCUN mécanisme de banc/spectateur (contrairement à guess/admin qui
+  // acceptent >2 joueurs avec mise sur banc) — start_game bloque toujours si players.length
+  // !== 2, même à 3+ dans le lobby. D'où un message qui ne parle jamais de spectateurs.
+  const needsAuctionHint = currentGameMode === 'auction';
+  gamemodeHintEl.classList.toggle('screen--hidden', !needsGuessHint && !needsAuctionHint);
   if (needsGuessHint) {
     gamemodeHintEl.textContent = lastLobbyPlayers.length > 2
       ? 'Choisis les 2 joueurs qui vont jouer ci-dessous — les autres seront spectateurs.'
       : 'Ce mode nécessite exactement 2 joueurs.';
+  } else if (needsAuctionHint) {
+    gamemodeHintEl.textContent = lastLobbyPlayers.length === 2
+      ? 'Choisis le type de draft ci-dessous, puis lance la partie.'
+      : 'Ce mode nécessite exactement 2 joueurs, ni plus ni moins.';
   }
   guessDurationPanelEl.classList.toggle('screen--hidden', currentGameMode !== 'guess');
+  auctionTypePanelEl.classList.toggle('screen--hidden', currentGameMode !== 'auction');
 }
 
-// Reflet local de la durée de tour choisie par l'hôte (mode "guess"). Le serveur reste
-// seul à décider réellement combien de temps un tour dure vraiment.
-let currentGuessTurnDurationMs = 30000;
+// Reflet local du type de draft choisi par l'hôte (mode "auction"). Le serveur reste seul
+// à décider réellement ; null tant que rien n'est choisi (cf. AUCTION_TYPES côté serveur).
+let currentAuctionType = null;
 
-function renderGuessDuration(durationMs) {
-  currentGuessTurnDurationMs = durationMs || 30000;
-  guessDurationButtons.forEach(btn => {
-    btn.classList.toggle('admin-role-btn--selected', Number(btn.dataset.duration) === currentGuessTurnDurationMs);
+function renderAuctionType(auctionType) {
+  currentAuctionType = auctionType || null;
+  auctionTypeButtons.forEach(btn => {
+    btn.classList.toggle('admin-role-btn--selected', btn.dataset.auctiontype === currentAuctionType);
   });
+  auctionTypeStatusEl.textContent = currentAuctionType
+    ? ''
+    : "Choix requis avant de pouvoir démarrer.";
 }
 
 // Picker "qui joue" (mode admin/guess, UNIQUEMENT quand il y a plus de 2 joueurs dans le
@@ -1367,6 +1385,13 @@ guessDurationButtons.forEach(btn => {
   });
 });
 
+auctionTypeButtons.forEach(btn => {
+  btn.addEventListener('click', () => {
+    if (!isHost()) return;
+    socket.emit('set_auction_type', { auctionType: btn.dataset.auctiontype });
+  });
+});
+
 btnCopyCode.addEventListener('click', async () => {
   const code = gameCodeEl.textContent.trim();
   try {
@@ -1552,6 +1577,33 @@ socket.on('rejoin_success', (payload) => {
     return;
   }
 
+  // Mode "Draft/Enchères" : idem, structure d'état dédiée (budget/équipe/lot en cours,
+  // aucun boss/route) — jamais via applyGameStarted/applyGameFinished.
+  if (payload.gameMode === 'auction') {
+    if (payload.status === 'waiting') {
+      resetGameUI();
+      gameCodeEl.textContent = payload.gameId;
+      renderLobbyPlayers(payload.players);
+      renderDifficulty(payload.difficulty);
+      renderGameMode(payload.gameMode);
+      renderAuctionType(payload.auctionType);
+      updateHostControls();
+      showScreen(screenLobby);
+    } else if (payload.status === 'playing') {
+      resetAuctionUI();
+      renderAuctionPlayers(payload.players);
+      updateAuctionBidAvailability();
+      showScreen(screenAuction);
+      // Le lot en cours (sprite/prix/enchère/timer) arrive juste après via un
+      // auction_lot_started ciblé (cf. socket.on('rejoin_game') côté serveur) : rien de
+      // plus à reconstruire ici en attendant.
+    } else if (payload.status === 'finished') {
+      resetAuctionUI();
+      renderAuctionFinished({ reason: null, players: payload.players, history: payload.auctionHistory });
+    }
+    return;
+  }
+
   if (payload.status === 'waiting') {
     resetGameUI();
     gameCodeEl.textContent = payload.gameId;
@@ -1596,7 +1648,7 @@ socket.on('rejoin_failed', () => {
   endReconnectAttempt();
 });
 
-socket.on('game_created', ({ gameId, players, hostId: hId, difficulty, gameMode, adminId, activePlayerIds, guessTurnDurationMs }) => {
+socket.on('game_created', ({ gameId, players, hostId: hId, difficulty, gameMode, adminId, activePlayerIds, guessTurnDurationMs, auctionType }) => {
   resetGameUI();
   isSpectating = false;
   hostId = hId;
@@ -1608,11 +1660,12 @@ socket.on('game_created', ({ gameId, players, hostId: hId, difficulty, gameMode,
   renderDifficulty(difficulty);
   renderGameMode(gameMode);
   renderGuessDuration(guessTurnDurationMs);
+  renderAuctionType(auctionType);
   updateHostControls();
   showScreen(screenLobby);
 });
 
-socket.on('game_joined', ({ gameId, players, hostId: hId, difficulty, gameMode, adminId, activePlayerIds, guessTurnDurationMs }) => {
+socket.on('game_joined', ({ gameId, players, hostId: hId, difficulty, gameMode, adminId, activePlayerIds, guessTurnDurationMs, auctionType }) => {
   resetGameUI();
   isSpectating = false;
   hostId = hId;
@@ -1624,11 +1677,12 @@ socket.on('game_joined', ({ gameId, players, hostId: hId, difficulty, gameMode, 
   renderDifficulty(difficulty);
   renderGameMode(gameMode);
   renderGuessDuration(guessTurnDurationMs);
+  renderAuctionType(auctionType);
   updateHostControls();
   showScreen(screenLobby);
 });
 
-socket.on('game_replayed', ({ gameId, players, hostId: hId, difficulty, gameMode, adminId, activePlayerIds, guessTurnDurationMs }) => {
+socket.on('game_replayed', ({ gameId, players, hostId: hId, difficulty, gameMode, adminId, activePlayerIds, guessTurnDurationMs, auctionType }) => {
   // Diffusé à tout le nouveau salon (io.to(newGameId).emit), donc reçu aussi par un
   // spectateur transféré depuis l'ancienne partie (cf. socket.on('play_again') côté
   // serveur) : celui-ci vient de recevoir SON propre spectate_joined juste avant, il ne
@@ -1647,6 +1701,7 @@ socket.on('game_replayed', ({ gameId, players, hostId: hId, difficulty, gameMode
   renderDifficulty(difficulty);
   renderGameMode(gameMode);
   renderGuessDuration(guessTurnDurationMs);
+  renderAuctionType(auctionType);
   updateHostControls();
   showScreen(screenLobby);
 });
@@ -1657,12 +1712,13 @@ socket.on('difficulty_updated', ({ difficulty }) => {
   renderDifficulty(difficulty);
 });
 
-// Idem pour le mode de jeu : changer de mode réinitialise toujours adminId côté serveur
-// (cf. set_game_mode), donc les deux se mettent à jour ensemble ici.
-socket.on('game_mode_updated', ({ gameMode, adminId, activePlayerIds }) => {
+// Idem pour le mode de jeu : changer de mode réinitialise toujours adminId ET
+// auctionType côté serveur (cf. set_game_mode), donc tout se met à jour ensemble ici.
+socket.on('game_mode_updated', ({ gameMode, adminId, activePlayerIds, auctionType }) => {
   currentAdminId = adminId || null;
   currentActivePlayerIds = activePlayerIds || [];
   renderGameMode(gameMode);
+  renderAuctionType(auctionType);
 });
 
 // Le rôle ADMIN change (hôte uniquement) : les deux joueurs voient le nouveau choix en direct.
@@ -1684,9 +1740,19 @@ socket.on('guess_turn_duration_updated', ({ turnDurationMs }) => {
   renderGuessDuration(turnDurationMs);
 });
 
+// Idem pour le type de draft en mode "auction" (hôte uniquement, avant le lancement).
+socket.on('auction_type_updated', ({ auctionType }) => {
+  renderAuctionType(auctionType);
+});
+
 socket.on('players_updated', ({ players, hostId: hId }) => {
   hostId = hId;
   renderLobbyPlayers(players);
+  // renderGameMode() dépend de lastLobbyPlayers.length pour son message d'aide (guess/
+  // auction : "il manque des joueurs" vs "choisis..."). Sans ce ré-appel, le message
+  // restait figé sur l'état du tout premier rendu (ex: création de partie à 1 joueur)
+  // même après qu'un 2e joueur ait rejoint le lobby.
+  renderGameMode(currentGameMode);
   updateHostControls();
 });
 
@@ -2054,6 +2120,13 @@ socket.on('rare_event_cancelled', () => {
 });
 
 socket.on('error_message', (msg) => {
+  // #error-message vit dans #screen-home (cf. style.css) : invisible sur tout autre
+  // écran. Pendant une enchère, une erreur de mise (montant invalide, budget dépassé...)
+  // doit apparaître là où le joueur regarde, donc routée vers le hint dédié.
+  if (document.body.dataset.screen === 'auction') {
+    auctionBidHintEl.textContent = msg;
+    return;
+  }
   showError(msg);
 });
 
@@ -2460,6 +2533,334 @@ socket.on('guess_game_over', ({ winnerId, reason, secretPokemon, players }) => {
 
   updateGuessReplayControls();
   showScreen(screenGuessFinished);
+});
+
+// ============================================================
+// MODE DRAFT/ENCHÈRES
+// ============================================================
+// Strictement 2 joueurs, aucun banc/spectateur (cf. start_game côté serveur qui bloque
+// toujours si players.length !== 2). Type "complete" : les 2 voient le Pokémon en vente.
+// Type "semi_blind" : un seul (isSeer) le voit, rotation à chaque lot — l'autre reçoit
+// pokemon: null côté serveur (jamais juste masqué en CSS), donc si !payload.isSeer le
+// voyant est nécessairement l'unique autre joueur (toujours exactement 2 en jeu).
+
+const btnLeaveAuction = document.getElementById('btn-leave-auction');
+const auctionLotsRemainingEl = document.getElementById('auction-lots-remaining');
+const auctionBudgetMeEl = document.getElementById('auction-budget-me');
+const auctionMyBudgetEl = document.getElementById('auction-my-budget');
+const auctionBudgetOppEl = document.getElementById('auction-budget-opp');
+const auctionOppNameEl = document.getElementById('auction-opp-name');
+const auctionOppBudgetEl = document.getElementById('auction-opp-budget');
+const auctionLotMysteryEl = document.getElementById('auction-lot-mystery');
+const auctionSeerNameEl = document.getElementById('auction-seer-name');
+const auctionLotRevealEl = document.getElementById('auction-lot-reveal');
+const auctionLotSpriteEl = document.getElementById('auction-lot-sprite');
+const auctionLotNameEl = document.getElementById('auction-lot-name');
+const auctionTimerBarEl = document.getElementById('auction-timer-bar');
+const auctionTimerValueEl = document.getElementById('auction-timer-value');
+const auctionCurrentBidValueEl = document.getElementById('auction-current-bid-value');
+const auctionCurrentBidderEl = document.getElementById('auction-current-bidder');
+const auctionStartingPriceEl = document.getElementById('auction-starting-price');
+const auctionBidInputEl = document.getElementById('auction-bid-input');
+const btnAuctionBid = document.getElementById('btn-auction-bid');
+const auctionBidHintEl = document.getElementById('auction-bid-hint');
+const auctionMyTeamCountEl = document.getElementById('auction-my-team-count');
+const auctionMyTeamSlotsEl = document.getElementById('auction-my-team-slots');
+const auctionOppTeamLabelEl = document.getElementById('auction-opp-team-label');
+const auctionOppTeamCountEl = document.getElementById('auction-opp-team-count');
+const auctionOppTeamSlotsEl = document.getElementById('auction-opp-team-slots');
+const auctionHistoryListEl = document.getElementById('auction-history-list');
+const auctionFinishedTitleEl = document.getElementById('auction-finished-title');
+const auctionFinishedReasonEl = document.getElementById('auction-finished-reason');
+const auctionFinishedMySlotsEl = document.getElementById('auction-finished-my-slots');
+const auctionFinishedMyBudgetEl = document.getElementById('auction-finished-my-budget');
+const auctionFinishedOppLabelEl = document.getElementById('auction-finished-opp-label');
+const auctionFinishedOppSlotsEl = document.getElementById('auction-finished-opp-slots');
+const auctionFinishedOppBudgetEl = document.getElementById('auction-finished-opp-budget');
+const btnAuctionReplay = document.getElementById('btn-auction-replay');
+const auctionFinishedStatusEl = document.getElementById('auction-finished-status');
+const btnLeaveAuctionFinished = document.getElementById('btn-leave-auction-finished');
+
+// Uniquement pour le calcul VISUEL de la barre de temps (largeur en %) — jamais une
+// source de vérité sur la durée réelle : endsAt vient toujours du serveur (cf.
+// AUCTION_LOT_TIMER_MS côté serveur, doit rester synchronisé avec cette valeur).
+const AUCTION_LOT_TIMER_MS = 20000;
+
+let auctionTimerInterval = null;
+let lastAuctionPlayers = [];
+
+function auctionSelf(players) {
+  return (players || []).find(p => p.id === myId);
+}
+function auctionOpponent(players) {
+  return (players || []).find(p => p.id !== myId);
+}
+
+function formatAuctionMoneyClient(amount) {
+  return `${Math.round(amount / 1_000_000)}M`;
+}
+
+function resetAuctionUI() {
+  clearInterval(auctionTimerInterval);
+  lastAuctionPlayers = [];
+  auctionLotMysteryEl.classList.add('screen--hidden');
+  auctionLotRevealEl.classList.add('screen--hidden');
+  auctionCurrentBidValueEl.textContent = '—';
+  auctionCurrentBidderEl.textContent = '';
+  auctionStartingPriceEl.textContent = 'Prix de départ : —';
+  auctionBidInputEl.value = '';
+  auctionBidInputEl.disabled = false;
+  btnAuctionBid.disabled = false;
+  auctionBidHintEl.textContent = '';
+  auctionHistoryListEl.innerHTML = '';
+  auctionMyTeamSlotsEl.innerHTML = '';
+  auctionOppTeamSlotsEl.innerHTML = '';
+  auctionMyTeamCountEl.textContent = '(0/6)';
+  auctionOppTeamCountEl.textContent = '(0/6)';
+  auctionMyBudgetEl.textContent = '500M';
+  auctionOppBudgetEl.textContent = '500M';
+  auctionBudgetMeEl.classList.remove('auction-budget-card--empty');
+  auctionBudgetOppEl.classList.remove('auction-budget-card--empty');
+  auctionLotsRemainingEl.textContent = '30';
+  auctionOppNameEl.textContent = 'Adversaire';
+  auctionOppTeamLabelEl.textContent = 'Équipe adverse';
+  auctionTimerBarEl.style.width = '100%';
+  auctionTimerBarEl.classList.remove('guess-timer-bar--low');
+  auctionTimerValueEl.textContent = '20';
+}
+
+// 6 emplacements fixes par équipe, remplis ou vides — même patron visuel que les
+// team-slots du mode normal (cf. renderTeamSlots), juste sans variante shiny/metamorph.
+function renderAuctionTeamSlots(container, team) {
+  container.innerHTML = '';
+  for (let i = 0; i < 6; i++) {
+    const slot = document.createElement('div');
+    slot.className = 'team-slot';
+    const mon = (team || [])[i];
+    if (mon) {
+      const img = document.createElement('img');
+      img.src = mon.sprite;
+      img.alt = mon.name;
+      slot.appendChild(img);
+    }
+    container.appendChild(slot);
+  }
+}
+
+function updateAuctionBidAvailability() {
+  const me = auctionSelf(lastAuctionPlayers);
+  const teamFull = !me || me.teamCount >= 6;
+  auctionBidInputEl.disabled = teamFull;
+  btnAuctionBid.disabled = teamFull;
+  if (teamFull) {
+    auctionBidHintEl.textContent = me ? 'Ton équipe est déjà complète (6 Pokémon).' : '';
+  } else if (auctionBidHintEl.textContent === 'Ton équipe est déjà complète (6 Pokémon).') {
+    auctionBidHintEl.textContent = '';
+  }
+}
+
+// players : payload de getPublicAuctionPlayers() côté serveur — {id, name, disconnected,
+// budget, team, teamCount}. Exactement 2 entrées, donc "l'autre que moi" = l'adversaire.
+function renderAuctionPlayers(players) {
+  lastAuctionPlayers = players || [];
+  const me = auctionSelf(lastAuctionPlayers);
+  const opp = auctionOpponent(lastAuctionPlayers);
+
+  if (me) {
+    auctionMyBudgetEl.textContent = formatAuctionMoneyClient(me.budget);
+    auctionBudgetMeEl.classList.toggle('auction-budget-card--empty', me.budget <= 0);
+    auctionMyTeamCountEl.textContent = `(${me.teamCount}/6)`;
+    renderAuctionTeamSlots(auctionMyTeamSlotsEl, me.team);
+  }
+  if (opp) {
+    auctionOppNameEl.textContent = opp.name + (opp.disconnected ? ' (déconnecté)' : '');
+    auctionOppTeamLabelEl.textContent = `Équipe de ${opp.name}`;
+    auctionOppBudgetEl.textContent = formatAuctionMoneyClient(opp.budget);
+    auctionBudgetOppEl.classList.toggle('auction-budget-card--empty', opp.budget <= 0);
+    auctionOppTeamCountEl.textContent = `(${opp.teamCount}/6)`;
+    renderAuctionTeamSlots(auctionOppTeamSlotsEl, opp.team);
+  }
+}
+
+function startAuctionTimerDisplay(endsAt) {
+  clearInterval(auctionTimerInterval);
+  function tick() {
+    const remainingMs = Math.max(0, endsAt - Date.now());
+    const remainingSec = Math.ceil(remainingMs / 1000);
+    auctionTimerValueEl.textContent = remainingSec;
+    const pct = Math.max(0, Math.min(100, (remainingMs / AUCTION_LOT_TIMER_MS) * 100));
+    auctionTimerBarEl.style.width = `${pct}%`;
+    auctionTimerBarEl.classList.toggle('guess-timer-bar--low', remainingSec <= 5);
+    if (remainingMs <= 0) clearInterval(auctionTimerInterval);
+  }
+  tick();
+  auctionTimerInterval = setInterval(tick, 250);
+}
+
+// Partagé entre auction_lot_started (nouveau lot) et auction_bid_update (quelqu'un
+// enchérit sur le lot en cours) : les deux portent les mêmes champs d'enchère/joueurs.
+function renderAuctionBidInfo({ currentBid, currentBidderId, currentBidderName, endsAt, players }) {
+  if (players) renderAuctionPlayers(players);
+  auctionCurrentBidValueEl.textContent = (currentBid !== null && currentBid !== undefined)
+    ? formatAuctionMoneyClient(currentBid)
+    : '—';
+  if (currentBidderId) {
+    const name = currentBidderId === myId ? 'Toi' : (currentBidderName || auctionOpponent(lastAuctionPlayers)?.name || 'ton adversaire');
+    auctionCurrentBidderEl.textContent = `(${name})`;
+  } else {
+    auctionCurrentBidderEl.textContent = '';
+  }
+  if (endsAt) startAuctionTimerDisplay(endsAt);
+  updateAuctionBidAvailability();
+}
+
+function renderAuctionLot(payload) {
+  auctionLotsRemainingEl.textContent = payload.lotsRemaining;
+  renderAuctionPlayers(payload.players);
+
+  if (payload.pokemon) {
+    auctionLotMysteryEl.classList.add('screen--hidden');
+    auctionLotRevealEl.classList.remove('screen--hidden');
+    auctionLotSpriteEl.src = payload.pokemon.sprite;
+    auctionLotSpriteEl.alt = payload.pokemon.name;
+    auctionLotNameEl.textContent = payload.pokemon.name;
+  } else {
+    // Semi-aveugle, pas le voyant : le serveur n'a jamais envoyé le Pokémon à cette
+    // socket (cf. broadcastAuctionLot), impossible de le retrouver ici — normal.
+    auctionLotRevealEl.classList.add('screen--hidden');
+    auctionLotMysteryEl.classList.remove('screen--hidden');
+    auctionSeerNameEl.textContent = auctionOpponent(payload.players)?.name || 'ton adversaire';
+  }
+
+  auctionStartingPriceEl.textContent = `Prix de départ : ${formatAuctionMoneyClient(payload.startingPrice)}`;
+  auctionBidInputEl.value = '';
+  renderAuctionBidInfo(payload);
+}
+
+function updateAuctionReplayControls() {
+  const host = isHost();
+  btnAuctionReplay.classList.toggle('screen--hidden', !host);
+  auctionFinishedStatusEl.textContent = host
+    ? 'Relance une partie quand tu es prêt.'
+    : "En attente que l'hôte relance une partie...";
+}
+
+// Partagé entre auction_game_over (fin réelle, avec raison) et rejoin_success sur une
+// partie déjà finie (reason: null — pas assez d'info pour la retrouver après coup,
+// jamais renvoyée par rejoin, même limite déjà acceptée côté guess).
+function renderAuctionFinished({ reason, players, history }) {
+  clearInterval(auctionTimerInterval);
+  lastAuctionPlayers = players || [];
+  const me = auctionSelf(lastAuctionPlayers);
+  const opp = auctionOpponent(lastAuctionPlayers);
+
+  auctionFinishedTitleEl.textContent = 'Draft terminé';
+  auctionFinishedReasonEl.textContent = reason === 'forfeit'
+    ? "Ton adversaire a quitté la partie — la draft s'arrête là."
+    : reason === 'complete'
+      ? 'Les 30 lots ont été vendus.'
+      : 'Partie déjà terminée.';
+
+  if (me) {
+    renderAuctionTeamSlots(auctionFinishedMySlotsEl, me.team);
+    auctionFinishedMyBudgetEl.textContent = `Budget restant : ${formatAuctionMoneyClient(me.budget)}`;
+  }
+  if (opp) {
+    auctionFinishedOppLabelEl.textContent = `Équipe de ${opp.name}`;
+    renderAuctionTeamSlots(auctionFinishedOppSlotsEl, opp.team);
+    auctionFinishedOppBudgetEl.textContent = `Budget restant : ${formatAuctionMoneyClient(opp.budget)}`;
+  }
+
+  updateAuctionReplayControls();
+  showScreen(screenAuctionFinished);
+}
+
+function addAuctionHistoryEntry({ pokemon, winnerId, winnerName, price }) {
+  const li = document.createElement('li');
+  const img = document.createElement('img');
+  img.src = pokemon.sprite;
+  img.alt = pokemon.name;
+  const name = document.createElement('span');
+  name.textContent = pokemon.name;
+  li.appendChild(img);
+  li.appendChild(name);
+
+  const tag = document.createElement('span');
+  if (winnerId) {
+    tag.className = 'auction-history-price';
+    const who = winnerId === myId ? 'Toi' : (winnerName || 'Adversaire');
+    tag.textContent = `${who} — ${formatAuctionMoneyClient(price)}`;
+  } else {
+    tag.className = 'auction-history-unsold';
+    tag.textContent = 'Invendu';
+  }
+  li.appendChild(tag);
+  auctionHistoryListEl.insertBefore(li, auctionHistoryListEl.firstChild);
+}
+
+socket.on('auction_game_started', ({ gameId, players }) => {
+  resetAuctionUI();
+  rememberActiveGame(gameId);
+  renderAuctionPlayers(players);
+  updateAuctionBidAvailability();
+  showScreen(screenAuction);
+});
+
+socket.on('auction_lot_started', (payload) => {
+  renderAuctionLot(payload);
+});
+
+socket.on('auction_bid_update', (payload) => {
+  playClickSound();
+  renderAuctionBidInfo(payload);
+});
+
+socket.on('auction_lot_resolved', (payload) => {
+  playRevealSound();
+  renderAuctionPlayers(payload.players);
+  updateAuctionBidAvailability();
+  addAuctionHistoryEntry(payload);
+});
+
+socket.on('auction_game_over', ({ reason, players, history }) => {
+  renderAuctionFinished({ reason, players, history });
+});
+
+btnAuctionBid.addEventListener('click', () => {
+  const raw = auctionBidInputEl.value;
+  const amount = Number(raw);
+  if (!raw || !Number.isFinite(amount) || amount <= 0) {
+    auctionBidHintEl.textContent = 'Entre un montant valide.';
+    return;
+  }
+  playClickSound();
+  socket.emit('auction_bid', { amount: Math.round(amount) });
+});
+
+auctionBidInputEl.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    btnAuctionBid.click();
+  }
+});
+
+btnLeaveAuction.addEventListener('click', () => {
+  socket.emit('leave_game');
+  rememberActiveGame(null);
+  resetAuctionUI();
+  showScreen(screenHome);
+});
+
+btnLeaveAuctionFinished.addEventListener('click', () => {
+  socket.emit('leave_game');
+  rememberActiveGame(null);
+  resetAuctionUI();
+  showScreen(screenHome);
+});
+
+btnAuctionReplay.addEventListener('click', () => {
+  if (!isHost()) return;
+  socket.emit('play_again');
 });
 
 // ============================================================
