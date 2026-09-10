@@ -499,20 +499,17 @@
         <h2 id="auction-lot-name" class="auction-lot-name">—</h2>
       </div>
 
-      <div class="guess-timer-wrap">
-        <div class="guess-timer-track"><div id="auction-timer-bar" class="guess-timer-bar"></div></div>
-        <span id="auction-timer-value" class="guess-timer-value">20</span>
-      </div>
+      <p class="guess-turn-label">Tour de : <span id="auction-active-name">—</span></p>
 
       <p class="auction-current-bid">
         Enchère actuelle : <span id="auction-current-bid-value">—</span>
         <span id="auction-current-bidder" class="auction-current-bidder"></span>
       </p>
-      <p id="auction-starting-price" class="guess-turn-hint">Prix de départ : —</p>
 
       <div id="auction-bid-controls" class="auction-bid-controls">
-        <input id="auction-bid-input" type="number" step="1000000" min="0" inputmode="numeric" placeholder="Montant (ex: 15000000)">
+        <input id="auction-bid-input" type="text" inputmode="decimal" placeholder="Montant en M (ex: 15,5)">
         <button id="btn-auction-bid" type="button" class="btn btn--haut">Enchérir</button>
+        <button id="btn-auction-pass" type="button" class="btn btn--ghost">Passer</button>
       </div>
       <p id="auction-bid-hint" class="auction-bid-hint"></p>
     </div>
@@ -543,6 +540,8 @@
         <p class="eyebrow">Ton équipe</p>
         <div id="auction-finished-my-slots" class="team-slots"></div>
         <p class="auction-budget-card__value" id="auction-finished-my-budget"></p>
+        <button id="btn-auction-copy-team" type="button" class="btn btn--ghost btn--block">Copier l'équipe (format Smogon)</button>
+        <p id="auction-copy-feedback" class="copy-feedback"></p>
       </div>
       <div class="auction-team-col">
         <p class="eyebrow" id="auction-finished-opp-label">Équipe adverse</p>
@@ -624,6 +623,15 @@
         <label class="settings-toggle">
           <span class="settings-toggle__label">Sons</span>
           <input type="checkbox" id="settings-sound" class="settings-toggle__input">
+          <span class="settings-toggle__track"><span class="settings-toggle__thumb"></span></span>
+        </label>
+      </div>
+
+      <div class="settings-section">
+        <p class="settings-section__title">Partie</p>
+        <label class="settings-toggle">
+          <span class="settings-toggle__label">Reconnexion automatique</span>
+          <input type="checkbox" id="settings-auto-reconnect" class="settings-toggle__input">
           <span class="settings-toggle__track"><span class="settings-toggle__thumb"></span></span>
         </label>
       </div>

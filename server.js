@@ -1145,13 +1145,6 @@ function buildAuctionPool() {
   return shuffleArray(picked).map(p => ({ id: p.id, name: p.name, sprite: p.sprite, points: p.points }));
 }
 
-// Prix de départ dérivé du barème de points déjà établi pour tout le reste du jeu (jamais
-// une nouvelle échelle inventée) : ~10 points = 1M, plancher à 5M pour qu'un commun reste
-// un minimum crédible à enchérir.
-function auctionStartingPrice(points) {
-  return Math.max(5_000_000, Math.round(points / 10) * 1_000_000);
-}
-
 function getPublicAuctionPlayers(game) {
   return game.players.map(p => ({
     id: p.id,
@@ -1171,6 +1164,42 @@ function auctionBothTeamsFull(game) {
   return game.players.every(p => p.auctionTeam.length >= AUCTION_TEAM_SIZE);
 }
 
+// Retourne l'id du joueur qui doit RÉELLEMENT jouer : si le candidat désigné a déjà son
+// équipe complète (6 Pokémon), la main lui est automatiquement retirée au profit de
+// l'autre. Toujours sûr : si les 2 équipes étaient pleines, auctionBothTeamsFull() aurait
+// déjà mis fin à la partie avant qu'on en arrive là. Utilisée UNIQUEMENT quand une
+// enchère existe déjà sur le lot (après un auction_bid) : dans ce cas le budget n'a
+// jamais besoin d'être vérifié ici, puisque passer est toujours possible et gratuit une
+// fois qu'il y a déjà une enchère (cf. auction_pass).
+function auctionNextBidder(game, candidateId) {
+  const candidate = game.players.find(p => p.id === candidateId);
+  if (candidate && auctionPlayerCanBid(candidate)) return candidateId;
+  const other = game.players.find(p => p.id !== candidateId);
+  return other ? other.id : candidateId;
+}
+
+// Un joueur peut-il OUVRIR les enchères d'un lot flambant neuf (aucune offre encore
+// posée) ? Contrairement à auctionNextBidder ci-dessus, le budget compte ici : sur un
+// lot vierge, passer est interdit (cf. auction_pass), donc un joueur sans de quoi
+// couvrir ne serait-ce que le plancher AUCTION_MIN_BID serait autrement bloqué sans
+// aucune action possible.
+function auctionCanOpenBid(player) {
+  return auctionPlayerCanBid(player) && player.budget >= AUCTION_MIN_BID;
+}
+
+// Retourne l'id du joueur qui doit ouvrir le prochain lot en partant de candidateId,
+// en sautant automatiquement vers l'autre s'il ne peut pas (équipe pleine ou budget
+// insuffisant) — et null si NI L'UN NI L'AUTRE ne peut ouvrir ce lot (cf.
+// startNextAuctionLot, qui le traite alors comme invendu plutôt que de bloquer la
+// partie).
+function auctionLotStarterFor(game, candidateId) {
+  const candidate = game.players.find(p => p.id === candidateId);
+  if (candidate && auctionCanOpenBid(candidate)) return candidateId;
+  const other = game.players.find(p => p.id !== candidateId);
+  if (other && auctionCanOpenBid(other)) return other.id;
+  return null;
+}
+
 function startAuctionGame(game) {
   game.auctionPool = buildAuctionPool();
   game.auctionHistory = [];
@@ -1178,10 +1207,12 @@ function startAuctionGame(game) {
     p.budget = AUCTION_STARTING_BUDGET;
     p.auctionTeam = [];
   });
-  // Premier voyant en semi-aveugle : le premier joueur de la liste (arbitraire mais
-  // déterministe) ; startNextAuctionLot() fait alterner vers l'AUTRE joueur à chaque lot,
-  // donc ce choix initial ne favorise jamais durablement le même joueur.
+  // Premier voyant en semi-aveugle ET premier joueur à ouvrir les enchères : le second
+  // joueur de la liste (arbitraire mais déterministe) ; startNextAuctionLot() fait
+  // alterner vers l'AUTRE joueur (donc players[0]) dès le premier lot, puis à chaque lot
+  // suivant — ce choix initial ne favorise jamais durablement le même joueur.
   game.auctionBlindSeerId = game.players[1] ? game.players[1].id : null;
+  game.auctionBidStarterId = game.players[1] ? game.players[1].id : null;
 
   io.to(game.id).emit('auction_game_started', {
     gameId: game.id,
@@ -1206,10 +1237,9 @@ function broadcastAuctionLot(game) {
       pokemon: canSeePokemon ? lot.pokemon : null,
       mystery: !canSeePokemon,
       isSeer: canSeePokemon,
-      startingPrice: lot.startingPrice,
       currentBid: lot.currentBid,
       currentBidderId: lot.currentBidderId,
-      endsAt: lot.endsAt,
+      activePlayerId: lot.activePlayerId,
       canBid: auctionPlayerCanBid(p),
       lotsRemaining: game.auctionPool.length,
       players: publicPlayers
@@ -1218,11 +1248,6 @@ function broadcastAuctionLot(game) {
 }
 
 function startNextAuctionLot(game) {
-  if (game.auctionLotTimer) {
-    clearTimeout(game.auctionLotTimer);
-    game.auctionLotTimer = null;
-  }
-
   if (auctionBothTeamsFull(game) || game.auctionPool.length === 0) {
     // Pool épuisé avant que les 2 aient 6 Pokémon : cas limite improbable (30 lots pour
     // 12 achats max) mais on termine proprement plutôt que de bloquer la partie.
@@ -1231,7 +1256,6 @@ function startNextAuctionLot(game) {
   }
 
   const mon = game.auctionPool.shift();
-  const startingPrice = auctionStartingPrice(mon.points);
 
   let seerId = null;
   if (game.auctionType === 'semi_blind') {
@@ -1240,21 +1264,34 @@ function startNextAuctionLot(game) {
     game.auctionBlindSeerId = seerId;
   }
 
+  // Alterne qui ouvre les enchères à chaque lot (même mécanique que le voyant en
+  // semi-aveugle juste au-dessus), en sautant automatiquement le joueur qui ne peut pas
+  // ouvrir ce lot (équipe pleine OU budget insuffisant, cf. auctionLotStarterFor).
+  const otherBidder = game.players.find(p => p.id !== game.auctionBidStarterId);
+  const starterCandidate = otherBidder ? otherBidder.id : game.players[0].id;
+  const starterId = auctionLotStarterFor(game, starterCandidate);
+
   game.auctionLot = {
     pokemon: mon,
-    startingPrice,
     currentBid: null,
     currentBidderId: null,
-    endsAt: Date.now() + AUCTION_LOT_TIMER_MS,
+    activePlayerId: starterId,
     seerId
   };
 
-  broadcastAuctionLot(game);
-  game.auctionLotTimer = setTimeout(() => resolveAuctionLot(game), AUCTION_LOT_TIMER_MS);
+  if (starterId) {
+    game.auctionBidStarterId = starterId;
+    broadcastAuctionLot(game);
+  } else {
+    // NI L'UN NI L'AUTRE n'a de quoi couvrir le plancher AUCTION_MIN_BID sur ce lot (et
+    // passer sans enchère posée est interdit) : invendu directement, sans jamais
+    // l'annoncer aux clients comme un lot "en cours" — on enchaîne sur le suivant plutôt
+    // que de bloquer la partie sur un tour que personne ne peut jouer.
+    resolveAuctionLot(game);
+  }
 }
 
 function resolveAuctionLot(game) {
-  game.auctionLotTimer = null;
   const lot = game.auctionLot;
   if (!lot) return;
 
@@ -1288,10 +1325,6 @@ function resolveAuctionLot(game) {
 }
 
 function finishAuctionGame(game, reason) {
-  if (game.auctionLotTimer) {
-    clearTimeout(game.auctionLotTimer);
-    game.auctionLotTimer = null;
-  }
   game.auctionLot = null;
   game.status = 'finished';
   io.to(game.id).emit('auction_game_over', {
@@ -2224,13 +2257,21 @@ const GAME_MODES = ['normal', 'admin', 'guess', 'auction'];
 //   deviner (jamais un champ "hidden:true" à masquer en CSS — cf. broadcastAuctionLot,
 //   qui envoie un payload PAR JOUEUR via io.to(playerId).emit, jamais un broadcast salon
 //   unique). Le vrai Pokémon est révélé aux deux une fois le lot résolu (achat ou non).
+//
+// Enchères TOUR PAR TOUR, sans limite de temps ni prix de départ dépendant du lot (cf.
+// game.auctionLot : activePlayerId désigne qui doit jouer) :
+// - à son tour, un joueur enchérit (montant strictement supérieur à l'enchère actuelle,
+//   ou au moins AUCTION_MIN_BID si le lot n'a encore reçu aucune offre — un plancher
+//   fixe et identique pour tous les lots, pas un prix de départ calculé par rareté) ou
+//   passe ;
+// - passer n'est autorisé QUE si une enchère a déjà été posée sur ce lot (impossible
+//   d'ouvrir un lot en passant : quelqu'un doit toujours enchérir en premier) ; passer
+//   attribue alors immédiatement le lot à l'auteur de cette enchère.
 // -----------------------------------------------------------------
 const AUCTION_TYPES = ['complete', 'semi_blind'];
 const AUCTION_STARTING_BUDGET = 500_000_000;
+const AUCTION_MIN_BID = 1_000_000; // plancher fixe (pas de prix de départ par lot) ; garde aussi formatAuctionMoney lisible
 const AUCTION_TEAM_SIZE = 6;
-const AUCTION_LOT_TIMER_MS = 20_000;
-const AUCTION_EXTEND_THRESHOLD_MS = 5_000; // une enchère à moins de 5s de la fin...
-const AUCTION_EXTEND_TO_MS = 5_000;        // ...repousse la fin à 5s (anti-sniping)
 const AUCTION_POOL_TIER_COUNTS = {
   // Mélange volontairement large et varié (30 lots), tiré sans répétition depuis
   // POKEMON_POOLS (cf. buildAuctionPool) — largement assez pour que les 2 joueurs
@@ -2813,9 +2854,9 @@ io.on('connection', (socket) => {
       auctionType: null, // 'complete' | 'semi_blind', choisi par l'hôte avant de démarrer (cf. set_auction_type)
       auctionPool: [], // lots restants (mélangés, sans répétition), rempli au démarrage
       auctionHistory: [], // [{ pokemon:{id,name,sprite}, winnerId, winnerName, price }], dans l'ordre
-      auctionLot: null, // lot en cours : { pokemon, startingPrice, currentBid, currentBidderId, endsAt, seerId }
-      auctionLotTimer: null,
-      auctionBlindSeerId: null // id du joueur qui VOIT au lot en cours (semi_blind uniquement) ; alterne à chaque lot
+      auctionLot: null, // lot en cours : { pokemon, currentBid, currentBidderId, activePlayerId, seerId }
+      auctionBlindSeerId: null, // id du joueur qui VOIT au lot en cours (semi_blind uniquement) ; alterne à chaque lot
+      auctionBidStarterId: null // id du joueur qui ouvre les enchères du lot en cours (tour par tour) ; alterne à chaque lot
     };
 
     socket.join(gameId);
@@ -3202,11 +3243,11 @@ io.on('connection', (socket) => {
   });
 
   // ---------------------------------------------------------------
-  // GAMEMODE "DRAFT / ENCHÈRES" — enchère à montant libre (jamais de paliers/incréments
-  // fixes : le joueur écrit le montant exact qu'il propose). Toutes les validations de la
-  // section 15 du brief sont ici, dans cet ordre. Le serveur reste seul juge de : le
-  // budget réel, le prix actuel, le gagnant, le timer, l'équipe — jamais une valeur reçue
-  // du client n'est utilisée telle quelle pour autre chose que l'identifier.
+  // GAMEMODE "DRAFT / ENCHÈRES" — tour par tour, sans limite de temps ni prix de départ :
+  // enchère à montant libre (jamais de paliers/incréments fixes : le joueur écrit le
+  // montant exact qu'il propose), uniquement quand c'est son tour. Le serveur reste seul
+  // juge de : le budget réel, le prix actuel, à qui est le tour, l'équipe — jamais une
+  // valeur reçue du client n'est utilisée telle quelle pour autre chose que l'identifier.
   socket.on('auction_bid', ({ amount } = {}) => {
     const gameId = socket.data.gameId;
     const game = games[gameId];
@@ -3233,18 +3274,23 @@ io.on('connection', (socket) => {
       socket.emit('error_message', 'Aucune enchère en cours.');
       return;
     }
+    if (lot.activePlayerId !== player.id) {
+      socket.emit('error_message', "Ce n'est pas ton tour.");
+      return;
+    }
 
     // Rejette explicitement tout ce qui n'est pas un entier fini normal : NaN, Infinity,
-    // décimales, chaînes non numériques, valeurs négatives ou nulles (section 39).
+    // décimales, chaînes non numériques, valeurs négatives ou nulles.
     const bid = Number(amount);
     if (!Number.isInteger(bid) || !Number.isFinite(bid) || bid <= 0) {
       socket.emit('error_message', 'Montant invalide.');
       return;
     }
 
-    // Le tout premier enchérisseur peut égaler le prix de départ affiché ; ensuite,
-    // chaque enchère doit strictement dépasser la précédente (section 13).
-    const minBid = lot.currentBid !== null ? lot.currentBid + 1 : lot.startingPrice;
+    // Sans prix de départ dépendant du lot : la toute première enchère du lot doit juste
+    // atteindre le plancher fixe AUCTION_MIN_BID ; ensuite, chaque enchère doit
+    // strictement dépasser la précédente.
+    const minBid = lot.currentBid !== null ? lot.currentBid + 1 : AUCTION_MIN_BID;
     if (bid < minBid) {
       socket.emit('error_message', `Ton enchère doit être d'au moins ${formatAuctionMoney(minBid)}.`);
       return;
@@ -3257,22 +3303,56 @@ io.on('connection', (socket) => {
     lot.currentBid = bid;
     lot.currentBidderId = player.id;
 
-    // Anti-sniping (section 22) : une enchère acceptée à moins de 5s de la fin repousse
-    // la fin à 5s pile, jamais un simple "+5s" cumulatif qui allongerait indéfiniment.
-    const remaining = lot.endsAt - Date.now();
-    if (remaining < AUCTION_EXTEND_THRESHOLD_MS) {
-      lot.endsAt = Date.now() + AUCTION_EXTEND_TO_MS;
-      if (game.auctionLotTimer) clearTimeout(game.auctionLotTimer);
-      game.auctionLotTimer = setTimeout(() => resolveAuctionLot(game), AUCTION_EXTEND_TO_MS);
-    }
+    // La main passe à l'autre joueur (sauf s'il a déjà son équipe complète, cf.
+    // auctionNextBidder, auquel cas elle revient à celui qui vient d'enchérir).
+    const other = game.players.find(p => p.id !== player.id);
+    lot.activePlayerId = auctionNextBidder(game, other ? other.id : player.id);
 
     io.to(gameId).emit('auction_bid_update', {
       currentBid: lot.currentBid,
       currentBidderId: lot.currentBidderId,
       currentBidderName: player.name,
-      endsAt: lot.endsAt,
+      activePlayerId: lot.activePlayerId,
       players: getPublicAuctionPlayers(game)
     });
+  });
+
+  // Passer son tour (mode "auction", tour par tour) : UNIQUEMENT possible si une enchère
+  // a déjà été posée sur ce lot, auquel cas l'adversaire le remporte immédiatement au
+  // prix actuel. Impossible de passer sur un lot encore vierge — quelqu'un doit toujours
+  // ouvrir les enchères en premier, jamais de lot invendu par double passe.
+  socket.on('auction_pass', () => {
+    const gameId = socket.data.gameId;
+    const game = games[gameId];
+
+    if (!game) {
+      socket.emit('error_message', 'Partie introuvable.');
+      return;
+    }
+    if (game.gameMode !== 'auction' || game.status !== 'playing') {
+      socket.emit('error_message', "La partie n'est pas en cours.");
+      return;
+    }
+    const player = game.players.find(p => p.id === socket.id);
+    if (!player) {
+      socket.emit('error_message', 'Tu ne fais pas partie de cette partie.');
+      return;
+    }
+    const lot = game.auctionLot;
+    if (!lot) {
+      socket.emit('error_message', 'Aucune enchère en cours.');
+      return;
+    }
+    if (lot.activePlayerId !== player.id) {
+      socket.emit('error_message', "Ce n'est pas ton tour.");
+      return;
+    }
+    if (!lot.currentBidderId) {
+      socket.emit('error_message', "Il faut au moins une enchère sur ce lot avant de pouvoir passer.");
+      return;
+    }
+
+    resolveAuctionLot(game);
   });
 
   // Rejouer avec les mêmes joueurs : crée une partie entièrement neuve (nouveau code,
@@ -3334,8 +3414,8 @@ io.on('connection', (socket) => {
       auctionPool: [],
       auctionHistory: [],
       auctionLot: null,
-      auctionLotTimer: null,
-      auctionBlindSeerId: null
+      auctionBlindSeerId: null,
+      auctionBidStarterId: null
     };
 
     games[newGameId] = newGame;
@@ -4086,9 +4166,11 @@ io.on('connection', (socket) => {
     if (game.adminId === oldId) game.adminId = player.id;
     if (game.guessActivePlayerId === oldId) game.guessActivePlayerId = player.id;
     if (game.auctionBlindSeerId === oldId) game.auctionBlindSeerId = player.id;
+    if (game.auctionBidStarterId === oldId) game.auctionBidStarterId = player.id;
     if (game.auctionLot) {
       if (game.auctionLot.seerId === oldId) game.auctionLot.seerId = player.id;
       if (game.auctionLot.currentBidderId === oldId) game.auctionLot.currentBidderId = player.id;
+      if (game.auctionLot.activePlayerId === oldId) game.auctionLot.activePlayerId = player.id;
     }
     game.players.forEach(p => {
       if (p.crossedFatesPartner === oldId) p.crossedFatesPartner = player.id;
@@ -4142,10 +4224,9 @@ io.on('connection', (socket) => {
         pokemon: canSeePokemon ? lot.pokemon : null,
         mystery: !canSeePokemon,
         isSeer: canSeePokemon,
-        startingPrice: lot.startingPrice,
         currentBid: lot.currentBid,
         currentBidderId: lot.currentBidderId,
-        endsAt: lot.endsAt,
+        activePlayerId: lot.activePlayerId,
         canBid: auctionPlayerCanBid(player),
         lotsRemaining: game.auctionPool.length,
         players: getPublicAuctionPlayers(game)

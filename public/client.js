@@ -46,7 +46,17 @@ function rememberActiveGame(gameId) {
 // Si une partie était en cours au dernier chargement, masque le formulaire créer/rejoindre
 // et affiche "Reconnexion..." le temps que rejoin_success/rejoin_failed tranche — sinon
 // on verrait le formulaire s'afficher une fraction de seconde avant d'être remplacé.
-const pendingRejoinGameId = localStorage.getItem('routeduboss_active_game');
+// SAUF si la reconnexion automatique est désactivée (cf. Réglages > Partie) : lecture
+// brute de rdb_settings_v1 ici plutôt que via loadSettings() (déclarée bien plus bas,
+// section Réglages) car ce bloc s'exécute AVANT que cette déclaration n'ait pu tourner —
+// même contrainte d'ordre que le script anti-flash dans index.html.
+let earlyAutoReconnect = true;
+try {
+  const earlySettings = JSON.parse(localStorage.getItem('rdb_settings_v1')) || {};
+  earlyAutoReconnect = earlySettings.autoReconnect !== false;
+} catch (e) {}
+
+const pendingRejoinGameId = earlyAutoReconnect ? localStorage.getItem('routeduboss_active_game') : null;
 if (pendingRejoinGameId) {
   reconnectStatusEl.classList.remove('screen--hidden');
   homeFormsEl.classList.add('screen--hidden');
@@ -1517,10 +1527,20 @@ socket.on('connect', () => {
   myId = socket.id;
   // Se déclenche à la toute première connexion ET après chaque reconnexion automatique
   // de socket.io (coupure réseau brève) : dans les deux cas, s'il existe une partie
-  // enregistrée, on tente de reprendre exactement là où on en était.
+  // enregistrée ET que la reconnexion automatique n'est pas désactivée (cf. Réglages >
+  // Partie), on tente de reprendre exactement là où on en était. loadSettings() est déjà
+  // exécutable ici (contrairement au bloc tout en haut du fichier) : ce handler ne
+  // s'exécute qu'après un vrai aller-retour réseau, donc bien après que sa déclaration,
+  // plus bas dans ce même fichier, ait déjà tourné.
   const gameId = localStorage.getItem('routeduboss_active_game');
-  if (gameId) {
+  const autoReconnect = loadSettings().autoReconnect !== false;
+  if (gameId && autoReconnect) {
     socket.emit('rejoin_game', { gameId, token: deviceToken });
+  } else if (gameId) {
+    // Reconnexion automatique désactivée : on abandonne toute tentative de reprise pour
+    // cette ancienne partie (jamais contactée) et on revient à un accueil normal, y
+    // compris si l'écran "Reconnexion..." était affiché (réglage changé entre-temps).
+    endReconnectAttempt();
   }
 });
 
@@ -2569,13 +2589,12 @@ const auctionSeerNameEl = document.getElementById('auction-seer-name');
 const auctionLotRevealEl = document.getElementById('auction-lot-reveal');
 const auctionLotSpriteEl = document.getElementById('auction-lot-sprite');
 const auctionLotNameEl = document.getElementById('auction-lot-name');
-const auctionTimerBarEl = document.getElementById('auction-timer-bar');
-const auctionTimerValueEl = document.getElementById('auction-timer-value');
+const auctionActiveNameEl = document.getElementById('auction-active-name');
 const auctionCurrentBidValueEl = document.getElementById('auction-current-bid-value');
 const auctionCurrentBidderEl = document.getElementById('auction-current-bidder');
-const auctionStartingPriceEl = document.getElementById('auction-starting-price');
 const auctionBidInputEl = document.getElementById('auction-bid-input');
 const btnAuctionBid = document.getElementById('btn-auction-bid');
+const btnAuctionPass = document.getElementById('btn-auction-pass');
 const auctionBidHintEl = document.getElementById('auction-bid-hint');
 const auctionMyTeamCountEl = document.getElementById('auction-my-team-count');
 const auctionMyTeamSlotsEl = document.getElementById('auction-my-team-slots');
@@ -2593,14 +2612,16 @@ const auctionFinishedOppBudgetEl = document.getElementById('auction-finished-opp
 const btnAuctionReplay = document.getElementById('btn-auction-replay');
 const auctionFinishedStatusEl = document.getElementById('auction-finished-status');
 const btnLeaveAuctionFinished = document.getElementById('btn-leave-auction-finished');
+const btnAuctionCopyTeam = document.getElementById('btn-auction-copy-team');
+const auctionCopyFeedbackEl = document.getElementById('auction-copy-feedback');
 
-// Uniquement pour le calcul VISUEL de la barre de temps (largeur en %) — jamais une
-// source de vérité sur la durée réelle : endsAt vient toujours du serveur (cf.
-// AUCTION_LOT_TIMER_MS côté serveur, doit rester synchronisé avec cette valeur).
-const AUCTION_LOT_TIMER_MS = 20000;
-
-let auctionTimerInterval = null;
 let lastAuctionPlayers = [];
+// id du joueur dont c'est le tour d'enchérir/passer sur le lot en cours (tour par tour,
+// cf. auction_lot_started / auction_bid_update côté serveur).
+let lastAuctionActivePlayerId = null;
+// Enchère actuelle du lot en cours (null tant que personne n'a encore enchéri) : sert à
+// savoir si "Passer" est autorisé (impossible tant qu'aucune enchère n'a été posée).
+let lastAuctionCurrentBid = null;
 
 function auctionSelf(players) {
   return (players || []).find(p => p.id === myId);
@@ -2614,16 +2635,18 @@ function formatAuctionMoneyClient(amount) {
 }
 
 function resetAuctionUI() {
-  clearInterval(auctionTimerInterval);
   lastAuctionPlayers = [];
+  lastAuctionActivePlayerId = null;
+  lastAuctionCurrentBid = null;
   auctionLotMysteryEl.classList.add('screen--hidden');
   auctionLotRevealEl.classList.add('screen--hidden');
   auctionCurrentBidValueEl.textContent = '—';
   auctionCurrentBidderEl.textContent = '';
-  auctionStartingPriceEl.textContent = 'Prix de départ : —';
+  auctionActiveNameEl.textContent = '—';
   auctionBidInputEl.value = '';
   auctionBidInputEl.disabled = false;
   btnAuctionBid.disabled = false;
+  btnAuctionPass.disabled = false;
   auctionBidHintEl.textContent = '';
   auctionHistoryListEl.innerHTML = '';
   auctionMyTeamSlotsEl.innerHTML = '';
@@ -2637,9 +2660,6 @@ function resetAuctionUI() {
   auctionLotsRemainingEl.textContent = '30';
   auctionOppNameEl.textContent = 'Adversaire';
   auctionOppTeamLabelEl.textContent = 'Équipe adverse';
-  auctionTimerBarEl.style.width = '100%';
-  auctionTimerBarEl.classList.remove('guess-timer-bar--low');
-  auctionTimerValueEl.textContent = '20';
 }
 
 // 6 emplacements fixes par équipe, remplis ou vides — même patron visuel que les
@@ -2660,14 +2680,31 @@ function renderAuctionTeamSlots(container, team) {
   }
 }
 
+// Combine plusieurs conditions pour savoir si CE joueur peut agir maintenant : équipe
+// pas pleine ET c'est son tour (tour par tour, cf. lastAuctionActivePlayerId). "Passer"
+// est en plus soumis à une 3e condition : impossible tant qu'aucune enchère n'a encore
+// été posée sur ce lot (cf. lastAuctionCurrentBid) — il faut toujours que quelqu'un
+// ouvre les enchères en premier.
 function updateAuctionBidAvailability() {
   const me = auctionSelf(lastAuctionPlayers);
   const teamFull = !me || me.teamCount >= 6;
-  auctionBidInputEl.disabled = teamFull;
-  btnAuctionBid.disabled = teamFull;
+  const isMyTurn = !!me && lastAuctionActivePlayerId === myId;
+  const canBid = !teamFull && isMyTurn;
+  const canPass = canBid && lastAuctionCurrentBid !== null;
+  auctionBidInputEl.disabled = !canBid;
+  btnAuctionBid.disabled = !canBid;
+  btnAuctionPass.disabled = !canPass;
   if (teamFull) {
     auctionBidHintEl.textContent = me ? 'Ton équipe est déjà complète (6 Pokémon).' : '';
-  } else if (auctionBidHintEl.textContent === 'Ton équipe est déjà complète (6 Pokémon).') {
+  } else if (!isMyTurn) {
+    auctionBidHintEl.textContent = "En attente du tour de ton adversaire...";
+  } else if (lastAuctionCurrentBid === null) {
+    auctionBidHintEl.textContent = "Tu dois enchérir en premier sur ce lot (impossible de passer).";
+  } else if (
+    auctionBidHintEl.textContent === 'Ton équipe est déjà complète (6 Pokémon).' ||
+    auctionBidHintEl.textContent === "En attente du tour de ton adversaire..." ||
+    auctionBidHintEl.textContent === "Tu dois enchérir en premier sur ce lot (impossible de passer)."
+  ) {
     auctionBidHintEl.textContent = '';
   }
 }
@@ -2695,27 +2732,27 @@ function renderAuctionPlayers(players) {
   }
 }
 
-function startAuctionTimerDisplay(endsAt) {
-  clearInterval(auctionTimerInterval);
-  function tick() {
-    const remainingMs = Math.max(0, endsAt - Date.now());
-    const remainingSec = Math.ceil(remainingMs / 1000);
-    auctionTimerValueEl.textContent = remainingSec;
-    const pct = Math.max(0, Math.min(100, (remainingMs / AUCTION_LOT_TIMER_MS) * 100));
-    auctionTimerBarEl.style.width = `${pct}%`;
-    auctionTimerBarEl.classList.toggle('guess-timer-bar--low', remainingSec <= 5);
-    if (remainingMs <= 0) clearInterval(auctionTimerInterval);
+// Met à jour à qui le tour (tour par tour, sans limite de temps) et rafraîchit la
+// disponibilité des contrôles en conséquence.
+function renderAuctionTurn(activePlayerId) {
+  lastAuctionActivePlayerId = activePlayerId || null;
+  if (lastAuctionActivePlayerId) {
+    auctionActiveNameEl.textContent = lastAuctionActivePlayerId === myId
+      ? 'Toi'
+      : (auctionOpponent(lastAuctionPlayers)?.name || 'ton adversaire');
+  } else {
+    auctionActiveNameEl.textContent = '—';
   }
-  tick();
-  auctionTimerInterval = setInterval(tick, 250);
+  updateAuctionBidAvailability();
 }
 
 // Partagé entre auction_lot_started (nouveau lot) et auction_bid_update (quelqu'un
 // enchérit sur le lot en cours) : les deux portent les mêmes champs d'enchère/joueurs.
-function renderAuctionBidInfo({ currentBid, currentBidderId, currentBidderName, endsAt, players }) {
+function renderAuctionBidInfo({ currentBid, currentBidderId, currentBidderName, activePlayerId, players }) {
   if (players) renderAuctionPlayers(players);
-  auctionCurrentBidValueEl.textContent = (currentBid !== null && currentBid !== undefined)
-    ? formatAuctionMoneyClient(currentBid)
+  lastAuctionCurrentBid = (currentBid !== null && currentBid !== undefined) ? currentBid : null;
+  auctionCurrentBidValueEl.textContent = lastAuctionCurrentBid !== null
+    ? formatAuctionMoneyClient(lastAuctionCurrentBid)
     : '—';
   if (currentBidderId) {
     const name = currentBidderId === myId ? 'Toi' : (currentBidderName || auctionOpponent(lastAuctionPlayers)?.name || 'ton adversaire');
@@ -2723,8 +2760,7 @@ function renderAuctionBidInfo({ currentBid, currentBidderId, currentBidderName, 
   } else {
     auctionCurrentBidderEl.textContent = '';
   }
-  if (endsAt) startAuctionTimerDisplay(endsAt);
-  updateAuctionBidAvailability();
+  renderAuctionTurn(activePlayerId);
 }
 
 function renderAuctionLot(payload) {
@@ -2745,7 +2781,6 @@ function renderAuctionLot(payload) {
     auctionSeerNameEl.textContent = auctionOpponent(payload.players)?.name || 'ton adversaire';
   }
 
-  auctionStartingPriceEl.textContent = `Prix de départ : ${formatAuctionMoneyClient(payload.startingPrice)}`;
   auctionBidInputEl.value = '';
   renderAuctionBidInfo(payload);
 }
@@ -2762,7 +2797,6 @@ function updateAuctionReplayControls() {
 // partie déjà finie (reason: null — pas assez d'info pour la retrouver après coup,
 // jamais renvoyée par rejoin, même limite déjà acceptée côté guess).
 function renderAuctionFinished({ reason, players, history }) {
-  clearInterval(auctionTimerInterval);
   lastAuctionPlayers = players || [];
   const me = auctionSelf(lastAuctionPlayers);
   const opp = auctionOpponent(lastAuctionPlayers);
@@ -2777,6 +2811,7 @@ function renderAuctionFinished({ reason, players, history }) {
   if (me) {
     renderAuctionTeamSlots(auctionFinishedMySlotsEl, me.team);
     auctionFinishedMyBudgetEl.textContent = `Budget restant : ${formatAuctionMoneyClient(me.budget)}`;
+    btnAuctionCopyTeam.disabled = !(me.team && me.team.length);
   }
   if (opp) {
     auctionFinishedOppLabelEl.textContent = `Équipe de ${opp.name}`;
@@ -2784,8 +2819,38 @@ function renderAuctionFinished({ reason, players, history }) {
     auctionFinishedOppBudgetEl.textContent = `Budget restant : ${formatAuctionMoneyClient(opp.budget)}`;
   }
 
+  auctionCopyFeedbackEl.textContent = '';
   updateAuctionReplayControls();
   showScreen(screenAuctionFinished);
+}
+
+// Smogon/Showdown attend des noms EN ANGLAIS, alors que le jeu stocke tout en français
+// (cf. name côté serveur) : on récupère le nom anglais via PokeAPI (déjà utilisée pour
+// les sprites, cf. spriteUrl) à partir du dexId (mon.id), seule donnée fiable et
+// indépendante de la langue qu'on ait pour chaque Pokémon. Repli sur le nom français si
+// l'appel échoue (offline, API indisponible, etc.) plutôt que de bloquer la copie.
+async function fetchEnglishPokemonName(dexId) {
+  try {
+    const res = await fetch(`https://pokeapi.co/api/v2/pokemon-species/${dexId}/`);
+    if (!res.ok) throw new Error('Réponse PokeAPI invalide');
+    const data = await res.json();
+    const entry = (data.names || []).find(n => n.language && n.language.name === 'en');
+    return entry ? entry.name : null;
+  } catch (err) {
+    return null;
+  }
+}
+
+// Format d'import minimal (juste le nom de chaque Pokémon, séparé par une ligne vide) —
+// compatible avec un import Smogon/Showdown basique. Ni l'talent ni l'objet/les
+// capacités/EVs ne sont jamais suivis par le jeu, donc jamais inclus ici (rien à
+// inventer).
+async function buildSmogonExport(team) {
+  const names = await Promise.all((team || []).map(async mon => {
+    const enName = await fetchEnglishPokemonName(mon.id);
+    return enName || mon.name; // repli sur le nom français si PokeAPI n'a pas répondu
+  }));
+  return names.join('\n\n');
 }
 
 function addAuctionHistoryEntry({ pokemon, winnerId, winnerName, price }) {
@@ -2839,15 +2904,21 @@ socket.on('auction_game_over', ({ reason, players, history }) => {
   renderAuctionFinished({ reason, players, history });
 });
 
+// Saisie SIMPLIFIÉE en millions pour que le joueur n'ait jamais à écrire tous les zéros :
+// "1" -> 1 000 000, "15,5" ou "15.5" -> 15 500 000 (virgule française acceptée, cf.
+// input type="text" dans index.html, pas type="number" qui la rejette selon le
+// navigateur). Le serveur reçoit toujours le montant final déjà multiplié — c'est lui
+// qui reste seul juge du plancher/de la validité réelle (cf. AUCTION_MIN_BID).
 btnAuctionBid.addEventListener('click', () => {
-  const raw = auctionBidInputEl.value;
-  const amount = Number(raw);
-  if (!raw || !Number.isFinite(amount) || amount <= 0) {
-    auctionBidHintEl.textContent = 'Entre un montant valide.';
+  const raw = auctionBidInputEl.value.trim().replace(',', '.');
+  const units = Number(raw);
+  if (!raw || !Number.isFinite(units) || units <= 0) {
+    auctionBidHintEl.textContent = 'Entre un montant valide, en millions (ex: 15,5).';
     return;
   }
+  const amount = Math.round(units * 1_000_000);
   playClickSound();
-  socket.emit('auction_bid', { amount: Math.round(amount) });
+  socket.emit('auction_bid', { amount });
 });
 
 auctionBidInputEl.addEventListener('keydown', (e) => {
@@ -2855,6 +2926,11 @@ auctionBidInputEl.addEventListener('keydown', (e) => {
     e.preventDefault();
     btnAuctionBid.click();
   }
+});
+
+btnAuctionPass.addEventListener('click', () => {
+  playClickSound();
+  socket.emit('auction_pass');
 });
 
 btnLeaveAuction.addEventListener('click', () => {
@@ -2874,6 +2950,36 @@ btnLeaveAuctionFinished.addEventListener('click', () => {
 btnAuctionReplay.addEventListener('click', () => {
   if (!isHost()) return;
   socket.emit('play_again');
+});
+
+btnAuctionCopyTeam.addEventListener('click', async () => {
+  const me = auctionSelf(lastAuctionPlayers);
+  const team = me ? me.team : [];
+  if (!team.length) return;
+
+  const originalLabel = btnAuctionCopyTeam.textContent;
+  btnAuctionCopyTeam.disabled = true;
+  btnAuctionCopyTeam.textContent = 'Copie en cours...';
+  const text = await buildSmogonExport(team);
+  btnAuctionCopyTeam.disabled = false;
+  btnAuctionCopyTeam.textContent = originalLabel;
+
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch (err) {
+    // Repli avec un <textarea> plutôt qu'un <input> (cf. btnCopyCode/btnCopyLink) : ce
+    // texte est multi-lignes (lignes vides entre chaque Pokémon), un <input> l'aplatirait.
+    const tmp = document.createElement('textarea');
+    tmp.value = text;
+    document.body.appendChild(tmp);
+    tmp.select();
+    document.execCommand('copy');
+    document.body.removeChild(tmp);
+  }
+  auctionCopyFeedbackEl.textContent = 'Équipe copiée !';
+  auctionCopyFeedbackEl.classList.remove('copy-feedback--play');
+  void auctionCopyFeedbackEl.offsetWidth;
+  auctionCopyFeedbackEl.classList.add('copy-feedback--play');
 });
 
 // ============================================================
@@ -3080,6 +3186,7 @@ const settingsOverlayEl = document.getElementById('settings-overlay');
 const btnSettingsClose = document.getElementById('btn-settings-close');
 const settingsReduceMotionInput = document.getElementById('settings-reduce-motion');
 const settingsSoundInput = document.getElementById('settings-sound');
+const settingsAutoReconnectInput = document.getElementById('settings-auto-reconnect');
 const settingsThemeButtons = Array.from(document.querySelectorAll('.settings-theme-swatch'));
 
 function loadSettings() {
@@ -3121,6 +3228,13 @@ function applySoundSetting(enabled) {
   settingsSoundInput.checked = soundEnabled;
 }
 
+// true par défaut (comportement historique inchangé) : seul un false explicite désactive
+// la reprise automatique de partie au chargement (cf. le bloc tout en haut du fichier et
+// socket.on('connect', ...)).
+function applyAutoReconnectSetting(enabled) {
+  settingsAutoReconnectInput.checked = enabled !== false;
+}
+
 function openSettings() {
   settingsOverlayEl.classList.remove('screen--hidden');
 }
@@ -3135,6 +3249,7 @@ function closeSettings() {
   applyTheme(settings.theme || 'default');
   applyReduceMotion(!!settings.reduceMotion);
   applySoundSetting(!!settings.sound);
+  applyAutoReconnectSetting(settings.autoReconnect);
 })();
 
 btnSettings.addEventListener('click', openSettings);
@@ -3159,6 +3274,13 @@ settingsSoundInput.addEventListener('change', () => {
   // débloquer l'audio : on joue un petit son de confirmation immédiatement, ce qui
   // "débloque" le contexte audio pour tous les sons suivants de la session.
   if (soundEnabled) playClickSound();
+});
+
+settingsAutoReconnectInput.addEventListener('change', () => {
+  const settings = loadSettings();
+  settings.autoReconnect = settingsAutoReconnectInput.checked;
+  saveSettings(settings);
+  applyAutoReconnectSetting(settings.autoReconnect);
 });
 
 settingsThemeButtons.forEach(btn => {
