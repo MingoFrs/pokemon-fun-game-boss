@@ -32,7 +32,14 @@ let supabase = null;
 try {
   const { createClient } = require('@supabase/supabase-js');
   if (process.env.SUPABASE_URL && process.env.SUPABASE_SECRET_KEY) {
-    supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SECRET_KEY);
+    // persistSession/autoRefreshToken à false : SANS ça, appeler auth.signUp() sur ce
+    // même client remplace en mémoire les identifiants "clé secrète" par la session du
+    // nouvel utilisateur — les requêtes .from(...) suivantes tournent alors avec le rôle
+    // "authenticated" (celui du joueur) au lieu de "service_role", d'où le "permission
+    // denied for table profiles" malgré des droits service_role corrects en base.
+    supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SECRET_KEY, {
+      auth: { autoRefreshToken: false, persistSession: false }
+    });
   } else {
     console.warn('[comptes] SUPABASE_URL / SUPABASE_SECRET_KEY absents : comptes désactivés (mode invité uniquement).');
   }
