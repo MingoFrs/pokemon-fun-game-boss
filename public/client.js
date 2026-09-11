@@ -75,6 +75,172 @@ const btnCreate = document.getElementById('btn-create');
 const btnJoin = document.getElementById('btn-join');
 const errorMessage = document.getElementById('error-message');
 
+// ---------- Compte (optionnel — le mode invité avec juste un pseudo reste inchangé) ----------
+const accountStatusGuestEl = document.getElementById('account-status-guest');
+const accountStatusLoggedEl = document.getElementById('account-status-logged');
+const accountStatusPseudoEl = document.getElementById('account-status-pseudo');
+const btnAccountOpen = document.getElementById('btn-account-open');
+const btnAccountLogout = document.getElementById('btn-account-logout');
+const accountOverlayEl = document.getElementById('account-overlay');
+const btnAccountClose = document.getElementById('btn-account-close');
+const accountTabButtons = Array.from(document.querySelectorAll('#account-tabs .admin-role-btn'));
+const accountFormLoginEl = document.getElementById('account-form-login');
+const accountFormRegisterEl = document.getElementById('account-form-register');
+const accountLoginEmailEl = document.getElementById('account-login-email');
+const accountLoginPasswordEl = document.getElementById('account-login-password');
+const accountRegisterPseudoEl = document.getElementById('account-register-pseudo');
+const accountRegisterEmailEl = document.getElementById('account-register-email');
+const accountRegisterPasswordEl = document.getElementById('account-register-password');
+const btnAccountLogin = document.getElementById('btn-account-login');
+const btnAccountRegister = document.getElementById('btn-account-register');
+const accountErrorEl = document.getElementById('account-error');
+
+// Compte connecté (ou null) : { accessToken, refreshToken, pseudo }. accessToken n'est
+// pas réellement utilisé par ce jeu pour l'instant (pas d'action nécessitant un accès
+// authentifié au-delà du pseudo) — gardé pour plus tard (ex: historique de parties lié
+// au compte) plutôt que jeté.
+function getStoredAccount() {
+  try {
+    return JSON.parse(localStorage.getItem('rdb_account'));
+  } catch (err) {
+    return null;
+  }
+}
+function setStoredAccount(account) {
+  if (account) localStorage.setItem('rdb_account', JSON.stringify(account));
+  else localStorage.removeItem('rdb_account');
+}
+
+function applyAccountUI(account) {
+  if (account) {
+    accountStatusGuestEl.classList.add('screen--hidden');
+    accountStatusLoggedEl.classList.remove('screen--hidden');
+    accountStatusPseudoEl.textContent = account.pseudo;
+    if (!pseudoInput.value) pseudoInput.value = account.pseudo;
+  } else {
+    accountStatusGuestEl.classList.remove('screen--hidden');
+    accountStatusLoggedEl.classList.add('screen--hidden');
+  }
+}
+applyAccountUI(getStoredAccount());
+
+// Restaure la session au chargement (silencieux : en cas d'échec, on retombe simplement
+// en mode invité sans message d'erreur intrusif — l'utilisateur n'a rien demandé ici).
+(async function restoreAccountSession() {
+  const stored = getStoredAccount();
+  if (!stored || !stored.refreshToken) return;
+  try {
+    const res = await fetch('/api/session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken: stored.refreshToken })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      setStoredAccount(null);
+      applyAccountUI(null);
+      return;
+    }
+    const account = { accessToken: data.accessToken, refreshToken: data.refreshToken, pseudo: data.pseudo };
+    setStoredAccount(account);
+    applyAccountUI(account);
+  } catch (err) {
+    // Hors-ligne ou serveur injoignable au chargement : on ne touche à rien, la session
+    // stockée reste telle quelle pour une prochaine tentative (ex: prochain chargement).
+  }
+})();
+
+function openAccountOverlay() {
+  accountErrorEl.textContent = '';
+  accountOverlayEl.classList.remove('screen--hidden');
+}
+function closeAccountOverlay() {
+  accountOverlayEl.classList.add('screen--hidden');
+}
+
+btnAccountOpen.addEventListener('click', openAccountOverlay);
+btnAccountClose.addEventListener('click', closeAccountOverlay);
+
+btnAccountLogout.addEventListener('click', () => {
+  setStoredAccount(null);
+  applyAccountUI(null);
+});
+
+accountTabButtons.forEach(btn => {
+  btn.addEventListener('click', () => {
+    accountTabButtons.forEach(b => b.classList.toggle('admin-role-btn--selected', b === btn));
+    const isLogin = btn.dataset.accountTab === 'login';
+    accountFormLoginEl.classList.toggle('screen--hidden', !isLogin);
+    accountFormRegisterEl.classList.toggle('screen--hidden', isLogin);
+    accountErrorEl.textContent = '';
+  });
+});
+
+btnAccountLogin.addEventListener('click', async () => {
+  const email = accountLoginEmailEl.value.trim();
+  const password = accountLoginPasswordEl.value;
+  if (!email || !password) {
+    accountErrorEl.textContent = 'Email et mot de passe requis.';
+    return;
+  }
+  btnAccountLogin.disabled = true;
+  try {
+    const res = await fetch('/api/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      accountErrorEl.textContent = data.error || 'Connexion impossible.';
+      return;
+    }
+    const account = { accessToken: data.accessToken, refreshToken: data.refreshToken, pseudo: data.pseudo };
+    setStoredAccount(account);
+    applyAccountUI(account);
+    closeAccountOverlay();
+  } catch (err) {
+    accountErrorEl.textContent = 'Connexion au serveur impossible.';
+  } finally {
+    btnAccountLogin.disabled = false;
+  }
+});
+
+btnAccountRegister.addEventListener('click', async () => {
+  const pseudo = accountRegisterPseudoEl.value.trim();
+  const email = accountRegisterEmailEl.value.trim();
+  const password = accountRegisterPasswordEl.value;
+  if (!pseudo || !email || !password) {
+    accountErrorEl.textContent = 'Pseudo, email et mot de passe requis.';
+    return;
+  }
+  btnAccountRegister.disabled = true;
+  try {
+    const res = await fetch('/api/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password, pseudo })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      accountErrorEl.textContent = data.error || 'Inscription impossible.';
+      return;
+    }
+    if (data.needsEmailConfirmation) {
+      accountErrorEl.textContent = 'Compte créé : vérifie tes emails avant de te connecter.';
+      return;
+    }
+    const account = { accessToken: data.accessToken, refreshToken: data.refreshToken, pseudo: data.pseudo };
+    setStoredAccount(account);
+    applyAccountUI(account);
+    closeAccountOverlay();
+  } catch (err) {
+    accountErrorEl.textContent = 'Connexion au serveur impossible.';
+  } finally {
+    btnAccountRegister.disabled = false;
+  }
+});
+
 // ---------- Lien d'invitation (?code=XXXXXX) ----------
 // Pré-remplit le code si on arrive via un lien partagé (ex: sur Discord), au lieu de
 // forcer un copier-coller manuel du code par l'hôte puis une saisie manuelle par
@@ -2595,6 +2761,7 @@ const auctionCurrentBidderEl = document.getElementById('auction-current-bidder')
 const auctionBidInputEl = document.getElementById('auction-bid-input');
 const btnAuctionBid = document.getElementById('btn-auction-bid');
 const btnAuctionPass = document.getElementById('btn-auction-pass');
+const auctionQuickBidButtons = Array.from(document.querySelectorAll('#auction-quick-bid-options .admin-role-btn'));
 const auctionBidHintEl = document.getElementById('auction-bid-hint');
 const auctionMyTeamCountEl = document.getElementById('auction-my-team-count');
 const auctionMyTeamSlotsEl = document.getElementById('auction-my-team-slots');
@@ -2622,6 +2789,9 @@ let lastAuctionActivePlayerId = null;
 // Enchère actuelle du lot en cours (null tant que personne n'a encore enchéri) : sert à
 // savoir si "Passer" est autorisé (impossible tant qu'aucune enchère n'a été posée).
 let lastAuctionCurrentBid = null;
+// Reflet du plancher AUCTION_MIN_BID côté serveur (uniquement pour les indices affichés
+// ici — le serveur reste seul juge de la validité réelle de toute mise).
+const AUCTION_MIN_BID_CLIENT = 10_000_000;
 
 function auctionSelf(players) {
   return (players || []).find(p => p.id === myId);
@@ -2630,8 +2800,14 @@ function auctionOpponent(players) {
   return (players || []).find(p => p.id !== myId);
 }
 
+// Affiche le ,5 exact plutôt que d'arrondir au million (les montants sont toujours des
+// multiples de 500 000, cf. la saisie limitée à un entier ou un ,5 — jamais 15,3M par ex).
+// Le *2/2 protège juste des imprécisions flottantes (15.5*2=31 exact en binaire, aucun
+// souci réel attendu ici, mais ne coûte rien).
 function formatAuctionMoneyClient(amount) {
-  return `${Math.round(amount / 1_000_000)}M`;
+  const snapped = Math.round((amount / 1_000_000) * 2) / 2;
+  const text = Number.isInteger(snapped) ? String(snapped) : snapped.toFixed(1).replace('.', ',');
+  return `${text}M`;
 }
 
 function resetAuctionUI() {
@@ -2647,6 +2823,7 @@ function resetAuctionUI() {
   auctionBidInputEl.disabled = false;
   btnAuctionBid.disabled = false;
   btnAuctionPass.disabled = false;
+  auctionQuickBidButtons.forEach(btn => { btn.disabled = false; });
   auctionBidHintEl.textContent = '';
   auctionHistoryListEl.innerHTML = '';
   auctionMyTeamSlotsEl.innerHTML = '';
@@ -2684,7 +2861,8 @@ function renderAuctionTeamSlots(container, team) {
 // pas pleine ET c'est son tour (tour par tour, cf. lastAuctionActivePlayerId). "Passer"
 // est en plus soumis à une 3e condition : impossible tant qu'aucune enchère n'a encore
 // été posée sur ce lot (cf. lastAuctionCurrentBid) — il faut toujours que quelqu'un
-// ouvre les enchères en premier.
+// ouvre les enchères en premier (avec cependant une exception à 0M pour qui n'a pas les
+// moyens du plancher, cf. AUCTION_MIN_BID_CLIENT et le handler de clic plus bas).
 function updateAuctionBidAvailability() {
   const me = auctionSelf(lastAuctionPlayers);
   const teamFull = !me || me.teamCount >= 6;
@@ -2694,16 +2872,21 @@ function updateAuctionBidAvailability() {
   auctionBidInputEl.disabled = !canBid;
   btnAuctionBid.disabled = !canBid;
   btnAuctionPass.disabled = !canPass;
+  auctionQuickBidButtons.forEach(btn => { btn.disabled = !canBid; });
+  const cantAffordFloor = !!me && me.budget < AUCTION_MIN_BID_CLIENT;
   if (teamFull) {
     auctionBidHintEl.textContent = me ? 'Ton équipe est déjà complète (6 Pokémon).' : '';
   } else if (!isMyTurn) {
     auctionBidHintEl.textContent = "En attente du tour de ton adversaire...";
+  } else if (lastAuctionCurrentBid === null && cantAffordFloor) {
+    auctionBidHintEl.textContent = "Tu n'as pas 10M : tu peux quand même miser 0M (l'adversaire choisira de le prendre ou de te le laisser).";
   } else if (lastAuctionCurrentBid === null) {
     auctionBidHintEl.textContent = "Tu dois enchérir en premier sur ce lot (impossible de passer).";
   } else if (
     auctionBidHintEl.textContent === 'Ton équipe est déjà complète (6 Pokémon).' ||
     auctionBidHintEl.textContent === "En attente du tour de ton adversaire..." ||
-    auctionBidHintEl.textContent === "Tu dois enchérir en premier sur ce lot (impossible de passer)."
+    auctionBidHintEl.textContent === "Tu dois enchérir en premier sur ce lot (impossible de passer)." ||
+    auctionBidHintEl.textContent === "Tu n'as pas 10M : tu peux quand même miser 0M (l'adversaire choisira de le prendre ou de te le laisser)."
   ) {
     auctionBidHintEl.textContent = '';
   }
@@ -2826,9 +3009,9 @@ function renderAuctionFinished({ reason, players, history }) {
 
 // Smogon/Showdown attend des noms EN ANGLAIS, alors que le jeu stocke tout en français
 // (cf. name côté serveur) : on récupère le nom anglais via PokeAPI (déjà utilisée pour
-// les sprites, cf. spriteUrl) à partir du dexId (mon.id), seule donnée fiable et
-// indépendante de la langue qu'on ait pour chaque Pokémon. Repli sur le nom français si
-// l'appel échoue (offline, API indisponible, etc.) plutôt que de bloquer la copie.
+// les sprites, cf. spriteUrl) à partir du dexId, seule donnée fiable et indépendante de
+// la langue qu'on ait pour chaque Pokémon. Repli sur null si l'appel échoue (offline,
+// API indisponible, etc.) — c'est à l'appelant de décider du repli affiché.
 async function fetchEnglishPokemonName(dexId) {
   try {
     const res = await fetch(`https://pokeapi.co/api/v2/pokemon-species/${dexId}/`);
@@ -2841,14 +3024,46 @@ async function fetchEnglishPokemonName(dexId) {
   }
 }
 
+// Descend la chaîne d'évolution PokeAPI d'un Pokémon jusqu'à sa forme FINALE, peu importe
+// la méthode d'évolution (niveau, objet, échange, bonheur...). Seule une VRAIE branche
+// (plusieurs évolutions possibles depuis un même stade, ex: Évoli) arrête la descente :
+// impossible de deviner laquelle choisir, donc on s'arrête là plutôt que d'en inventer
+// une. Repli sur dexId lui-même si l'appel échoue.
+async function fetchFinalEvolutionId(dexId) {
+  try {
+    const speciesRes = await fetch(`https://pokeapi.co/api/v2/pokemon-species/${dexId}/`);
+    if (!speciesRes.ok) throw new Error('Réponse PokeAPI invalide');
+    const species = await speciesRes.json();
+    const chainUrl = species.evolution_chain && species.evolution_chain.url;
+    if (!chainUrl) return dexId;
+
+    const chainRes = await fetch(chainUrl);
+    if (!chainRes.ok) throw new Error('Chaîne d\u2019évolution indisponible');
+    const { chain } = await chainRes.json();
+
+    let node = chain;
+    while (node.evolves_to && node.evolves_to.length === 1) {
+      node = node.evolves_to[0];
+    }
+    const match = node.species.url.match(/\/pokemon-species\/(\d+)\//);
+    return match ? Number(match[1]) : dexId;
+  } catch (err) {
+    return dexId;
+  }
+}
+
 // Format d'import minimal (juste le nom de chaque Pokémon, séparé par une ligne vide) —
 // compatible avec un import Smogon/Showdown basique. Ni l'talent ni l'objet/les
 // capacités/EVs ne sont jamais suivis par le jeu, donc jamais inclus ici (rien à
-// inventer).
+// inventer). Chaque Pokémon est exporté sous sa forme ÉVOLUÉE AU MAXIMUM (cf.
+// fetchFinalEvolutionId), pas celle réellement obtenue pendant le draft, puis traduit en
+// anglais (cf. fetchEnglishPokemonName) — jamais l'inverse (traduire d'abord puis
+// évoluer), pour n'interroger PokeAPI qu'avec des dexId, seule donnée fiable qu'on ait.
 async function buildSmogonExport(team) {
   const names = await Promise.all((team || []).map(async mon => {
-    const enName = await fetchEnglishPokemonName(mon.id);
-    return enName || mon.name; // repli sur le nom français si PokeAPI n'a pas répondu
+    const finalId = await fetchFinalEvolutionId(mon.id);
+    const enName = await fetchEnglishPokemonName(finalId);
+    return enName || mon.name; // repli sur le nom (français, stade obtenu) si PokeAPI n'a pas répondu
   }));
   return names.join('\n\n');
 }
@@ -2904,21 +3119,43 @@ socket.on('auction_game_over', ({ reason, players, history }) => {
   renderAuctionFinished({ reason, players, history });
 });
 
+// Envoie réellement l'enchère au serveur (partagé entre le bouton "Enchérir" et les
+// raccourcis +10M/+25M/+50M/+100M ci-dessous) — amount est déjà le montant final en
+// unité brute, jamais arrondi ici (cf. les 2 appelants).
+function submitAuctionBid(amount) {
+  playClickSound();
+  socket.emit('auction_bid', { amount });
+}
+
 // Saisie SIMPLIFIÉE en millions pour que le joueur n'ait jamais à écrire tous les zéros :
 // "1" -> 1 000 000, "15,5" ou "15.5" -> 15 500 000 (virgule française acceptée, cf.
 // input type="text" dans index.html, pas type="number" qui la rejette selon le
-// navigateur). Le serveur reçoit toujours le montant final déjà multiplié — c'est lui
-// qui reste seul juge du plancher/de la validité réelle (cf. AUCTION_MIN_BID).
+// navigateur). Seuls un entier ou un entier suivi de ",5"/" .5" sont acceptés (ex: 15 ou
+// 15,5, jamais 15,3) — validé sur la CHAÎNE plutôt que par calcul flottant, pour rester
+// exact. Le serveur reste seul juge final (rejette aussi tout montant qui ne serait pas
+// un multiple de 500 000, cf. AUCTION_MIN_BID côté serveur).
+const AUCTION_BID_INPUT_RE = /^\d+(?:\.5)?$/;
+
 btnAuctionBid.addEventListener('click', () => {
   const raw = auctionBidInputEl.value.trim().replace(',', '.');
-  const units = Number(raw);
-  if (!raw || !Number.isFinite(units) || units <= 0) {
-    auctionBidHintEl.textContent = 'Entre un montant valide, en millions (ex: 15,5).';
+  if (!AUCTION_BID_INPUT_RE.test(raw)) {
+    auctionBidHintEl.textContent = 'Entre un nombre entier ou se terminant par ,5 (ex: 15 ou 15,5).';
     return;
   }
+  const units = Number(raw);
   const amount = Math.round(units * 1_000_000);
-  playClickSound();
-  socket.emit('auction_bid', { amount });
+  submitAuctionBid(amount);
+});
+
+// Raccourcis rapides : ajoutent l'incrément à l'enchère actuelle (0 si le lot est encore
+// vierge — donc "+10M" mise directement 10M, qui est justement le plancher). Envoient la
+// mise directement, sans passer par le champ texte.
+auctionQuickBidButtons.forEach(btn => {
+  btn.addEventListener('click', () => {
+    const increment = Number(btn.dataset.increment);
+    const base = lastAuctionCurrentBid !== null ? lastAuctionCurrentBid : 0;
+    submitAuctionBid(base + increment);
+  });
 });
 
 auctionBidInputEl.addEventListener('keydown', (e) => {

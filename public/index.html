@@ -91,6 +91,15 @@
           <input id="pseudo-input" type="text" maxlength="16" placeholder="Ton nom de dresseur" autocomplete="off">
         </div>
 
+        <p class="account-entry">
+          <span id="account-status-guest">
+            Tu joues en invité. <button id="btn-account-open" type="button" class="link-btn">Se connecter / créer un compte</button>
+          </span>
+          <span id="account-status-logged" class="screen--hidden">
+            Connecté : <strong id="account-status-pseudo"></strong> — <button id="btn-account-logout" type="button" class="link-btn">Déconnexion</button>
+          </span>
+        </p>
+
         <div id="home-cards" class="cards">
           <div class="card">
             <h2>Créer une partie</h2>
@@ -511,6 +520,12 @@
         <button id="btn-auction-bid" type="button" class="btn btn--haut">Enchérir</button>
         <button id="btn-auction-pass" type="button" class="btn btn--ghost">Passer</button>
       </div>
+      <div id="auction-quick-bid-options" class="auction-quick-bid-options">
+        <button type="button" class="admin-role-btn" data-increment="10000000">+10M</button>
+        <button type="button" class="admin-role-btn" data-increment="25000000">+25M</button>
+        <button type="button" class="admin-role-btn" data-increment="50000000">+50M</button>
+        <button type="button" class="admin-role-btn" data-increment="100000000">+100M</button>
+      </div>
       <p id="auction-bid-hint" class="auction-bid-hint"></p>
     </div>
 
@@ -540,7 +555,7 @@
         <p class="eyebrow">Ton équipe</p>
         <div id="auction-finished-my-slots" class="team-slots"></div>
         <p class="auction-budget-card__value" id="auction-finished-my-budget"></p>
-        <button id="btn-auction-copy-team" type="button" class="btn btn--ghost btn--block">Copier l'équipe (format Smogon)</button>
+        <button id="btn-auction-copy-team" type="button" class="btn btn--ghost btn--block">Copier l'équipe évoluée (format Smogon)</button>
         <p id="auction-copy-feedback" class="copy-feedback"></p>
       </div>
       <div class="auction-team-col">
@@ -660,6 +675,54 @@
 
     <div class="event-modal__actions">
       <button id="btn-settings-close" type="button" class="btn btn--ghost btn--block">Fermer</button>
+    </div>
+  </div>
+</div>
+
+<div id="account-overlay" class="event-overlay screen--hidden" role="dialog" aria-modal="true">
+  <div class="event-modal">
+    <p class="event-modal__eyebrow">Compte (optionnel)</p>
+    <h3 class="event-modal__title">Compte</h3>
+
+    <div class="event-modal__body">
+      <div id="account-tabs" class="admin-role-options">
+        <button type="button" class="admin-role-btn admin-role-btn--selected" data-account-tab="login">Connexion</button>
+        <button type="button" class="admin-role-btn" data-account-tab="register">Créer un compte</button>
+      </div>
+
+      <div id="account-form-login">
+        <div class="field">
+          <label for="account-login-email">Email</label>
+          <input id="account-login-email" type="email" autocomplete="username" placeholder="ton@email.com">
+        </div>
+        <div class="field">
+          <label for="account-login-password">Mot de passe</label>
+          <input id="account-login-password" type="password" autocomplete="current-password">
+        </div>
+        <button id="btn-account-login" type="button" class="btn btn--haut btn--block">Se connecter</button>
+      </div>
+
+      <div id="account-form-register" class="screen--hidden">
+        <div class="field">
+          <label for="account-register-pseudo">Pseudo</label>
+          <input id="account-register-pseudo" type="text" maxlength="16" autocomplete="off" placeholder="Ton nom de dresseur">
+        </div>
+        <div class="field">
+          <label for="account-register-email">Email</label>
+          <input id="account-register-email" type="email" autocomplete="username" placeholder="ton@email.com">
+        </div>
+        <div class="field">
+          <label for="account-register-password">Mot de passe</label>
+          <input id="account-register-password" type="password" autocomplete="new-password">
+        </div>
+        <button id="btn-account-register" type="button" class="btn btn--haut btn--block">Créer le compte</button>
+      </div>
+
+      <p id="account-error" class="error-message" role="alert"></p>
+    </div>
+
+    <div class="event-modal__actions">
+      <button id="btn-account-close" type="button" class="btn btn--ghost btn--block">Fermer</button>
     </div>
   </div>
 </div>

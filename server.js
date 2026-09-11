@@ -1,3 +1,13 @@
+// dotenv : uniquement utile en LOCAL (charge un fichier .env non commité) ; sur Render,
+// les variables d'environnement sont déjà injectées nativement, donc ce require ne fait
+// jamais planter le démarrage en prod. Enveloppé quand même par précaution : le jeu (mode
+// invité) doit rester jouable même si ce paquet manquait pour une raison quelconque.
+try {
+  require('dotenv').config();
+} catch (err) {
+  console.warn('[dotenv] non disponible (sans impact en production sur Render) :', err.message);
+}
+
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
@@ -8,6 +18,27 @@ const server = http.createServer(app);
 const io = new Server(server);
 
 app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.json());
+
+// ---------------------------------------------------------------
+// COMPTES (optionnels) — cf. section "ROUTES COMPTES" plus bas. Supabase Auth gère
+// entièrement les mots de passe (jamais stockés ni même vus en clair par ce serveur) ;
+// SUPABASE_URL et SUPABASE_SECRET_KEY viennent UNIQUEMENT de variables d'environnement,
+// jamais commitées dans ce fichier. Si absentes ou si le paquet n'est pas installé, les
+// comptes sont juste désactivés : le jeu reste 100% jouable en mode invité (pseudo),
+// comportement inchangé pour tout le monde.
+// ---------------------------------------------------------------
+let supabase = null;
+try {
+  const { createClient } = require('@supabase/supabase-js');
+  if (process.env.SUPABASE_URL && process.env.SUPABASE_SECRET_KEY) {
+    supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SECRET_KEY);
+  } else {
+    console.warn('[comptes] SUPABASE_URL / SUPABASE_SECRET_KEY absents : comptes désactivés (mode invité uniquement).');
+  }
+} catch (err) {
+  console.warn('[comptes] @supabase/supabase-js indisponible : comptes désactivés (mode invité uniquement).', err.message);
+}
 
 // Manifeste des sprites (tous les dex id du pool + des boss) : le client s'en sert au
 // chargement pour précharger discrètement les images en arrière-plan pendant le lobby,
@@ -18,6 +49,123 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.get('/api/sprite-ids', (req, res) => {
   const ids = [...new Set([...ALL_DEX_IDS, ...BOSSES.map(b => b.id)])].sort((a, b) => a - b);
   res.json(ids);
+});
+
+// ---------------------------------------------------------------
+// ROUTES COMPTES (optionnelles) — Supabase Auth (cf. bloc `supabase` plus haut). Ce
+// serveur ne stocke NI ne voit jamais un mot de passe en clair (Supabase Auth s'en
+// occupe entièrement) ; seule la table "profiles" (créée manuellement dans Supabase,
+// colonnes id/pseudo/created_at) associe un pseudo à chaque compte. Renvoie toujours des
+// erreurs génériques côté login pour ne jamais révéler si un email existe ou non.
+// ---------------------------------------------------------------
+function requireSupabase(res) {
+  if (!supabase) {
+    res.status(503).json({ error: 'Les comptes sont temporairement indisponibles (mode invité toujours utilisable).' });
+    return false;
+  }
+  return true;
+}
+
+app.post('/api/register', async (req, res) => {
+  if (!requireSupabase(res)) return;
+  const { email, password, pseudo } = req.body || {};
+  const cleanPseudo = String(pseudo || '').trim();
+  if (!email || !password || !cleanPseudo) {
+    res.status(400).json({ error: 'Email, mot de passe et pseudo requis.' });
+    return;
+  }
+  if (cleanPseudo.length > 16) {
+    res.status(400).json({ error: 'Le pseudo doit faire 16 caractères maximum.' });
+    return;
+  }
+
+  const { data, error } = await supabase.auth.signUp({ email, password });
+  if (error) {
+    res.status(400).json({ error: error.message });
+    return;
+  }
+  if (!data.user) {
+    res.status(400).json({ error: 'Compte non créé.' });
+    return;
+  }
+
+  const { error: profileError } = await supabase
+    .from('profiles')
+    .insert({ id: data.user.id, pseudo: cleanPseudo });
+  if (profileError) {
+    res.status(400).json({ error: "Compte créé mais le pseudo n'a pas pu être enregistré : " + profileError.message });
+    return;
+  }
+
+  if (!data.session) {
+    // La confirmation par email est activée côté Supabase malgré tout : pas de session
+    // immédiate, l'utilisateur doit cliquer le lien reçu avant de pouvoir se connecter.
+    res.json({ needsEmailConfirmation: true });
+    return;
+  }
+
+  res.json({
+    accessToken: data.session.access_token,
+    refreshToken: data.session.refresh_token,
+    pseudo: cleanPseudo
+  });
+});
+
+app.post('/api/login', async (req, res) => {
+  if (!requireSupabase(res)) return;
+  const { email, password } = req.body || {};
+  if (!email || !password) {
+    res.status(400).json({ error: 'Email et mot de passe requis.' });
+    return;
+  }
+
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+  if (error || !data.session) {
+    res.status(400).json({ error: 'Email ou mot de passe incorrect.' });
+    return;
+  }
+
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('pseudo')
+    .eq('id', data.user.id)
+    .single();
+
+  res.json({
+    accessToken: data.session.access_token,
+    refreshToken: data.session.refresh_token,
+    pseudo: profile ? profile.pseudo : ''
+  });
+});
+
+// Restaure une session à partir du refresh_token gardé côté client (cf. localStorage
+// rdb_account dans client.js), pour ne pas redemander le mot de passe à chaque
+// chargement de page.
+app.post('/api/session', async (req, res) => {
+  if (!requireSupabase(res)) return;
+  const { refreshToken } = req.body || {};
+  if (!refreshToken) {
+    res.status(400).json({ error: 'refreshToken requis.' });
+    return;
+  }
+
+  const { data, error } = await supabase.auth.refreshSession({ refresh_token: refreshToken });
+  if (error || !data.session) {
+    res.status(401).json({ error: 'Session expirée.' });
+    return;
+  }
+
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('pseudo')
+    .eq('id', data.user.id)
+    .single();
+
+  res.json({
+    accessToken: data.session.access_token,
+    refreshToken: data.session.refresh_token,
+    pseudo: profile ? profile.pseudo : ''
+  });
 });
 
 // ---------------------------------------------------------------
@@ -1167,37 +1315,15 @@ function auctionBothTeamsFull(game) {
 // Retourne l'id du joueur qui doit RÉELLEMENT jouer : si le candidat désigné a déjà son
 // équipe complète (6 Pokémon), la main lui est automatiquement retirée au profit de
 // l'autre. Toujours sûr : si les 2 équipes étaient pleines, auctionBothTeamsFull() aurait
-// déjà mis fin à la partie avant qu'on en arrive là. Utilisée UNIQUEMENT quand une
-// enchère existe déjà sur le lot (après un auction_bid) : dans ce cas le budget n'a
-// jamais besoin d'être vérifié ici, puisque passer est toujours possible et gratuit une
-// fois qu'il y a déjà une enchère (cf. auction_pass).
+// déjà mis fin à la partie avant qu'on en arrive là. Le budget n'a lui jamais besoin
+// d'être vérifié ici : quel que soit son budget (même 0), un joueur a toujours au moins
+// une action possible sur son tour — enchérir au plancher s'il en a les moyens, ou à 0M
+// sinon (cf. socket.on('auction_bid')) — jamais besoin de le sauter pour cette raison.
 function auctionNextBidder(game, candidateId) {
   const candidate = game.players.find(p => p.id === candidateId);
   if (candidate && auctionPlayerCanBid(candidate)) return candidateId;
   const other = game.players.find(p => p.id !== candidateId);
   return other ? other.id : candidateId;
-}
-
-// Un joueur peut-il OUVRIR les enchères d'un lot flambant neuf (aucune offre encore
-// posée) ? Contrairement à auctionNextBidder ci-dessus, le budget compte ici : sur un
-// lot vierge, passer est interdit (cf. auction_pass), donc un joueur sans de quoi
-// couvrir ne serait-ce que le plancher AUCTION_MIN_BID serait autrement bloqué sans
-// aucune action possible.
-function auctionCanOpenBid(player) {
-  return auctionPlayerCanBid(player) && player.budget >= AUCTION_MIN_BID;
-}
-
-// Retourne l'id du joueur qui doit ouvrir le prochain lot en partant de candidateId,
-// en sautant automatiquement vers l'autre s'il ne peut pas (équipe pleine ou budget
-// insuffisant) — et null si NI L'UN NI L'AUTRE ne peut ouvrir ce lot (cf.
-// startNextAuctionLot, qui le traite alors comme invendu plutôt que de bloquer la
-// partie).
-function auctionLotStarterFor(game, candidateId) {
-  const candidate = game.players.find(p => p.id === candidateId);
-  if (candidate && auctionCanOpenBid(candidate)) return candidateId;
-  const other = game.players.find(p => p.id !== candidateId);
-  if (other && auctionCanOpenBid(other)) return other.id;
-  return null;
 }
 
 function startAuctionGame(game) {
@@ -1265,30 +1391,21 @@ function startNextAuctionLot(game) {
   }
 
   // Alterne qui ouvre les enchères à chaque lot (même mécanique que le voyant en
-  // semi-aveugle juste au-dessus), en sautant automatiquement le joueur qui ne peut pas
-  // ouvrir ce lot (équipe pleine OU budget insuffisant, cf. auctionLotStarterFor).
+  // semi-aveugle juste au-dessus), en sautant automatiquement le joueur dont l'équipe
+  // est déjà complète (cf. auctionNextBidder).
   const otherBidder = game.players.find(p => p.id !== game.auctionBidStarterId);
   const starterCandidate = otherBidder ? otherBidder.id : game.players[0].id;
-  const starterId = auctionLotStarterFor(game, starterCandidate);
+  game.auctionBidStarterId = auctionNextBidder(game, starterCandidate);
 
   game.auctionLot = {
     pokemon: mon,
     currentBid: null,
     currentBidderId: null,
-    activePlayerId: starterId,
+    activePlayerId: game.auctionBidStarterId,
     seerId
   };
 
-  if (starterId) {
-    game.auctionBidStarterId = starterId;
-    broadcastAuctionLot(game);
-  } else {
-    // NI L'UN NI L'AUTRE n'a de quoi couvrir le plancher AUCTION_MIN_BID sur ce lot (et
-    // passer sans enchère posée est interdit) : invendu directement, sans jamais
-    // l'annoncer aux clients comme un lot "en cours" — on enchaîne sur le suivant plutôt
-    // que de bloquer la partie sur un tour que personne ne peut jouer.
-    resolveAuctionLot(game);
-  }
+  broadcastAuctionLot(game);
 }
 
 function resolveAuctionLot(game) {
@@ -2266,11 +2383,15 @@ const GAME_MODES = ['normal', 'admin', 'guess', 'auction'];
 //   passe ;
 // - passer n'est autorisé QUE si une enchère a déjà été posée sur ce lot (impossible
 //   d'ouvrir un lot en passant : quelqu'un doit toujours enchérir en premier) ; passer
-//   attribue alors immédiatement le lot à l'auteur de cette enchère.
+//   attribue alors immédiatement le lot à l'auteur de cette enchère ;
+// - EXCEPTION au plancher : un joueur qui n'a pas les moyens d'AUCTION_MIN_BID peut, pour
+//   ouvrir un lot vierge UNIQUEMENT, miser 0M à la place (jamais s'il a les moyens du
+//   vrai plancher — cf. socket.on('auction_bid')). Ça revient à laisser le choix à
+//   l'adversaire : passer (lui laisser le lot gratuitement) ou enchérir pour le prendre.
 // -----------------------------------------------------------------
 const AUCTION_TYPES = ['complete', 'semi_blind'];
 const AUCTION_STARTING_BUDGET = 500_000_000;
-const AUCTION_MIN_BID = 1_000_000; // plancher fixe (pas de prix de départ par lot) ; garde aussi formatAuctionMoney lisible
+const AUCTION_MIN_BID = 10_000_000; // plancher fixe (pas de prix de départ par lot) ; garde aussi formatAuctionMoney lisible
 const AUCTION_TEAM_SIZE = 6;
 const AUCTION_POOL_TIER_COUNTS = {
   // Mélange volontairement large et varié (30 lots), tiré sans répétition depuis
@@ -2285,8 +2406,12 @@ const AUCTION_POOL_TIER_COUNTS = {
   legendaire: 2
 };
 
+// Affiche le ,5 exact plutôt que d'arrondir au million (montants toujours multiples de
+// 500 000, cf. la validation "entier ou ,5" dans socket.on('auction_bid')).
 function formatAuctionMoney(amount) {
-  return `${Math.round(amount / 1_000_000)}M`;
+  const snapped = Math.round((amount / 1_000_000) * 2) / 2;
+  const text = Number.isInteger(snapped) ? String(snapped) : snapped.toFixed(1).replace('.', ',');
+  return `${text}M`;
 }
 
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // sans 0/O/1/I
@@ -3280,24 +3405,50 @@ io.on('connection', (socket) => {
     }
 
     // Rejette explicitement tout ce qui n'est pas un entier fini normal : NaN, Infinity,
-    // décimales, chaînes non numériques, valeurs négatives ou nulles.
+    // décimales, chaînes non numériques, valeurs négatives. 0 est en revanche accepté ici
+    // (cas spécial ci-dessous : miser 0M) — géré séparément de la validation "trop bas"
+    // habituelle.
     const bid = Number(amount);
-    if (!Number.isInteger(bid) || !Number.isFinite(bid) || bid <= 0) {
+    if (!Number.isInteger(bid) || !Number.isFinite(bid) || bid < 0) {
       socket.emit('error_message', 'Montant invalide.');
       return;
     }
-
-    // Sans prix de départ dépendant du lot : la toute première enchère du lot doit juste
-    // atteindre le plancher fixe AUCTION_MIN_BID ; ensuite, chaque enchère doit
-    // strictement dépasser la précédente.
-    const minBid = lot.currentBid !== null ? lot.currentBid + 1 : AUCTION_MIN_BID;
-    if (bid < minBid) {
-      socket.emit('error_message', `Ton enchère doit être d'au moins ${formatAuctionMoney(minBid)}.`);
+    // Seuls un nombre entier de millions ou un ,5 sont autorisés (cf. saisie côté client)
+    // — donc toujours un multiple de 500 000 en unité brute. Revalidé ici : le client
+    // n'est jamais la seule barrière.
+    if (bid % 500_000 !== 0) {
+      socket.emit('error_message', 'Ton enchère doit être un nombre entier ou se terminant par ,5 (en millions).');
       return;
     }
-    if (bid > player.budget) {
-      socket.emit('error_message', "Tu ne possèdes pas assez d'argent.");
-      return;
+
+    if (bid === 0) {
+      // Miser 0M : autorisé UNIQUEMENT pour OUVRIR un lot vierge (jamais si une enchère
+      // existe déjà — dans ce cas il faut soit suivre, soit passer, cf. auction_pass), et
+      // UNIQUEMENT si ce joueur n'a vraiment pas les moyens du plancher AUCTION_MIN_BID
+      // (sinon ce serait juste un moyen de le contourner). Ça revient à laisser le choix
+      // à l'adversaire : passer (lui laisser le lot gratuitement) ou enchérir pour le
+      // prendre.
+      if (lot.currentBid !== null) {
+        socket.emit('error_message', 'Une enchère est déjà posée : suis-la ou passe.');
+        return;
+      }
+      if (player.budget >= AUCTION_MIN_BID) {
+        socket.emit('error_message', `Tu as les moyens de miser au moins ${formatAuctionMoney(AUCTION_MIN_BID)}, tu ne peux pas proposer 0M.`);
+        return;
+      }
+    } else {
+      // Sans prix de départ dépendant du lot : la toute première enchère du lot doit
+      // juste atteindre le plancher fixe AUCTION_MIN_BID (sauf le cas 0M ci-dessus) ;
+      // ensuite, chaque enchère doit strictement dépasser la précédente.
+      const minBid = lot.currentBid !== null ? lot.currentBid + 1 : AUCTION_MIN_BID;
+      if (bid < minBid) {
+        socket.emit('error_message', `Ton enchère doit être d'au moins ${formatAuctionMoney(minBid)}.`);
+        return;
+      }
+      if (bid > player.budget) {
+        socket.emit('error_message', "Tu ne possèdes pas assez d'argent.");
+        return;
+      }
     }
 
     lot.currentBid = bid;

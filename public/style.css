@@ -587,6 +587,24 @@ input:focus {
   margin-top: 16px;
 }
 
+.account-entry {
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-muted, #9a9a9a);
+  margin-top: 4px;
+}
+
+.link-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent-haut, #f5a623);
+  font: inherit;
+  font-size: 13px;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
 /* ---------- Lobby ---------- */
 
 .lobby-header {
@@ -853,6 +871,13 @@ input:focus {
   display: grid;
   grid-template-columns: repeat(5, 1fr);
   gap: 6px;
+}
+
+.auction-quick-bid-options {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  margin-top: 8px;
 }
 
 .admin-role-btn {
@@ -2983,5 +3008,9 @@ body[data-screen="spectate"] .reaction-bar {
 
   .guess-duration-options {
     grid-template-columns: repeat(3, 1fr);
+  }
+
+  .auction-quick-bid-options {
+    grid-template-columns: repeat(2, 1fr);
   }
 }
