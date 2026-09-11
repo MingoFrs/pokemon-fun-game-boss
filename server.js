@@ -93,6 +93,15 @@ app.post('/api/register', async (req, res) => {
     .from('profiles')
     .insert({ id: data.user.id, pseudo: cleanPseudo });
   if (profileError) {
+    // Log complet côté serveur (jamais visible du joueur) : le message renvoyé au
+    // client seul ne suffit pas à diagnostiquer, cf. code/details/hint PostgREST.
+    console.error('[comptes] échec insert profiles', {
+      userId: data.user.id,
+      code: profileError.code,
+      message: profileError.message,
+      details: profileError.details,
+      hint: profileError.hint
+    });
     res.status(400).json({ error: "Compte créé mais le pseudo n'a pas pu être enregistré : " + profileError.message });
     return;
   }
