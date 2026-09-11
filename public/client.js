@@ -116,7 +116,10 @@ function applyAccountUI(account) {
     accountStatusGuestEl.classList.add('screen--hidden');
     accountStatusLoggedEl.classList.remove('screen--hidden');
     accountStatusPseudoEl.textContent = account.pseudo;
-    if (!pseudoInput.value) pseudoInput.value = account.pseudo;
+    // Toujours synchroniser (pas seulement si le champ est vide) : se connecter à un
+    // compte doit systématiquement remplacer le pseudo affiché par celui du compte,
+    // même si un autre pseudo traînait dans le champ (mode invité précédent, etc.).
+    pseudoInput.value = account.pseudo;
   } else {
     accountStatusGuestEl.classList.remove('screen--hidden');
     accountStatusLoggedEl.classList.add('screen--hidden');
