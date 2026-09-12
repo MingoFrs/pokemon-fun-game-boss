@@ -78,12 +78,16 @@ const errorMessage = document.getElementById('error-message');
 // ---------- Compte (optionnel — le mode invité avec juste un pseudo reste inchangé) ----------
 const accountStatusGuestEl = document.getElementById('account-status-guest');
 const accountStatusLoggedEl = document.getElementById('account-status-logged');
+const accountStatusAvatarEl = document.getElementById('account-status-avatar');
 const accountStatusPseudoEl = document.getElementById('account-status-pseudo');
 const btnAccountOpen = document.getElementById('btn-account-open');
+const btnAccountOpenLogged = document.getElementById('btn-account-open-logged');
 const btnAccountLogout = document.getElementById('btn-account-logout');
+const btnAccountLogoutModal = document.getElementById('btn-account-logout-modal');
 const accountOverlayEl = document.getElementById('account-overlay');
 const btnAccountClose = document.getElementById('btn-account-close');
 const accountTabButtons = Array.from(document.querySelectorAll('#account-tabs .admin-role-btn'));
+const accountTabsContainerEl = document.getElementById('account-tabs');
 const accountFormLoginEl = document.getElementById('account-form-login');
 const accountFormRegisterEl = document.getElementById('account-form-register');
 const accountLoginEmailEl = document.getElementById('account-login-email');
@@ -93,12 +97,32 @@ const accountRegisterEmailEl = document.getElementById('account-register-email')
 const accountRegisterPasswordEl = document.getElementById('account-register-password');
 const btnAccountLogin = document.getElementById('btn-account-login');
 const btnAccountRegister = document.getElementById('btn-account-register');
+const accountLoggedPanelEl = document.getElementById('account-logged-panel');
+const accountAvatarCurrentEl = document.getElementById('account-avatar-current');
+const accountLoggedPseudoEl = document.getElementById('account-logged-pseudo');
+const accountAvatarGridEl = document.getElementById('account-avatar-grid');
 const accountErrorEl = document.getElementById('account-error');
 
-// Compte connecté (ou null) : { accessToken, refreshToken, pseudo }. accessToken n'est
-// pas réellement utilisé par ce jeu pour l'instant (pas d'action nécessitant un accès
-// authentifié au-delà du pseudo) — gardé pour plus tard (ex: historique de parties lié
-// au compte) plutôt que jeté.
+// Sprites de dresseurs hébergés par Pokémon Showdown, réutilisés tels quels comme
+// avatars de compte (même principe que spriteUrl() pour les Pokémon : pointer vers des
+// assets déjà hébergés ailleurs plutôt que d'en héberger nous-mêmes).
+function avatarUrl(name) {
+  return `https://play.pokemonshowdown.com/sprites/trainers/${name}.png`;
+}
+
+let cachedAvatarList = null;
+async function fetchAvatarList() {
+  if (cachedAvatarList) return cachedAvatarList;
+  try {
+    const res = await fetch('/api/avatars');
+    cachedAvatarList = await res.json();
+  } catch (err) {
+    cachedAvatarList = [];
+  }
+  return cachedAvatarList;
+}
+
+// Compte connecté (ou null) : { accessToken, refreshToken, pseudo, avatar }.
 function getStoredAccount() {
   try {
     return JSON.parse(localStorage.getItem('rdb_account'));
@@ -116,6 +140,8 @@ function applyAccountUI(account) {
     accountStatusGuestEl.classList.add('screen--hidden');
     accountStatusLoggedEl.classList.remove('screen--hidden');
     accountStatusPseudoEl.textContent = account.pseudo;
+    accountStatusAvatarEl.src = account.avatar ? avatarUrl(account.avatar) : '';
+    accountStatusAvatarEl.classList.toggle('screen--hidden', !account.avatar);
     // Toujours synchroniser (pas seulement si le champ est vide) : se connecter à un
     // compte doit systématiquement remplacer le pseudo affiché par celui du compte,
     // même si un autre pseudo traînait dans le champ (mode invité précédent, etc.).
@@ -144,7 +170,7 @@ applyAccountUI(getStoredAccount());
       applyAccountUI(null);
       return;
     }
-    const account = { accessToken: data.accessToken, refreshToken: data.refreshToken, pseudo: data.pseudo };
+    const account = { accessToken: data.accessToken, refreshToken: data.refreshToken, pseudo: data.pseudo, avatar: data.avatar };
     setStoredAccount(account);
     applyAccountUI(account);
   } catch (err) {
@@ -153,8 +179,68 @@ applyAccountUI(getStoredAccount());
   }
 })();
 
+// Peuple la grille de choix d'avatar (une seule fois par ouverture) et surligne celui
+// actuellement utilisé par le compte connecté.
+async function populateAvatarGrid(account) {
+  const list = await fetchAvatarList();
+  accountAvatarGridEl.innerHTML = '';
+  list.forEach(name => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'account-avatar-choice' + (name === account.avatar ? ' account-avatar-choice--selected' : '');
+    const img = document.createElement('img');
+    img.src = avatarUrl(name);
+    img.alt = name;
+    btn.appendChild(img);
+    btn.addEventListener('click', async () => {
+      accountErrorEl.textContent = '';
+      try {
+        const res = await fetch('/api/profile/avatar', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ accessToken: account.accessToken, avatar: name })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          accountErrorEl.textContent = data.error || "L'avatar n'a pas pu être changé.";
+          return;
+        }
+        const updated = Object.assign({}, account, { avatar: data.avatar });
+        setStoredAccount(updated);
+        applyAccountUI(updated);
+        accountAvatarCurrentEl.src = avatarUrl(data.avatar);
+        Array.from(accountAvatarGridEl.children).forEach(c => c.classList.remove('account-avatar-choice--selected'));
+        btn.classList.add('account-avatar-choice--selected');
+      } catch (err) {
+        accountErrorEl.textContent = 'Connexion au serveur impossible.';
+      }
+    });
+    accountAvatarGridEl.appendChild(btn);
+  });
+}
+
 function openAccountOverlay() {
   accountErrorEl.textContent = '';
+  const account = getStoredAccount();
+  const loggedIn = !!account;
+
+  accountTabsContainerEl.classList.toggle('screen--hidden', loggedIn);
+  accountLoggedPanelEl.classList.toggle('screen--hidden', !loggedIn);
+
+  if (loggedIn) {
+    accountFormLoginEl.classList.add('screen--hidden');
+    accountFormRegisterEl.classList.add('screen--hidden');
+    accountLoggedPseudoEl.textContent = account.pseudo;
+    accountAvatarCurrentEl.src = account.avatar ? avatarUrl(account.avatar) : '';
+    populateAvatarGrid(account);
+  } else {
+    // Réaffiche toujours l'onglet Connexion par défaut à l'ouverture (état simple et
+    // prévisible plutôt que de retenir le dernier onglet visité).
+    accountTabButtons.forEach(b => b.classList.toggle('admin-role-btn--selected', b.dataset.accountTab === 'login'));
+    accountFormLoginEl.classList.remove('screen--hidden');
+    accountFormRegisterEl.classList.add('screen--hidden');
+  }
+
   accountOverlayEl.classList.remove('screen--hidden');
 }
 function closeAccountOverlay() {
@@ -162,12 +248,16 @@ function closeAccountOverlay() {
 }
 
 btnAccountOpen.addEventListener('click', openAccountOverlay);
+btnAccountOpenLogged.addEventListener('click', openAccountOverlay);
 btnAccountClose.addEventListener('click', closeAccountOverlay);
 
-btnAccountLogout.addEventListener('click', () => {
+function logoutAccount() {
   setStoredAccount(null);
   applyAccountUI(null);
-});
+  closeAccountOverlay();
+}
+btnAccountLogout.addEventListener('click', logoutAccount);
+btnAccountLogoutModal.addEventListener('click', logoutAccount);
 
 accountTabButtons.forEach(btn => {
   btn.addEventListener('click', () => {
@@ -198,7 +288,7 @@ btnAccountLogin.addEventListener('click', async () => {
       accountErrorEl.textContent = data.error || 'Connexion impossible.';
       return;
     }
-    const account = { accessToken: data.accessToken, refreshToken: data.refreshToken, pseudo: data.pseudo };
+    const account = { accessToken: data.accessToken, refreshToken: data.refreshToken, pseudo: data.pseudo, avatar: data.avatar };
     setStoredAccount(account);
     applyAccountUI(account);
     closeAccountOverlay();
@@ -233,7 +323,7 @@ btnAccountRegister.addEventListener('click', async () => {
       accountErrorEl.textContent = 'Compte créé : vérifie tes emails avant de te connecter.';
       return;
     }
-    const account = { accessToken: data.accessToken, refreshToken: data.refreshToken, pseudo: data.pseudo };
+    const account = { accessToken: data.accessToken, refreshToken: data.refreshToken, pseudo: data.pseudo, avatar: data.avatar };
     setStoredAccount(account);
     applyAccountUI(account);
     closeAccountOverlay();

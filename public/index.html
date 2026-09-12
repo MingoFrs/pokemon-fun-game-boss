@@ -96,7 +96,8 @@
             Tu joues en invité. <button id="btn-account-open" type="button" class="link-btn">Se connecter / créer un compte</button>
           </span>
           <span id="account-status-logged" class="screen--hidden">
-            Connecté : <strong id="account-status-pseudo"></strong> — <button id="btn-account-logout" type="button" class="link-btn">Déconnexion</button>
+            <img id="account-status-avatar" class="account-status-avatar-img" src="" alt="">
+            Connecté : <strong id="account-status-pseudo"></strong> — <button id="btn-account-open-logged" type="button" class="link-btn">Avatar</button> — <button id="btn-account-logout" type="button" class="link-btn">Déconnexion</button>
           </span>
         </p>
 
@@ -716,6 +717,16 @@
           <input id="account-register-password" type="password" autocomplete="new-password">
         </div>
         <button id="btn-account-register" type="button" class="btn btn--haut btn--block">Créer le compte</button>
+      </div>
+
+      <div id="account-logged-panel" class="screen--hidden">
+        <p class="account-avatar-current-label">
+          <img id="account-avatar-current" class="account-avatar-current-img" src="" alt="Avatar actuel">
+          <strong id="account-logged-pseudo"></strong>
+        </p>
+        <p class="eyebrow">Choisir un avatar</p>
+        <div id="account-avatar-grid" class="account-avatar-grid"></div>
+        <button id="btn-account-logout-modal" type="button" class="btn btn--ghost btn--block">Déconnexion</button>
       </div>
 
       <p id="account-error" class="error-message" role="alert"></p>

@@ -55,6 +55,20 @@ try {
   console.warn('[comptes] @supabase/supabase-js indisponible : comptes désactivés (mode invité uniquement).', err.message);
 }
 
+// Avatars de compte (optionnels) : sprites de dresseurs hébergés par Pokémon Showdown
+// (play.pokemonshowdown.com/sprites/trainers/<nom>.png), noms vérifiés un par un sur le
+// vrai site avant d'être listés ici pour ne jamais pointer vers une image cassée. Cette
+// LISTE FAIT AUTORITÉ : toute valeur reçue du client qui n'y figure pas est rejetée (cf.
+// /api/profile/avatar) — jamais un nom de fichier arbitraire accepté tel quel.
+const AVATARS = [
+  'red-gen7', 'blue-gen7', 'leaf-masters', 'may', 'brendan', 'birch', 'wally', 'kris',
+  'lyra-masters', 'ethan-masters', 'hilbert-masters', 'hilda-masters', 'calem', 'korrina',
+  'diantha', 'lysandre', 'alain', 'wulfric', 'viola', 'valerie', 'guzma', 'hala', 'hau',
+  'lillie', 'gladion', 'lusamine', 'nanu', 'plumeria', 'kukui', 'mallow', 'lana', 'mina',
+  'kiawe', 'sophocles', 'acerola', 'olivia', 'kahili', 'marnie', 'raihan', 'nessa',
+  'piers', 'bea', 'gordie', 'milo', 'opal', 'leon', 'hop', 'victor', 'gloria', 'volo'
+];
+
 // Manifeste des sprites (tous les dex id du pool + des boss) : le client s'en sert au
 // chargement pour précharger discrètement les images en arrière-plan pendant le lobby,
 // AVANT qu'une partie ne les demande réellement pour un tour. Supprime le petit flash de
@@ -64,6 +78,10 @@ try {
 app.get('/api/sprite-ids', (req, res) => {
   const ids = [...new Set([...ALL_DEX_IDS, ...BOSSES.map(b => b.id)])].sort((a, b) => a - b);
   res.json(ids);
+});
+
+app.get('/api/avatars', (req, res) => {
+  res.json(AVATARS);
 });
 
 // ---------------------------------------------------------------
@@ -104,9 +122,12 @@ app.post('/api/register', async (req, res) => {
     return;
   }
 
+  // Avatar de départ tiré au hasard dans AVATARS (pas de valeur par défaut arbitraire
+  // hors-liste) — modifiable ensuite via /api/profile/avatar.
+  const startingAvatar = AVATARS[Math.floor(Math.random() * AVATARS.length)];
   const { error: profileError } = await supabase
     .from('profiles')
-    .insert({ id: data.user.id, pseudo: cleanPseudo });
+    .insert({ id: data.user.id, pseudo: cleanPseudo, avatar: startingAvatar });
   if (profileError) {
     // Log complet côté serveur (jamais visible du joueur) : le message renvoyé au
     // client seul ne suffit pas à diagnostiquer, cf. code/details/hint PostgREST.
@@ -131,7 +152,8 @@ app.post('/api/register', async (req, res) => {
   res.json({
     accessToken: data.session.access_token,
     refreshToken: data.session.refresh_token,
-    pseudo: cleanPseudo
+    pseudo: cleanPseudo,
+    avatar: startingAvatar
   });
 });
 
@@ -151,14 +173,15 @@ app.post('/api/login', async (req, res) => {
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('pseudo')
+    .select('pseudo, avatar')
     .eq('id', data.user.id)
     .single();
 
   res.json({
     accessToken: data.session.access_token,
     refreshToken: data.session.refresh_token,
-    pseudo: profile ? profile.pseudo : ''
+    pseudo: profile ? profile.pseudo : '',
+    avatar: profile ? profile.avatar : null
   });
 });
 
@@ -181,16 +204,50 @@ app.post('/api/session', async (req, res) => {
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('pseudo')
+    .select('pseudo, avatar')
     .eq('id', data.user.id)
     .single();
 
   res.json({
     accessToken: data.session.access_token,
     refreshToken: data.session.refresh_token,
-    pseudo: profile ? profile.pseudo : ''
+    pseudo: profile ? profile.pseudo : '',
+    avatar: profile ? profile.avatar : null
   });
 });
+
+// Change l'avatar du compte connecté. L'identité est vérifiée via accessToken (jamais un
+// id envoyé tel quel par le client) : un joueur ne peut modifier que SON PROPRE profil.
+app.post('/api/profile/avatar', async (req, res) => {
+  if (!requireSupabase(res)) return;
+  const { accessToken, avatar } = req.body || {};
+  if (!accessToken || !avatar) {
+    res.status(400).json({ error: 'accessToken et avatar requis.' });
+    return;
+  }
+  if (!AVATARS.includes(avatar)) {
+    res.status(400).json({ error: 'Avatar inconnu.' });
+    return;
+  }
+
+  const { data: { user }, error: userError } = await createAuthClient().auth.getUser(accessToken);
+  if (userError || !user) {
+    res.status(401).json({ error: 'Session invalide.' });
+    return;
+  }
+
+  const { error: updateError } = await supabase
+    .from('profiles')
+    .update({ avatar })
+    .eq('id', user.id);
+  if (updateError) {
+    res.status(400).json({ error: "L'avatar n'a pas pu être enregistré : " + updateError.message });
+    return;
+  }
+
+  res.json({ avatar });
+});
+
 
 // ---------------------------------------------------------------
 // Configuration du jeu
