@@ -65,8 +65,51 @@ const AVATARS = [
   'lyra-masters', 'ethan-masters', 'hilbert-masters', 'hilda-masters', 'calem', 'korrina',
   'diantha', 'lysandre', 'alain', 'wulfric', 'viola', 'valerie', 'guzma', 'hala', 'hau',
   'lillie', 'gladion', 'lusamine', 'nanu', 'plumeria', 'kukui', 'mallow', 'lana', 'mina',
-  'kiawe', 'sophocles', 'acerola', 'olivia', 'kahili', 'marnie', 'raihan', 'nessa',
-  'piers', 'bea', 'gordie', 'milo', 'opal', 'leon', 'hop', 'victor', 'gloria', 'volo'
+  'kiawe', 'sophocles', 'acerola', 'olivia', 'kahili', 'marnie', 'raihan', 'nessa', 'piers',
+  'bea', 'gordie', 'milo', 'opal', 'leon', 'hop', 'victor', 'gloria', 'volo', 'aetheremployee',
+  'aetheremployeef', 'aetherfoundation', 'aetherfoundationf', 'anabel-gen7', 'beauty-gen7',
+  'burnet', 'colress-gen7', 'dexio', 'elio', 'faba', 'gladion-stance', 'grimsley-gen7', 'hapu',
+  'hau-stance', 'ilima', 'kukui-stand', 'lass-gen7', 'lillie-z', 'lusamine-nihilego',
+  'molayne', 'officeworker', 'pokemonbreeder-gen7', 'pokemonbreederf-gen7', 'preschoolers',
+  'risingstar', 'risingstarf', 'ryuki', 'samsonoak', 'selene', 'sightseerf', 'sina',
+  'teacher-gen7', 'theroyal', 'wicke', 'youngathlete', 'youngathletef', 'youngster-gen7',
+  'adaman', 'agatha-lgpe', 'akari', 'allister', 'archie-gen6', 'arezu', 'avery', 'ballguy',
+  'bede-leader', 'bede', 'brendan-contest', 'burnet-radar', 'calaba', 'chase', 'cogita',
+  'cynthia-gen7', 'cynthia-masters', 'doctor-gen8', 'elaine', 'hilda-masters2', 'irida',
+  'jacinthe', 'kabu', 'klara', 'koga-lgpe', 'leon-tower', 'lian', 'lisia', 'lorelei-lgpe',
+  'magnolia', 'mai', 'may-contest', 'melony', 'miku-flying', 'miku-ground', 'mina-lgpe',
+  'mustard-master', 'mustard', 'oleana', 'peony', 'pesselle', 'phoebe-gen6',
+  'rainbowrocketgrunt', 'rainbowrocketgruntf', 'rei', 'rose', 'sabi', 'sada-ai', 'sanqua',
+  'shielbert', 'sonia-professor', 'sonia', 'sordward-shielbert', 'sordward',
+  'tateandliza-gen6', 'turo-ai', 'victor-dojo', 'yellgrunt', 'yellgruntf', 'zisu',
+  'rose-zerosuit', 'miku-ghost', 'az', 'brawly-gen6', 'bryony', 'drasna', 'evelyn',
+  'furisodegirl-black', 'furisodegirl-pink', 'malva', 'nita', 'olympia', 'ramos', 'shelly',
+  'sidney', 'siebold', 'tierno', 'wallace-gen6', 'wikstrom', 'winona-gen6', 'xerosic',
+  'youngn', 'zinnia', 'glacia', 'peonia', 'phoebe-masters', 'rosa-masters3', 'scottie-masters',
+  'skyla-masters2', 'volo-ginkgo', 'emma-lza', 'florian-bb', 'juliana-bb', 'lida', 'liko',
+  'mable', 'naveen', 'red-lgpe', 'roy', 'miku-ice', 'arven-v', 'atticus', 'charm', 'coin',
+  'courtney', 'dexio-gen6', 'dulse', 'elio-usum', 'emma', 'eri', 'essentia', 'flannery-gen6',
+  'giacomo', 'ginchiyo-conquest', 'gloria-dojo', 'green', 'grusha', 'hanbei-conquest',
+  'hero-conquest', 'hero2-conquest', 'heroine-conquest', 'heroine2-conquest',
+  'kunoichi-conquest', 'kunoichi2-conquest', 'magmagrunt', 'magmagruntf', 'marnie-league',
+  'masamune-conquest', 'mela', 'morgan', 'nobunaga-conquest', 'norman-gen6', 'oichi-conquest',
+  'ortega', 'penny', 'phyco', 'ranmaru-conquest', 'selene-usum', 'serena-anime', 'shauna',
+  'sina-gen6', 'skullgrunt', 'skullgruntf', 'soliera', 'steven-gen6', 'zossie', 'brendan-e',
+  'maxie-gen6', 'aarune', 'acerola-masters', 'acetrainer-gen6', 'adaman-masters',
+  'allister-masters', 'amarys', 'anabel', 'ansha', 'arven-masters', 'az-lza',
+  'backpacker-gen6', 'barry-masters', 'bea-masters', 'beauty-gen6', 'bede-masters', 'bellis',
+  'bianca-masters', 'bill', 'birdkeeper-gen6', 'blackbelt-gen6', 'blaine-lgpe', 'blanche',
+  'blue-masters', 'brandon', 'brassius', 'brendan-masters', 'briar', 'brigette', 'brock-lgpe',
+  'brock-masters', 'bugsy-masters', 'burgh-masters', 'cabbie', 'caitlin-masters',
+  'calem-masters', 'candela', 'candice-masters', 'carmine', 'celio', 'charon',
+  'cheren-masters', 'clair-masters', 'cliff', 'colza', 'cook', 'cyrus-masters', 'daisy',
+  'dawn-masters', 'delinquent', 'diantha-masters', 'elm', 'emmet-masters', 'erika-masters',
+  'fennel', 'geeta', 'gladion-masters', 'gloria-masters', 'grant', 'greta', 'grimsley-masters',
+  'guzma-masters', 'hassel', 'hau-masters', 'hilbert-masters2', 'hop-masters', 'hugh-masters',
+  'ingo-masters', 'iono', 'iris-masters', 'jasmine-masters', 'johanna', 'kieran', 'kofu',
+  'kris-masters', 'kurt', 'lacey', 'lance-masters', 'lanette', 'larry', 'leaf-masters2',
+  'lucy', 'mallow-masters', 'marley-masters', 'may-masters', 'misty-masters', 'morty-masters',
+  'mrbriney', 'mrstone', 'nate'
 ];
 
 // Manifeste des sprites (tous les dex id du pool + des boss) : le client s'en sert au
@@ -1378,6 +1421,7 @@ function getPublicAuctionPlayers(game) {
   return game.players.map(p => ({
     id: p.id,
     name: p.name,
+    avatar: p.avatar,
     disconnected: !!p.disconnected,
     budget: p.budget,
     team: p.auctionTeam,
@@ -2529,10 +2573,14 @@ function generateGameId() {
   return id;
 }
 
-function makePlayer(id, name, token) {
+function makePlayer(id, name, token, avatar) {
   return {
     id,
     name,
+    // Avatar de compte (optionnel, cf. AVATARS) : jamais une valeur arbitraire du
+    // client — uniquement une valeur de la liste, sinon null (joueur invité ou sans
+    // avatar choisi).
+    avatar: AVATARS.includes(avatar) ? avatar : null,
     token: token || generateToken(), // filet de sécurité si un vieux client n'en envoie pas
     disconnected: false, // cf. RECONNECT_GRACE_MS — true pendant le délai de grâce
     disconnectTimer: null,
@@ -2560,6 +2608,7 @@ function getPublicPlayers(game) {
   return game.players.map(p => ({
     id: p.id,
     name: p.name,
+    avatar: p.avatar,
     disconnected: p.disconnected,
     score: p.score,
     team: p.team,
@@ -2690,11 +2739,12 @@ function finishGame(game) {
 
   const results = game.players.map(p => {
     if (game.gameMode === 'admin' && p.id === game.adminId) {
-      return { id: p.id, name: p.name, score: p.score, team: p.team, result: joueurWon ? 'defeat' : 'victory' };
+      return { id: p.id, name: p.name, avatar: p.avatar, score: p.score, team: p.team, result: joueurWon ? 'defeat' : 'victory' };
     }
     return {
       id: p.id,
       name: p.name,
+      avatar: p.avatar,
       score: p.score,
       team: p.team,
       result: p.score >= game.boss.requiredPoints ? 'victory' : 'defeat'
@@ -3002,6 +3052,7 @@ function finishAdminModeByForfeit(game, leavingPlayer) {
     .map(p => ({
       id: p.id,
       name: p.name,
+      avatar: p.avatar,
       score: p.score,
       team: p.team,
       result: p.id === leavingPlayer.id ? 'defeat' : 'victory'
@@ -3019,7 +3070,7 @@ function finishAdminModeByForfeit(game, leavingPlayer) {
 }
 
 io.on('connection', (socket) => {
-  socket.on('create_game', ({ name, token } = {}) => {
+  socket.on('create_game', ({ name, token, avatar } = {}) => {
     const trimmed = (name || '').trim();
     if (!trimmed) {
       socket.emit('error_message', 'Pseudo requis.');
@@ -3053,7 +3104,7 @@ io.on('connection', (socket) => {
       guessTurnTimer: null,
       guessWinnerId: null,
       guessTurnDurationMs: GUESS_TURN_DURATION_MS, // réglable par l'hôte, cf. set_guess_turn_duration
-      players: [makePlayer(socket.id, trimmed, token)],
+      players: [makePlayer(socket.id, trimmed, token, avatar)],
       spectators: [], // cf. socket.on('join_game') : { id, name } uniquement, jamais de state de jeu
       activePlayerIds: null, // [id, id] : qui joue réellement en mode admin/guess à >2 joueurs dans le lobby (cf. set_active_players) ; ignoré/null tant qu'il n'y a que 2 joueurs
       // ---- Mode "auction" (Draft / Enchères) uniquement, cf. startAuctionGame() ----
@@ -3082,7 +3133,7 @@ io.on('connection', (socket) => {
     });
   });
 
-  socket.on('join_game', ({ name, gameId, token } = {}) => {
+  socket.on('join_game', ({ name, gameId, token, avatar } = {}) => {
     const trimmedName = (name || '').trim();
     const id = (gameId || '').trim().toUpperCase();
     const game = games[id];
@@ -3161,7 +3212,7 @@ io.on('connection', (socket) => {
     }
     removeSpectator(socket); // idem si le socket observait une AUTRE partie en spectateur
 
-    const newPlayer = makePlayer(socket.id, trimmedName, token);
+    const newPlayer = makePlayer(socket.id, trimmedName, token, avatar);
     game.players.push(newPlayer);
 
     socket.join(id);
@@ -3635,7 +3686,7 @@ io.on('connection', (socket) => {
       guessTurnTimer: null,
       guessWinnerId: null,
       guessTurnDurationMs: oldGame.guessTurnDurationMs || GUESS_TURN_DURATION_MS, // conservée, modifiable avant le lancement
-      players: connectedOldPlayers.map(p => makePlayer(p.id, p.name, p.token)), // pity remis à 0, token conservé (cf. makePlayer)
+      players: connectedOldPlayers.map(p => makePlayer(p.id, p.name, p.token, p.avatar)), // pity remis à 0, token et avatar conservés (cf. makePlayer)
       spectators: [],
       activePlayerIds: null, // nouvelle partie = nouvelle sélection à faire si jamais elle repasse à >2 joueurs
       // ---- Mode "auction" : reset complet, y compris le type (l'hôte re-choisit avant

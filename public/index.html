@@ -630,6 +630,54 @@
     <div class="event-modal__body settings-body">
 
       <div class="settings-section">
+        <p class="settings-section__title">Compte</p>
+        <div id="account-tabs" class="admin-role-options">
+          <button type="button" class="admin-role-btn admin-role-btn--selected" data-account-tab="login">Connexion</button>
+          <button type="button" class="admin-role-btn" data-account-tab="register">Créer un compte</button>
+        </div>
+
+        <div id="account-form-login">
+          <div class="field">
+            <label for="account-login-email">Email</label>
+            <input id="account-login-email" type="email" autocomplete="username" placeholder="ton@email.com">
+          </div>
+          <div class="field">
+            <label for="account-login-password">Mot de passe</label>
+            <input id="account-login-password" type="password" autocomplete="current-password">
+          </div>
+          <button id="btn-account-login" type="button" class="btn btn--haut btn--block">Se connecter</button>
+        </div>
+
+        <div id="account-form-register" class="screen--hidden">
+          <div class="field">
+            <label for="account-register-pseudo">Pseudo</label>
+            <input id="account-register-pseudo" type="text" maxlength="16" autocomplete="off" placeholder="Ton nom de dresseur">
+          </div>
+          <div class="field">
+            <label for="account-register-email">Email</label>
+            <input id="account-register-email" type="email" autocomplete="username" placeholder="ton@email.com">
+          </div>
+          <div class="field">
+            <label for="account-register-password">Mot de passe</label>
+            <input id="account-register-password" type="password" autocomplete="new-password">
+          </div>
+          <button id="btn-account-register" type="button" class="btn btn--haut btn--block">Créer le compte</button>
+        </div>
+
+        <div id="account-logged-panel" class="screen--hidden">
+          <p class="account-avatar-current-label">
+            <img id="account-avatar-current" class="account-avatar-current-img" src="" alt="Avatar actuel">
+            <strong id="account-logged-pseudo"></strong>
+          </p>
+          <p class="settings-section__title">Choisir un avatar</p>
+          <div id="account-avatar-grid" class="account-avatar-grid"></div>
+          <button id="btn-account-logout-modal" type="button" class="btn btn--ghost btn--block">Déconnexion</button>
+        </div>
+
+        <p id="account-error" class="error-message" role="alert"></p>
+      </div>
+
+      <div class="settings-section">
         <p class="settings-section__title">Affichage</p>
         <label class="settings-toggle">
           <span class="settings-toggle__label">Réduire les animations</span>
@@ -676,64 +724,6 @@
 
     <div class="event-modal__actions">
       <button id="btn-settings-close" type="button" class="btn btn--ghost btn--block">Fermer</button>
-    </div>
-  </div>
-</div>
-
-<div id="account-overlay" class="event-overlay screen--hidden" role="dialog" aria-modal="true">
-  <div class="event-modal">
-    <p class="event-modal__eyebrow">Compte (optionnel)</p>
-    <h3 class="event-modal__title">Compte</h3>
-
-    <div class="event-modal__body">
-      <div id="account-tabs" class="admin-role-options">
-        <button type="button" class="admin-role-btn admin-role-btn--selected" data-account-tab="login">Connexion</button>
-        <button type="button" class="admin-role-btn" data-account-tab="register">Créer un compte</button>
-      </div>
-
-      <div id="account-form-login">
-        <div class="field">
-          <label for="account-login-email">Email</label>
-          <input id="account-login-email" type="email" autocomplete="username" placeholder="ton@email.com">
-        </div>
-        <div class="field">
-          <label for="account-login-password">Mot de passe</label>
-          <input id="account-login-password" type="password" autocomplete="current-password">
-        </div>
-        <button id="btn-account-login" type="button" class="btn btn--haut btn--block">Se connecter</button>
-      </div>
-
-      <div id="account-form-register" class="screen--hidden">
-        <div class="field">
-          <label for="account-register-pseudo">Pseudo</label>
-          <input id="account-register-pseudo" type="text" maxlength="16" autocomplete="off" placeholder="Ton nom de dresseur">
-        </div>
-        <div class="field">
-          <label for="account-register-email">Email</label>
-          <input id="account-register-email" type="email" autocomplete="username" placeholder="ton@email.com">
-        </div>
-        <div class="field">
-          <label for="account-register-password">Mot de passe</label>
-          <input id="account-register-password" type="password" autocomplete="new-password">
-        </div>
-        <button id="btn-account-register" type="button" class="btn btn--haut btn--block">Créer le compte</button>
-      </div>
-
-      <div id="account-logged-panel" class="screen--hidden">
-        <p class="account-avatar-current-label">
-          <img id="account-avatar-current" class="account-avatar-current-img" src="" alt="Avatar actuel">
-          <strong id="account-logged-pseudo"></strong>
-        </p>
-        <p class="eyebrow">Choisir un avatar</p>
-        <div id="account-avatar-grid" class="account-avatar-grid"></div>
-        <button id="btn-account-logout-modal" type="button" class="btn btn--ghost btn--block">Déconnexion</button>
-      </div>
-
-      <p id="account-error" class="error-message" role="alert"></p>
-    </div>
-
-    <div class="event-modal__actions">
-      <button id="btn-account-close" type="button" class="btn btn--ghost btn--block">Fermer</button>
     </div>
   </div>
 </div>
