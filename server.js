@@ -27,19 +27,27 @@ app.use(express.json());
 // jamais commitées dans ce fichier. Si absentes ou si le paquet n'est pas installé, les
 // comptes sont juste désactivés : le jeu reste 100% jouable en mode invité (pseudo),
 // comportement inchangé pour tout le monde.
+//
+// DEUX clients bien séparés, jamais un seul partagé pour tout :
+// - `supabase` (ci-dessous) : UNIQUEMENT pour .from('profiles'), jamais pour une
+//   opération .auth.*.
+// - `createAuthClient()` : une instance FRAÎCHE et jetable à chaque appel .auth.signUp
+//   / signInWithPassword / refreshSession. persistSession:false seul s'est révélé
+//   insuffisant en pratique (le client peut quand même se mettre à utiliser la session
+//   du joueur en mémoire pour les requêtes suivantes sur cette même instance) : le
+//   .from('profiles') se retrouvait exécuté avec le rôle "authenticated" du joueur tout
+//   juste inscrit au lieu de "service_role", d'où un "permission denied" malgré des
+//   droits service_role pourtant corrects en base. Une instance neuve à chaque fois
+//   élimine complètement le risque de fuite d'état entre les deux usages.
 // ---------------------------------------------------------------
 let supabase = null;
+let createAuthClient = null;
 try {
   const { createClient } = require('@supabase/supabase-js');
   if (process.env.SUPABASE_URL && process.env.SUPABASE_SECRET_KEY) {
-    // persistSession/autoRefreshToken à false : SANS ça, appeler auth.signUp() sur ce
-    // même client remplace en mémoire les identifiants "clé secrète" par la session du
-    // nouvel utilisateur — les requêtes .from(...) suivantes tournent alors avec le rôle
-    // "authenticated" (celui du joueur) au lieu de "service_role", d'où le "permission
-    // denied for table profiles" malgré des droits service_role corrects en base.
-    supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SECRET_KEY, {
-      auth: { autoRefreshToken: false, persistSession: false }
-    });
+    const clientOptions = { auth: { autoRefreshToken: false, persistSession: false } };
+    supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SECRET_KEY, clientOptions);
+    createAuthClient = () => createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SECRET_KEY, clientOptions);
   } else {
     console.warn('[comptes] SUPABASE_URL / SUPABASE_SECRET_KEY absents : comptes désactivés (mode invité uniquement).');
   }
@@ -66,7 +74,7 @@ app.get('/api/sprite-ids', (req, res) => {
 // erreurs génériques côté login pour ne jamais révéler si un email existe ou non.
 // ---------------------------------------------------------------
 function requireSupabase(res) {
-  if (!supabase) {
+  if (!supabase || !createAuthClient) {
     res.status(503).json({ error: 'Les comptes sont temporairement indisponibles (mode invité toujours utilisable).' });
     return false;
   }
@@ -86,7 +94,7 @@ app.post('/api/register', async (req, res) => {
     return;
   }
 
-  const { data, error } = await supabase.auth.signUp({ email, password });
+  const { data, error } = await createAuthClient().auth.signUp({ email, password });
   if (error) {
     res.status(400).json({ error: error.message });
     return;
@@ -135,7 +143,7 @@ app.post('/api/login', async (req, res) => {
     return;
   }
 
-  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+  const { data, error } = await createAuthClient().auth.signInWithPassword({ email, password });
   if (error || !data.session) {
     res.status(400).json({ error: 'Email ou mot de passe incorrect.' });
     return;
@@ -165,7 +173,7 @@ app.post('/api/session', async (req, res) => {
     return;
   }
 
-  const { data, error } = await supabase.auth.refreshSession({ refresh_token: refreshToken });
+  const { data, error } = await createAuthClient().auth.refreshSession({ refresh_token: refreshToken });
   if (error || !data.session) {
     res.status(401).json({ error: 'Session expirée.' });
     return;
