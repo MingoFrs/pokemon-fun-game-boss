@@ -76,16 +76,16 @@ const btnJoin = document.getElementById('btn-join');
 const errorMessage = document.getElementById('error-message');
 
 // ---------- Compte (optionnel — le mode invité avec juste un pseudo reste inchangé) ----------
+// Tout le système vit maintenant DANS le panneau Réglages (plus d'overlay séparé) : les
+// liens du statut d'accueil se contentent d'ouvrir les Réglages (cf. openSettings, plus
+// bas dans ce fichier), qui rafraîchit la section Compte à chaque ouverture.
 const accountStatusGuestEl = document.getElementById('account-status-guest');
 const accountStatusLoggedEl = document.getElementById('account-status-logged');
 const accountStatusAvatarEl = document.getElementById('account-status-avatar');
 const accountStatusPseudoEl = document.getElementById('account-status-pseudo');
 const btnAccountOpen = document.getElementById('btn-account-open');
 const btnAccountOpenLogged = document.getElementById('btn-account-open-logged');
-const btnAccountLogout = document.getElementById('btn-account-logout');
 const btnAccountLogoutModal = document.getElementById('btn-account-logout-modal');
-const accountOverlayEl = document.getElementById('account-overlay');
-const btnAccountClose = document.getElementById('btn-account-close');
 const accountTabButtons = Array.from(document.querySelectorAll('#account-tabs .admin-role-btn'));
 const accountTabsContainerEl = document.getElementById('account-tabs');
 const accountFormLoginEl = document.getElementById('account-form-login');
@@ -219,7 +219,11 @@ async function populateAvatarGrid(account) {
   });
 }
 
-function openAccountOverlay() {
+// Décide quoi montrer dans la section Compte des Réglages (tabs+formulaires si invité,
+// panneau avatar si connecté) — appelée à CHAQUE ouverture des Réglages, quelle que soit
+// la façon dont ils ont été ouverts (icône ⚙ ou lien du statut d'accueil), cf.
+// openSettings plus bas dans ce fichier.
+function refreshAccountSettingsSection() {
   accountErrorEl.textContent = '';
   const account = getStoredAccount();
   const loggedIn = !!account;
@@ -240,24 +244,16 @@ function openAccountOverlay() {
     accountFormLoginEl.classList.remove('screen--hidden');
     accountFormRegisterEl.classList.add('screen--hidden');
   }
-
-  accountOverlayEl.classList.remove('screen--hidden');
-}
-function closeAccountOverlay() {
-  accountOverlayEl.classList.add('screen--hidden');
 }
 
-btnAccountOpen.addEventListener('click', openAccountOverlay);
-btnAccountOpenLogged.addEventListener('click', openAccountOverlay);
-btnAccountClose.addEventListener('click', closeAccountOverlay);
+btnAccountOpen.addEventListener('click', openSettings);
+btnAccountOpenLogged.addEventListener('click', openSettings);
 
-function logoutAccount() {
+btnAccountLogoutModal.addEventListener('click', () => {
   setStoredAccount(null);
   applyAccountUI(null);
-  closeAccountOverlay();
-}
-btnAccountLogout.addEventListener('click', logoutAccount);
-btnAccountLogoutModal.addEventListener('click', logoutAccount);
+  refreshAccountSettingsSection();
+});
 
 accountTabButtons.forEach(btn => {
   btn.addEventListener('click', () => {
@@ -291,7 +287,7 @@ btnAccountLogin.addEventListener('click', async () => {
     const account = { accessToken: data.accessToken, refreshToken: data.refreshToken, pseudo: data.pseudo, avatar: data.avatar };
     setStoredAccount(account);
     applyAccountUI(account);
-    closeAccountOverlay();
+    refreshAccountSettingsSection();
   } catch (err) {
     accountErrorEl.textContent = 'Connexion au serveur impossible.';
   } finally {
@@ -326,7 +322,7 @@ btnAccountRegister.addEventListener('click', async () => {
     const account = { accessToken: data.accessToken, refreshToken: data.refreshToken, pseudo: data.pseudo, avatar: data.avatar };
     setStoredAccount(account);
     applyAccountUI(account);
-    closeAccountOverlay();
+    refreshAccountSettingsSection();
   } catch (err) {
     accountErrorEl.textContent = 'Connexion au serveur impossible.';
   } finally {
@@ -721,6 +717,17 @@ function renderPlayers(listEl, players) {
     const row = document.createElement('div');
     row.className = 'player-item__row';
 
+    const identity = document.createElement('div');
+    identity.className = 'player-item__identity';
+
+    if (p.avatar) {
+      const avatarImg = document.createElement('img');
+      avatarImg.className = 'player-item__avatar';
+      avatarImg.src = avatarUrl(p.avatar);
+      avatarImg.alt = '';
+      identity.appendChild(avatarImg);
+    }
+
     const name = document.createElement('span');
     name.textContent = p.name;
     if (p.id === hostId) {
@@ -746,7 +753,8 @@ function renderPlayers(listEl, players) {
     score.className = 'player-score';
     score.textContent = `${p.score} pts`;
 
-    row.appendChild(name);
+    identity.appendChild(name);
+    row.appendChild(identity);
     row.appendChild(score);
     li.appendChild(row);
 
@@ -1608,7 +1616,7 @@ btnCreate.addEventListener('click', () => {
     showError('Entre un pseudo.');
     return;
   }
-  socket.emit('create_game', { name, token: deviceToken });
+  socket.emit('create_game', { name, token: deviceToken, avatar: getStoredAccount()?.avatar || null });
 });
 
 btnJoin.addEventListener('click', () => {
@@ -1623,7 +1631,7 @@ btnJoin.addEventListener('click', () => {
     showError('Entre un code de partie.');
     return;
   }
-  socket.emit('join_game', { name, gameId: code, token: deviceToken });
+  socket.emit('join_game', { name, gameId: code, token: deviceToken, avatar: getStoredAccount()?.avatar || null });
 });
 
 codeInput.addEventListener('input', () => {
@@ -2858,16 +2866,20 @@ const auctionQuickBidButtons = Array.from(document.querySelectorAll('#auction-qu
 const auctionBidHintEl = document.getElementById('auction-bid-hint');
 const auctionMyTeamCountEl = document.getElementById('auction-my-team-count');
 const auctionMyTeamSlotsEl = document.getElementById('auction-my-team-slots');
+const auctionMyTeamAvatarEl = document.getElementById('auction-my-team-avatar');
 const auctionOppTeamLabelEl = document.getElementById('auction-opp-team-label');
 const auctionOppTeamCountEl = document.getElementById('auction-opp-team-count');
 const auctionOppTeamSlotsEl = document.getElementById('auction-opp-team-slots');
+const auctionOppTeamAvatarEl = document.getElementById('auction-opp-team-avatar');
 const auctionHistoryListEl = document.getElementById('auction-history-list');
 const auctionFinishedTitleEl = document.getElementById('auction-finished-title');
 const auctionFinishedReasonEl = document.getElementById('auction-finished-reason');
 const auctionFinishedMySlotsEl = document.getElementById('auction-finished-my-slots');
+const auctionFinishedMyAvatarEl = document.getElementById('auction-finished-my-avatar');
 const auctionFinishedMyBudgetEl = document.getElementById('auction-finished-my-budget');
 const auctionFinishedOppLabelEl = document.getElementById('auction-finished-opp-label');
 const auctionFinishedOppSlotsEl = document.getElementById('auction-finished-opp-slots');
+const auctionFinishedOppAvatarEl = document.getElementById('auction-finished-opp-avatar');
 const auctionFinishedOppBudgetEl = document.getElementById('auction-finished-opp-budget');
 const btnAuctionReplay = document.getElementById('btn-auction-replay');
 const auctionFinishedStatusEl = document.getElementById('auction-finished-status');
@@ -2996,6 +3008,8 @@ function renderAuctionPlayers(players) {
     auctionMyBudgetEl.textContent = formatAuctionMoneyClient(me.budget);
     auctionBudgetMeEl.classList.toggle('auction-budget-card--empty', me.budget <= 0);
     auctionMyTeamCountEl.textContent = `(${me.teamCount}/6)`;
+    auctionMyTeamAvatarEl.src = me.avatar ? avatarUrl(me.avatar) : '';
+    auctionMyTeamAvatarEl.classList.toggle('screen--hidden', !me.avatar);
     renderAuctionTeamSlots(auctionMyTeamSlotsEl, me.team);
   }
   if (opp) {
@@ -3004,6 +3018,8 @@ function renderAuctionPlayers(players) {
     auctionOppBudgetEl.textContent = formatAuctionMoneyClient(opp.budget);
     auctionBudgetOppEl.classList.toggle('auction-budget-card--empty', opp.budget <= 0);
     auctionOppTeamCountEl.textContent = `(${opp.teamCount}/6)`;
+    auctionOppTeamAvatarEl.src = opp.avatar ? avatarUrl(opp.avatar) : '';
+    auctionOppTeamAvatarEl.classList.toggle('screen--hidden', !opp.avatar);
     renderAuctionTeamSlots(auctionOppTeamSlotsEl, opp.team);
   }
 }
@@ -3086,11 +3102,15 @@ function renderAuctionFinished({ reason, players, history }) {
 
   if (me) {
     renderAuctionTeamSlots(auctionFinishedMySlotsEl, me.team);
+    auctionFinishedMyAvatarEl.src = me.avatar ? avatarUrl(me.avatar) : '';
+    auctionFinishedMyAvatarEl.classList.toggle('screen--hidden', !me.avatar);
     auctionFinishedMyBudgetEl.textContent = `Budget restant : ${formatAuctionMoneyClient(me.budget)}`;
     btnAuctionCopyTeam.disabled = !(me.team && me.team.length);
   }
   if (opp) {
     auctionFinishedOppLabelEl.textContent = `Équipe de ${opp.name}`;
+    auctionFinishedOppAvatarEl.src = opp.avatar ? avatarUrl(opp.avatar) : '';
+    auctionFinishedOppAvatarEl.classList.toggle('screen--hidden', !opp.avatar);
     renderAuctionTeamSlots(auctionFinishedOppSlotsEl, opp.team);
     auctionFinishedOppBudgetEl.textContent = `Budget restant : ${formatAuctionMoneyClient(opp.budget)}`;
   }
@@ -3566,6 +3586,7 @@ function applyAutoReconnectSetting(enabled) {
 }
 
 function openSettings() {
+  refreshAccountSettingsSection();
   settingsOverlayEl.classList.remove('screen--hidden');
 }
 

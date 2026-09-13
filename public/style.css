@@ -443,6 +443,12 @@ body[data-screen="guess-finished"] .app {
   margin: 0 0 6px;
 }
 
+.auction-team-col__header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 h1 {
   font-family: var(--font-display);
   font-size: clamp(32px, 6vw, 44px);
@@ -606,11 +612,11 @@ input:focus {
 }
 
 .account-status-avatar-img {
-  width: 20px;
-  height: 20px;
+  width: 32px;
+  height: 32px;
   border-radius: 50%;
   vertical-align: middle;
-  margin-right: 4px;
+  margin-right: 6px;
   object-fit: cover;
   background: var(--bg-panel-alt);
 }
@@ -618,25 +624,25 @@ input:focus {
 .account-avatar-current-label {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   justify-content: center;
   margin-bottom: 16px;
 }
 
 .account-avatar-current-img {
-  width: 56px;
-  height: 56px;
+  width: 96px;
+  height: 96px;
   border-radius: 50%;
   object-fit: cover;
   background: var(--bg-panel-alt);
-  border: 2px solid var(--accent-haut, #f5a623);
+  border: 3px solid var(--accent-haut, #f5a623);
 }
 
 .account-avatar-grid {
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
-  gap: 6px;
-  max-height: 240px;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  max-height: 320px;
   overflow-y: auto;
   margin-bottom: 16px;
 }
@@ -756,6 +762,21 @@ input:focus {
   display: flex;
   align-items: center;
   justify-content: space-between;
+}
+
+.player-item__identity {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.player-item__avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--bg-panel);
+  flex-shrink: 0;
 }
 
 /* Mini équipe (cf. renderPlayers dans client.js) : aperçu compact en lecture seule des

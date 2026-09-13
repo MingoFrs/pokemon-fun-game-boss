@@ -97,7 +97,7 @@
           </span>
           <span id="account-status-logged" class="screen--hidden">
             <img id="account-status-avatar" class="account-status-avatar-img" src="" alt="">
-            Connecté : <strong id="account-status-pseudo"></strong> — <button id="btn-account-open-logged" type="button" class="link-btn">Avatar</button> — <button id="btn-account-logout" type="button" class="link-btn">Déconnexion</button>
+            Connecté : <strong id="account-status-pseudo"></strong> — <button id="btn-account-open-logged" type="button" class="link-btn">Gérer (Réglages)</button>
           </span>
         </p>
 
@@ -532,11 +532,17 @@
 
     <div class="auction-teams">
       <div class="auction-team-col">
-        <p class="eyebrow">Ton équipe <span id="auction-my-team-count">(0/6)</span></p>
+        <p class="eyebrow auction-team-col__header">
+          <img id="auction-my-team-avatar" class="player-item__avatar" src="" alt="">
+          Ton équipe <span id="auction-my-team-count">(0/6)</span>
+        </p>
         <div id="auction-my-team-slots" class="team-slots"></div>
       </div>
       <div class="auction-team-col">
-        <p class="eyebrow"><span id="auction-opp-team-label">Équipe adverse</span> <span id="auction-opp-team-count">(0/6)</span></p>
+        <p class="eyebrow auction-team-col__header">
+          <img id="auction-opp-team-avatar" class="player-item__avatar" src="" alt="">
+          <span id="auction-opp-team-label">Équipe adverse</span> <span id="auction-opp-team-count">(0/6)</span>
+        </p>
         <div id="auction-opp-team-slots" class="team-slots"></div>
       </div>
     </div>
@@ -553,14 +559,20 @@
 
     <div class="auction-teams auction-teams--finished">
       <div class="auction-team-col">
-        <p class="eyebrow">Ton équipe</p>
+        <p class="eyebrow auction-team-col__header">
+          <img id="auction-finished-my-avatar" class="player-item__avatar" src="" alt="">
+          Ton équipe
+        </p>
         <div id="auction-finished-my-slots" class="team-slots"></div>
         <p class="auction-budget-card__value" id="auction-finished-my-budget"></p>
         <button id="btn-auction-copy-team" type="button" class="btn btn--ghost btn--block">Copier l'équipe évoluée (format Smogon)</button>
         <p id="auction-copy-feedback" class="copy-feedback"></p>
       </div>
       <div class="auction-team-col">
-        <p class="eyebrow" id="auction-finished-opp-label">Équipe adverse</p>
+        <p class="eyebrow auction-team-col__header">
+          <img id="auction-finished-opp-avatar" class="player-item__avatar" src="" alt="">
+          <span id="auction-finished-opp-label">Équipe adverse</span>
+        </p>
         <div id="auction-finished-opp-slots" class="team-slots"></div>
         <p class="auction-budget-card__value" id="auction-finished-opp-budget"></p>
       </div>
