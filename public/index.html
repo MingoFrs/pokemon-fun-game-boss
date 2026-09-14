@@ -212,6 +212,18 @@
 
   <section id="screen-game" class="screen screen--hidden">
 
+    <div id="game-matchup-banner" class="matchup-banner">
+      <div class="matchup-side">
+        <img id="game-matchup-me-avatar" class="matchup-avatar" src="" alt="">
+        <span id="game-matchup-me-name" class="matchup-name">Toi</span>
+      </div>
+      <span class="matchup-vs">VS</span>
+      <div class="matchup-side">
+        <img id="game-matchup-opp-avatar" class="matchup-avatar" src="" alt="">
+        <span id="game-matchup-opp-name" class="matchup-name">Adversaire</span>
+      </div>
+    </div>
+
     <div class="game-grid">
       <div class="game-sidebar">
 
@@ -408,6 +420,18 @@
       <p class="eyebrow">Devine le Pokémon</p>
       <button id="btn-leave-guess" class="btn btn--ghost">Quitter</button>
     </header>
+
+    <div id="guess-matchup-banner" class="matchup-banner">
+      <div class="matchup-side">
+        <img id="guess-matchup-me-avatar" class="matchup-avatar" src="" alt="">
+        <span id="guess-matchup-me-name" class="matchup-name">Toi</span>
+      </div>
+      <span class="matchup-vs">VS</span>
+      <div class="matchup-side">
+        <img id="guess-matchup-opp-avatar" class="matchup-avatar" src="" alt="">
+        <span id="guess-matchup-opp-name" class="matchup-name">Adversaire</span>
+      </div>
+    </div>
 
     <div class="guess-status-stack">
       <!-- Phase 1 : sélection du secret, avant que les 2 joueurs soient prêts. -->
@@ -685,6 +709,7 @@
           <div class="account-xp-bar"><div id="account-xp-bar-fill" class="account-xp-bar__fill"></div></div>
           <p id="account-xp-text" class="account-xp-text"></p>
           <p class="settings-section__title">Choisir un avatar</p>
+          <input id="account-avatar-search" type="text" class="account-avatar-search" placeholder="Rechercher (ex: morty, red, korrina)...">
           <div id="account-avatar-grid" class="account-avatar-grid"></div>
           <button id="btn-account-logout-modal" type="button" class="btn btn--ghost btn--block">Déconnexion</button>
         </div>

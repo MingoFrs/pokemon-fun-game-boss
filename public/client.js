@@ -451,6 +451,34 @@ const metamorphResultDetailEl = document.getElementById('metamorph-result-detail
 const metamorphResultFinalEl = document.getElementById('metamorph-result-final');
 let metamorphResultTimer = null;
 const gamePlayersListEl = document.getElementById('game-players-list');
+const gameMatchupMeAvatarEl = document.getElementById('game-matchup-me-avatar');
+const gameMatchupMeNameEl = document.getElementById('game-matchup-me-name');
+const gameMatchupOppAvatarEl = document.getElementById('game-matchup-opp-avatar');
+const gameMatchupOppNameEl = document.getElementById('game-matchup-opp-name');
+
+// Bandeau "Toi VS Adversaire" en haut de l'écran de jeu actif (normal/admin et guess) —
+// avatars bien plus grands/visibles que dans la simple liste de joueurs en dessous,
+// dans l'esprit de ce que fait Pokémon Showdown en combat. players : payload standard
+// (cf. getPublicPlayers côté serveur). Fonctionne avec >2 joueurs (prend juste le
+// premier "pas moi" comme adversaire affiché) même si pensé pour du 1 contre 1.
+function renderMatchupBanner(refs, players) {
+  const me = (players || []).find(p => p.id === myId);
+  const opp = (players || []).find(p => p.id !== myId);
+  if (me) {
+    refs.meAvatar.src = me.avatar ? avatarUrl(me.avatar) : '';
+    refs.meAvatar.classList.toggle('screen--hidden', !me.avatar);
+    refs.meName.textContent = 'Toi';
+  }
+  if (opp) {
+    refs.oppAvatar.src = opp.avatar ? avatarUrl(opp.avatar) : '';
+    refs.oppAvatar.classList.toggle('screen--hidden', !opp.avatar);
+    refs.oppName.textContent = opp.name + (opp.disconnected ? ' (déconnecté)' : '');
+  }
+}
+const gameMatchupRefs = {
+  meAvatar: gameMatchupMeAvatarEl, meName: gameMatchupMeNameEl,
+  oppAvatar: gameMatchupOppAvatarEl, oppName: gameMatchupOppNameEl
+};
 const btnLeaveGame = document.getElementById('btn-leave-game');
 
 // ---------- Tour 4 spécial : avantage / bonus ----------
@@ -1623,6 +1651,7 @@ function applyGameState({ status, turn, maxTurns, route, players }) {
   updateBossProximity(turn, maxTurns);
   updateSkipButton(players);
   renderPlayers(gamePlayersListEl, players);
+  renderMatchupBanner(gameMatchupRefs, players);
 
   // Mode ADMIN VS JOUEUR : l'ADMIN n'a ni score ni équipe (cf. spec section 3) — le
   // panneau "score" affiche celui du JOUEUR observé, jamais le sien (toujours à 0).
@@ -2494,6 +2523,12 @@ const btnGuessFinishTurn = document.getElementById('btn-guess-finish-turn');
 const guessLastAttemptEl = document.getElementById('guess-last-attempt');
 const guessBoardEl = document.getElementById('guess-board');
 const guessPlayersListEl = document.getElementById('guess-players-list');
+const guessMatchupRefs = {
+  meAvatar: document.getElementById('guess-matchup-me-avatar'),
+  meName: document.getElementById('guess-matchup-me-name'),
+  oppAvatar: document.getElementById('guess-matchup-opp-avatar'),
+  oppName: document.getElementById('guess-matchup-opp-name')
+};
 const guessMySecretEl = document.getElementById('guess-my-secret');
 const guessMySecretSpriteEl = document.getElementById('guess-my-secret-sprite');
 const guessMySecretNameEl = document.getElementById('guess-my-secret-name');
@@ -2570,6 +2605,7 @@ function guessPlayerName(id) {
 
 function renderGuessPlayers(players) {
   lastGuessPlayers = players;
+  renderMatchupBanner(guessMatchupRefs, players);
   guessPlayersListEl.innerHTML = '';
   players.forEach(p => {
     const li = document.createElement('li');

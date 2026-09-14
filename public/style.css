@@ -621,6 +621,51 @@ input:focus {
   background: var(--bg-panel-alt);
 }
 
+.matchup-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  padding: 12px;
+  margin-bottom: 16px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.matchup-side {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.matchup-avatar {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--bg-panel-alt);
+  border: 2px solid var(--border-soft);
+  flex-shrink: 0;
+}
+
+.matchup-name {
+  font-family: var(--font-display);
+  font-size: 15px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 120px;
+}
+
+.matchup-vs {
+  font-family: var(--font-display);
+  font-size: 13px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
 .account-avatar-current-label {
   display: flex;
   align-items: center;
@@ -636,6 +681,17 @@ input:focus {
   object-fit: cover;
   background: var(--bg-panel-alt);
   border: 3px solid var(--accent-haut, #f5a623);
+}
+
+.account-avatar-search {
+  width: 100%;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  background: var(--bg-panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font: inherit;
 }
 
 .account-avatar-grid {
