@@ -100,8 +100,31 @@ const btnAccountRegister = document.getElementById('btn-account-register');
 const accountLoggedPanelEl = document.getElementById('account-logged-panel');
 const accountAvatarCurrentEl = document.getElementById('account-avatar-current');
 const accountLoggedPseudoEl = document.getElementById('account-logged-pseudo');
+const accountLevelValueEl = document.getElementById('account-level-value');
+const accountXpBarFillEl = document.getElementById('account-xp-bar-fill');
+const accountXpTextEl = document.getElementById('account-xp-text');
 const accountAvatarGridEl = document.getElementById('account-avatar-grid');
 const accountErrorEl = document.getElementById('account-error');
+
+// Reflet côté client de la formule de niveau du serveur (cf. xpForLevel/levelForXp dans
+// server.js) : UNIQUEMENT pour afficher la barre de progression jusqu'au niveau suivant
+// — le serveur reste seul à calculer et stocker le niveau réel (renvoyé directement dans
+// account.level à chaque login/session, jamais recalculé ici pour la valeur affichée).
+const XP_LEVEL_STEP = 100;
+function xpForLevel(level) {
+  return Math.round(XP_LEVEL_STEP * level * (level - 1) / 2);
+}
+
+function renderAccountLevel(account) {
+  const level = account.level || 1;
+  const xp = account.xp || 0;
+  const floor = xpForLevel(level);
+  const ceil = xpForLevel(level + 1);
+  const pct = ceil > floor ? Math.max(0, Math.min(100, ((xp - floor) / (ceil - floor)) * 100)) : 100;
+  accountLevelValueEl.textContent = level;
+  accountXpBarFillEl.style.width = `${pct}%`;
+  accountXpTextEl.textContent = `${xp} / ${ceil} XP`;
+}
 
 // Sprites de dresseurs hébergés par Pokémon Showdown, réutilisés tels quels comme
 // avatars de compte (même principe que spriteUrl() pour les Pokémon : pointer vers des
@@ -153,9 +176,13 @@ function applyAccountUI(account) {
 }
 applyAccountUI(getStoredAccount());
 
-// Restaure la session au chargement (silencieux : en cas d'échec, on retombe simplement
-// en mode invité sans message d'erreur intrusif — l'utilisateur n'a rien demandé ici).
-(async function restoreAccountSession() {
+// Recharge le compte depuis le serveur (pseudo/avatar/xp/niveau à jour) à partir du
+// refreshToken stocké — utilisée au chargement de page ET après chaque fin de partie
+// (cf. les 3 handlers game_finished/guess_game_over/auction_game_over plus bas) pour que
+// l'XP gagnée pendant la partie qui vient de se terminer soit reflétée sans recharger la
+// page. Silencieuse en cas d'échec (mode invité, hors-ligne...) : ce n'est jamais
+// bloquant pour le joueur.
+async function refreshAccountFromServer() {
   const stored = getStoredAccount();
   if (!stored || !stored.refreshToken) return;
   try {
@@ -170,14 +197,15 @@ applyAccountUI(getStoredAccount());
       applyAccountUI(null);
       return;
     }
-    const account = { accessToken: data.accessToken, refreshToken: data.refreshToken, pseudo: data.pseudo, avatar: data.avatar };
+    const account = { accessToken: data.accessToken, refreshToken: data.refreshToken, pseudo: data.pseudo, avatar: data.avatar, xp: data.xp, level: data.level };
     setStoredAccount(account);
     applyAccountUI(account);
   } catch (err) {
-    // Hors-ligne ou serveur injoignable au chargement : on ne touche à rien, la session
-    // stockée reste telle quelle pour une prochaine tentative (ex: prochain chargement).
+    // Hors-ligne ou serveur injoignable : on ne touche à rien, la session stockée reste
+    // telle quelle pour une prochaine tentative.
   }
-})();
+}
+refreshAccountFromServer();
 
 // Peuple la grille de choix d'avatar (une seule fois par ouverture) et surligne celui
 // actuellement utilisé par le compte connecté.
@@ -236,6 +264,7 @@ function refreshAccountSettingsSection() {
     accountFormRegisterEl.classList.add('screen--hidden');
     accountLoggedPseudoEl.textContent = account.pseudo;
     accountAvatarCurrentEl.src = account.avatar ? avatarUrl(account.avatar) : '';
+    renderAccountLevel(account);
     populateAvatarGrid(account);
   } else {
     // Réaffiche toujours l'onglet Connexion par défaut à l'ouverture (état simple et
@@ -284,7 +313,7 @@ btnAccountLogin.addEventListener('click', async () => {
       accountErrorEl.textContent = data.error || 'Connexion impossible.';
       return;
     }
-    const account = { accessToken: data.accessToken, refreshToken: data.refreshToken, pseudo: data.pseudo, avatar: data.avatar };
+    const account = { accessToken: data.accessToken, refreshToken: data.refreshToken, pseudo: data.pseudo, avatar: data.avatar, xp: data.xp, level: data.level };
     setStoredAccount(account);
     applyAccountUI(account);
     refreshAccountSettingsSection();
@@ -319,7 +348,7 @@ btnAccountRegister.addEventListener('click', async () => {
       accountErrorEl.textContent = 'Compte créé : vérifie tes emails avant de te connecter.';
       return;
     }
-    const account = { accessToken: data.accessToken, refreshToken: data.refreshToken, pseudo: data.pseudo, avatar: data.avatar };
+    const account = { accessToken: data.accessToken, refreshToken: data.refreshToken, pseudo: data.pseudo, avatar: data.avatar, xp: data.xp, level: data.level };
     setStoredAccount(account);
     applyAccountUI(account);
     refreshAccountSettingsSection();
@@ -1616,7 +1645,7 @@ btnCreate.addEventListener('click', () => {
     showError('Entre un pseudo.');
     return;
   }
-  socket.emit('create_game', { name, token: deviceToken, avatar: getStoredAccount()?.avatar || null });
+  socket.emit('create_game', { name, token: deviceToken, avatar: getStoredAccount()?.avatar || null, accessToken: getStoredAccount()?.accessToken || null });
 });
 
 btnJoin.addEventListener('click', () => {
@@ -1631,7 +1660,7 @@ btnJoin.addEventListener('click', () => {
     showError('Entre un code de partie.');
     return;
   }
-  socket.emit('join_game', { name, gameId: code, token: deviceToken, avatar: getStoredAccount()?.avatar || null });
+  socket.emit('join_game', { name, gameId: code, token: deviceToken, avatar: getStoredAccount()?.avatar || null, accessToken: getStoredAccount()?.accessToken || null });
 });
 
 codeInput.addEventListener('input', () => {
@@ -2383,6 +2412,7 @@ function applyGameFinished({ boss, difficulty, gameMode, adminId, reason, player
 }
 
 socket.on('game_finished', (payload) => {
+  refreshAccountFromServer(); // XP gagnée pendant la partie (cf. awardXp côté serveur)
   if (isSpectating) {
     // Même logique que game_started ci-dessus : un spectateur reste dans le salon
     // jusqu'à la fin de partie, mais ne doit jamais atterrir sur #screen-finished (vue
@@ -2798,6 +2828,7 @@ socket.on('guess_attempt_result', ({ by, index, name, correct }) => {
 });
 
 socket.on('guess_game_over', ({ winnerId, reason, secretPokemon, players }) => {
+  refreshAccountFromServer(); // XP gagnée pendant la partie (cf. awardXp côté serveur)
   if (isSpectating) {
     // Même logique que game_finished pour Route du Boss : ne jamais rediriger un
     // spectateur vers #screen-guess-finished (vue "victoire/défaite" propre aux 2
@@ -3229,6 +3260,7 @@ socket.on('auction_lot_resolved', (payload) => {
 });
 
 socket.on('auction_game_over', ({ reason, players, history }) => {
+  refreshAccountFromServer(); // XP gagnée pendant la partie (cf. awardXp côté serveur)
   renderAuctionFinished({ reason, players, history });
 });
 

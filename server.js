@@ -112,6 +112,47 @@ const AVATARS = [
   'mrbriney', 'mrstone', 'nate'
 ];
 
+// ---------------------------------------------------------------
+// XP / NIVEAU (optionnel, liés au compte comme l'avatar) — jamais un pré-requis pour
+// jouer, jamais bloquant : un joueur invité ou dont le token ne peut plus être vérifié
+// au moment de la fin de partie ne reçoit simplement pas d'XP, sans aucune erreur visible
+// ni impact sur la partie elle-même (cf. awardXp, appelé en "fire and forget" à chaque
+// fin de partie, jamais attendu avant d'annoncer les résultats aux joueurs).
+//
+// Palier croissant : xpForLevel(N) = XP cumulé nécessaire pour ATTEINDRE le niveau N
+// depuis le niveau 1 (palier 1 = 100 XP, palier 2 = 200 XP de plus, etc. — jamais un
+// palier fixe, sinon monter de niveau deviendrait de plus en plus rapide en valeur
+// relative au lieu de rester un effort croissant).
+const XP_LEVEL_STEP = 100;
+function xpForLevel(level) {
+  return Math.round(XP_LEVEL_STEP * level * (level - 1) / 2);
+}
+function levelForXp(xp) {
+  let level = 1;
+  while (xpForLevel(level + 1) <= xp) level++;
+  return level;
+}
+const XP_PARTICIPATION = 10; // toujours attribué à qui termine une partie, gagnant ou non
+const XP_VICTORY_BONUS = 20; // en plus de XP_PARTICIPATION, uniquement au(x) vainqueur(s)
+
+// Ajoute de l'XP au compte d'un joueur, UNIQUEMENT si son accessToken (fourni à la
+// création/connexion à la partie via makePlayer, jamais revalidé avant maintenant)
+// correspond réellement à un compte Supabase valide à l'instant de la fin de partie.
+// Jamais attendu par l'appelant (fire-and-forget) : l'XP est un bonus, ne doit jamais
+// retarder ni bloquer l'annonce des résultats aux joueurs.
+async function awardXp(player, amount) {
+  if (!player || !player.accountAccessToken || !supabase || !createAuthClient) return;
+  try {
+    const { data: { user }, error: userError } = await createAuthClient().auth.getUser(player.accountAccessToken);
+    if (userError || !user) return;
+    const { data: profile } = await supabase.from('profiles').select('xp').eq('id', user.id).single();
+    const newXp = (profile ? (profile.xp || 0) : 0) + amount;
+    await supabase.from('profiles').update({ xp: newXp }).eq('id', user.id);
+  } catch (err) {
+    console.error('[xp] échec attribution', { err: err.message });
+  }
+}
+
 // Manifeste des sprites (tous les dex id du pool + des boss) : le client s'en sert au
 // chargement pour précharger discrètement les images en arrière-plan pendant le lobby,
 // AVANT qu'une partie ne les demande réellement pour un tour. Supprime le petit flash de
@@ -196,7 +237,9 @@ app.post('/api/register', async (req, res) => {
     accessToken: data.session.access_token,
     refreshToken: data.session.refresh_token,
     pseudo: cleanPseudo,
-    avatar: startingAvatar
+    avatar: startingAvatar,
+    xp: 0,
+    level: levelForXp(0)
   });
 });
 
@@ -216,21 +259,25 @@ app.post('/api/login', async (req, res) => {
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('pseudo, avatar')
+    .select('pseudo, avatar, xp')
     .eq('id', data.user.id)
     .single();
 
+  const xp = profile ? (profile.xp || 0) : 0;
   res.json({
     accessToken: data.session.access_token,
     refreshToken: data.session.refresh_token,
     pseudo: profile ? profile.pseudo : '',
-    avatar: profile ? profile.avatar : null
+    avatar: profile ? profile.avatar : null,
+    xp,
+    level: levelForXp(xp)
   });
 });
 
 // Restaure une session à partir du refresh_token gardé côté client (cf. localStorage
 // rdb_account dans client.js), pour ne pas redemander le mot de passe à chaque
-// chargement de page.
+// chargement de page. Réutilisée aussi par le client pour rafraîchir XP/niveau après
+// chaque fin de partie (cf. refreshAccountProfile côté client.js).
 app.post('/api/session', async (req, res) => {
   if (!requireSupabase(res)) return;
   const { refreshToken } = req.body || {};
@@ -247,15 +294,18 @@ app.post('/api/session', async (req, res) => {
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('pseudo, avatar')
+    .select('pseudo, avatar, xp')
     .eq('id', data.user.id)
     .single();
 
+  const xp = profile ? (profile.xp || 0) : 0;
   res.json({
     accessToken: data.session.access_token,
     refreshToken: data.session.refresh_token,
     pseudo: profile ? profile.pseudo : '',
-    avatar: profile ? profile.avatar : null
+    avatar: profile ? profile.avatar : null,
+    xp,
+    level: levelForXp(xp)
   });
 });
 
@@ -1569,6 +1619,9 @@ function resolveAuctionLot(game) {
 function finishAuctionGame(game, reason) {
   game.auctionLot = null;
   game.status = 'finished';
+  // XP (fire-and-forget) : pas de vainqueur en mode Draft (pas de score à comparer),
+  // juste la participation pour qui termine le draft.
+  game.players.forEach(p => awardXp(p, XP_PARTICIPATION));
   io.to(game.id).emit('auction_game_over', {
     reason: reason || 'complete', // 'complete' (les 2 équipes sont pleines / pool épuisé) | 'forfeit'
     players: getPublicAuctionPlayers(game),
@@ -1650,6 +1703,9 @@ function finishGuessGame(game, winnerId, opponentSecretIndex) {
   game.status = 'finished';
   game.guessWinnerId = winnerId;
 
+  // XP (fire-and-forget) : participation pour les deux, bonus pour le gagnant.
+  game.players.forEach(p => awardXp(p, XP_PARTICIPATION + (p.id === winnerId ? XP_VICTORY_BONUS : 0)));
+
   const secretMon = game.guessBoard[opponentSecretIndex];
   io.to(game.id).emit('guess_game_over', {
     winnerId,
@@ -1672,6 +1728,11 @@ function finishGuessGameByForfeit(game, leavingPlayer) {
 
   const remaining = game.players[0]; // un seul joueur restant, cf. leaveCurrentGame()/finalizePlayerRemoval()
   game.guessWinnerId = remaining ? remaining.id : null;
+
+  // XP (fire-and-forget) : le joueur qui a quitté n'a que la participation, celui qui
+  // reste (victoire par forfait) touche aussi le bonus.
+  awardXp(leavingPlayer, XP_PARTICIPATION);
+  if (remaining) awardXp(remaining, XP_PARTICIPATION + XP_VICTORY_BONUS);
 
   io.to(game.id).emit('guess_game_over', {
     winnerId: game.guessWinnerId,
@@ -2573,7 +2634,7 @@ function generateGameId() {
   return id;
 }
 
-function makePlayer(id, name, token, avatar) {
+function makePlayer(id, name, token, avatar, accessToken) {
   return {
     id,
     name,
@@ -2581,6 +2642,12 @@ function makePlayer(id, name, token, avatar) {
     // client — uniquement une valeur de la liste, sinon null (joueur invité ou sans
     // avatar choisi).
     avatar: AVATARS.includes(avatar) ? avatar : null,
+    // accessToken du compte (optionnel) : JAMAIS validé ni exposé aux autres joueurs
+    // (absent de getPublicPlayers/getPublicAuctionPlayers) — uniquement revérifié une
+    // fois, en fin de partie, pour attribuer de l'XP (cf. awardXp). Un token expiré ou
+    // absent (joueur invité) signifie simplement "pas d'XP cette partie", jamais une
+    // erreur.
+    accountAccessToken: accessToken || null,
     token: token || generateToken(), // filet de sécurité si un vieux client n'en envoie pas
     disconnected: false, // cf. RECONNECT_GRACE_MS — true pendant le délai de grâce
     disconnectTimer: null,
@@ -2749,6 +2816,12 @@ function finishGame(game) {
       team: p.team,
       result: p.score >= game.boss.requiredPoints ? 'victory' : 'defeat'
     };
+  });
+
+  // XP (fire-and-forget, cf. awardXp) : participation pour tous, bonus pour qui a gagné.
+  game.players.forEach(p => {
+    const r = results.find(x => x.id === p.id);
+    awardXp(p, XP_PARTICIPATION + (r && r.result === 'victory' ? XP_VICTORY_BONUS : 0));
   });
 
   io.to(game.id).emit('game_finished', {
@@ -3058,6 +3131,11 @@ function finishAdminModeByForfeit(game, leavingPlayer) {
       result: p.id === leavingPlayer.id ? 'defeat' : 'victory'
     }));
 
+  // XP (fire-and-forget) : le joueur qui a quitté n'a que la participation, celui qui
+  // reste (victoire par forfait) touche aussi le bonus.
+  awardXp(leavingPlayer, XP_PARTICIPATION);
+  if (remaining) awardXp(remaining, XP_PARTICIPATION + XP_VICTORY_BONUS);
+
   io.to(game.id).emit('game_finished', {
     boss: game.boss,
     difficulty: game.selectedDifficulty,
@@ -3070,7 +3148,7 @@ function finishAdminModeByForfeit(game, leavingPlayer) {
 }
 
 io.on('connection', (socket) => {
-  socket.on('create_game', ({ name, token, avatar } = {}) => {
+  socket.on('create_game', ({ name, token, avatar, accessToken } = {}) => {
     const trimmed = (name || '').trim();
     if (!trimmed) {
       socket.emit('error_message', 'Pseudo requis.');
@@ -3104,7 +3182,7 @@ io.on('connection', (socket) => {
       guessTurnTimer: null,
       guessWinnerId: null,
       guessTurnDurationMs: GUESS_TURN_DURATION_MS, // réglable par l'hôte, cf. set_guess_turn_duration
-      players: [makePlayer(socket.id, trimmed, token, avatar)],
+      players: [makePlayer(socket.id, trimmed, token, avatar, accessToken)],
       spectators: [], // cf. socket.on('join_game') : { id, name } uniquement, jamais de state de jeu
       activePlayerIds: null, // [id, id] : qui joue réellement en mode admin/guess à >2 joueurs dans le lobby (cf. set_active_players) ; ignoré/null tant qu'il n'y a que 2 joueurs
       // ---- Mode "auction" (Draft / Enchères) uniquement, cf. startAuctionGame() ----
@@ -3133,7 +3211,7 @@ io.on('connection', (socket) => {
     });
   });
 
-  socket.on('join_game', ({ name, gameId, token, avatar } = {}) => {
+  socket.on('join_game', ({ name, gameId, token, avatar, accessToken } = {}) => {
     const trimmedName = (name || '').trim();
     const id = (gameId || '').trim().toUpperCase();
     const game = games[id];
@@ -3212,7 +3290,7 @@ io.on('connection', (socket) => {
     }
     removeSpectator(socket); // idem si le socket observait une AUTRE partie en spectateur
 
-    const newPlayer = makePlayer(socket.id, trimmedName, token, avatar);
+    const newPlayer = makePlayer(socket.id, trimmedName, token, avatar, accessToken);
     game.players.push(newPlayer);
 
     socket.join(id);
@@ -3686,7 +3764,7 @@ io.on('connection', (socket) => {
       guessTurnTimer: null,
       guessWinnerId: null,
       guessTurnDurationMs: oldGame.guessTurnDurationMs || GUESS_TURN_DURATION_MS, // conservée, modifiable avant le lancement
-      players: connectedOldPlayers.map(p => makePlayer(p.id, p.name, p.token, p.avatar)), // pity remis à 0, token et avatar conservés (cf. makePlayer)
+      players: connectedOldPlayers.map(p => makePlayer(p.id, p.name, p.token, p.avatar, p.accountAccessToken)), // pity remis à 0, token/avatar/compte conservés (cf. makePlayer)
       spectators: [],
       activePlayerIds: null, // nouvelle partie = nouvelle sélection à faire si jamais elle repasse à >2 joueurs
       // ---- Mode "auction" : reset complet, y compris le type (l'hôte re-choisit avant
