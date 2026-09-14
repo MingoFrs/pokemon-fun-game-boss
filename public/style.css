@@ -612,11 +612,11 @@ input:focus {
 }
 
 .account-status-avatar-img {
-  width: 32px;
-  height: 32px;
+  width: 44px;
+  height: 44px;
   border-radius: 50%;
   vertical-align: middle;
-  margin-right: 6px;
+  margin-right: 8px;
   object-fit: cover;
   background: var(--bg-panel-alt);
 }
@@ -801,8 +801,8 @@ input:focus {
 }
 
 .player-item__avatar {
-  width: 28px;
-  height: 28px;
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
   object-fit: cover;
   background: var(--bg-panel);
@@ -1929,6 +1929,22 @@ input:focus {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+}
+
+.finished-card__identity {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.finished-card__avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--bg-panel-alt);
+  flex-shrink: 0;
 }
 
 .finished-card__name {

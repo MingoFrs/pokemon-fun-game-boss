@@ -2369,6 +2369,17 @@ function applyGameFinished({ boss, difficulty, gameMode, adminId, reason, player
     const nameRow = document.createElement('div');
     nameRow.className = 'finished-card__name-row';
 
+    const identity = document.createElement('div');
+    identity.className = 'finished-card__identity';
+
+    if (p.avatar) {
+      const avatarImg = document.createElement('img');
+      avatarImg.className = 'finished-card__avatar';
+      avatarImg.src = avatarUrl(p.avatar);
+      avatarImg.alt = '';
+      identity.appendChild(avatarImg);
+    }
+
     const name = document.createElement('p');
     name.className = 'finished-card__name';
     // Mode ADMIN VS JOUEUR : précise le rôle à côté du pseudo (l'ADMIN a un score à 0,
@@ -2376,12 +2387,13 @@ function applyGameFinished({ boss, difficulty, gameMode, adminId, reason, player
     name.textContent = currentGameMode === 'admin'
       ? `${p.name} (${p.id === currentAdminId ? 'ADMIN' : 'JOUEUR'})`
       : p.name;
+    identity.appendChild(name);
 
     const score = document.createElement('p');
     score.className = 'finished-card__score';
     score.textContent = `${p.score} PTS`;
 
-    nameRow.appendChild(name);
+    nameRow.appendChild(identity);
     nameRow.appendChild(score);
 
     const teamRow = document.createElement('div');
