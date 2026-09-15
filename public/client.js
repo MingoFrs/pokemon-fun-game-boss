@@ -104,6 +104,7 @@ const accountLevelValueEl = document.getElementById('account-level-value');
 const accountXpBarFillEl = document.getElementById('account-xp-bar-fill');
 const accountXpTextEl = document.getElementById('account-xp-text');
 const accountAvatarGridEl = document.getElementById('account-avatar-grid');
+const accountAvatarSearchEl = document.getElementById('account-avatar-search');
 const accountErrorEl = document.getElementById('account-error');
 
 // Reflet côté client de la formule de niveau du serveur (cf. xpForLevel/levelForXp dans
@@ -209,10 +210,15 @@ refreshAccountFromServer();
 
 // Peuple la grille de choix d'avatar (une seule fois par ouverture) et surligne celui
 // actuellement utilisé par le compte connecté.
-async function populateAvatarGrid(account) {
+// Filtre la liste selon la recherche (sous-chaîne, insensible à la casse) — sans elle,
+// impossible de retrouver un personnage précis parmi les 325 avatars rien qu'en
+// scrollant. "" (recherche vide) = tout afficher.
+async function populateAvatarGrid(account, filterText) {
   const list = await fetchAvatarList();
+  const term = (filterText || '').trim().toLowerCase();
+  const filtered = term ? list.filter(name => name.toLowerCase().includes(term)) : list;
   accountAvatarGridEl.innerHTML = '';
-  list.forEach(name => {
+  filtered.forEach(name => {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'account-avatar-choice' + (name === account.avatar ? ' account-avatar-choice--selected' : '');
@@ -265,7 +271,8 @@ function refreshAccountSettingsSection() {
     accountLoggedPseudoEl.textContent = account.pseudo;
     accountAvatarCurrentEl.src = account.avatar ? avatarUrl(account.avatar) : '';
     renderAccountLevel(account);
-    populateAvatarGrid(account);
+    accountAvatarSearchEl.value = '';
+    populateAvatarGrid(account, '');
   } else {
     // Réaffiche toujours l'onglet Connexion par défaut à l'ouverture (état simple et
     // prévisible plutôt que de retenir le dernier onglet visité).
@@ -282,6 +289,11 @@ btnAccountLogoutModal.addEventListener('click', () => {
   setStoredAccount(null);
   applyAccountUI(null);
   refreshAccountSettingsSection();
+});
+
+accountAvatarSearchEl.addEventListener('input', () => {
+  const account = getStoredAccount();
+  if (account) populateAvatarGrid(account, accountAvatarSearchEl.value);
 });
 
 accountTabButtons.forEach(btn => {
