@@ -104,6 +104,7 @@ const accountLevelValueEl = document.getElementById('account-level-value');
 const accountXpBarFillEl = document.getElementById('account-xp-bar-fill');
 const accountXpTextEl = document.getElementById('account-xp-text');
 const accountAvatarGridEl = document.getElementById('account-avatar-grid');
+const accountHistoryListEl = document.getElementById('account-history-list');
 const accountAvatarSearchEl = document.getElementById('account-avatar-search');
 const accountErrorEl = document.getElementById('account-error');
 
@@ -125,6 +126,59 @@ function renderAccountLevel(account) {
   accountLevelValueEl.textContent = level;
   accountXpBarFillEl.style.width = `${pct}%`;
   accountXpTextEl.textContent = `${xp} / ${ceil} XP`;
+}
+
+const GAME_MODE_LABELS = { normal: 'Route du Boss', admin: 'Admin vs Joueur', guess: 'Devine le Pokémon', auction: 'Draft/Enchères' };
+const RESULT_LABELS = { victory: 'Victoire', defeat: 'Défaite', participation: 'Terminé' };
+
+async function fetchAndRenderAccountHistory(account) {
+  accountHistoryListEl.innerHTML = '';
+  try {
+    const res = await fetch('/api/profile/history', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ accessToken: account.accessToken })
+    });
+    const data = await res.json();
+    if (!res.ok || !data.history || !data.history.length) {
+      const empty = document.createElement('p');
+      empty.className = 'account-history-empty';
+      empty.textContent = 'Aucune partie terminée pour le moment.';
+      accountHistoryListEl.appendChild(empty);
+      return;
+    }
+    data.history.forEach(entry => {
+      const li = document.createElement('li');
+      li.className = 'account-history-item' + (entry.result === 'victory' ? ' account-history-item--victory' : entry.result === 'defeat' ? ' account-history-item--defeat' : '');
+
+      const mode = document.createElement('span');
+      mode.className = 'account-history-item__mode';
+      mode.textContent = GAME_MODE_LABELS[entry.game_mode] || entry.game_mode;
+
+      const detail = document.createElement('span');
+      detail.className = 'account-history-item__detail';
+      const resultLabel = RESULT_LABELS[entry.result] || entry.result;
+      const parts = [resultLabel];
+      if (entry.opponent_name) parts.push(`vs ${entry.opponent_name}`);
+      if (entry.score !== null && entry.score !== undefined) parts.push(`${entry.score} pts`);
+      detail.textContent = parts.join(' · ');
+
+      const date = document.createElement('span');
+      date.className = 'account-history-item__date';
+      const d = new Date(entry.created_at);
+      date.textContent = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`;
+
+      li.appendChild(mode);
+      li.appendChild(detail);
+      li.appendChild(date);
+      accountHistoryListEl.appendChild(li);
+    });
+  } catch (err) {
+    const empty = document.createElement('p');
+    empty.className = 'account-history-empty';
+    empty.textContent = 'Historique indisponible pour le moment.';
+    accountHistoryListEl.appendChild(empty);
+  }
 }
 
 // Sprites de dresseurs hébergés par Pokémon Showdown, réutilisés tels quels comme
@@ -271,6 +325,7 @@ function refreshAccountSettingsSection() {
     accountLoggedPseudoEl.textContent = account.pseudo;
     accountAvatarCurrentEl.src = account.avatar ? avatarUrl(account.avatar) : '';
     renderAccountLevel(account);
+    fetchAndRenderAccountHistory(account);
     accountAvatarSearchEl.value = '';
     populateAvatarGrid(account, '');
   } else {

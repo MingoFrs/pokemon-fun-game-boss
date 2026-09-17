@@ -733,6 +733,66 @@ input:focus {
   margin: 0 0 16px;
 }
 
+.account-history-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 16px;
+  max-height: 220px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.account-history-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  background: var(--bg-panel-alt);
+  border-radius: 8px;
+  font-size: 13px;
+  border-left: 3px solid var(--border);
+}
+
+.account-history-item--victory {
+  border-left-color: var(--accent-bas, #3fd0c9);
+}
+
+.account-history-item--defeat {
+  border-left-color: var(--danger);
+}
+
+.account-history-item__mode {
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  font-size: 10px;
+  color: var(--text-muted);
+  letter-spacing: 0.08em;
+}
+
+.account-history-item__detail {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-history-item__date {
+  font-size: 11px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.account-history-empty {
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-muted);
+  margin: 0 0 16px;
+}
+
 .account-avatar-choice {
   aspect-ratio: 1;
   background: var(--bg-panel-alt);

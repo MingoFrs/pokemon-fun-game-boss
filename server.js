@@ -140,16 +140,31 @@ const XP_VICTORY_BONUS = 20; // en plus de XP_PARTICIPATION, uniquement au(x) va
 // correspond réellement à un compte Supabase valide à l'instant de la fin de partie.
 // Jamais attendu par l'appelant (fire-and-forget) : l'XP est un bonus, ne doit jamais
 // retarder ni bloquer l'annonce des résultats aux joueurs.
-async function awardXp(player, amount) {
+// Appelée une fois par joueur à CHAQUE fin de partie (fire-and-forget, jamais attendue
+// par l'appelant) : attribue l'XP ET enregistre une ligne d'historique en UNE SEULE
+// vérification d'identité (au lieu de deux fonctions séparées qui revalideraient chacune
+// le token). Échoue silencieusement si le joueur est invité, son token n'est plus valide,
+// ou Supabase est indisponible — jamais un pré-requis pour terminer une partie.
+// details : { gameMode, result: 'victory'|'defeat'|'participation', score, opponentName }
+async function recordGameResult(player, xpAmount, details) {
   if (!player || !player.accountAccessToken || !supabase || !createAuthClient) return;
   try {
     const { data: { user }, error: userError } = await createAuthClient().auth.getUser(player.accountAccessToken);
     if (userError || !user) return;
+
     const { data: profile } = await supabase.from('profiles').select('xp').eq('id', user.id).single();
-    const newXp = (profile ? (profile.xp || 0) : 0) + amount;
+    const newXp = (profile ? (profile.xp || 0) : 0) + xpAmount;
     await supabase.from('profiles').update({ xp: newXp }).eq('id', user.id);
+
+    await supabase.from('game_history').insert({
+      user_id: user.id,
+      game_mode: details.gameMode,
+      result: details.result,
+      score: details.score ?? null,
+      opponent_name: details.opponentName ?? null
+    });
   } catch (err) {
-    console.error('[xp] échec attribution', { err: err.message });
+    console.error('[fin de partie] échec XP/historique', { err: err.message });
   }
 }
 
@@ -339,6 +354,36 @@ app.post('/api/profile/avatar', async (req, res) => {
   }
 
   res.json({ avatar });
+});
+
+// Historique des 10 dernières parties terminées (cf. recordGameResult, appelé à chaque
+// fin de partie). Identité vérifiée via accessToken, comme /api/profile/avatar.
+app.post('/api/profile/history', async (req, res) => {
+  if (!requireSupabase(res)) return;
+  const { accessToken } = req.body || {};
+  if (!accessToken) {
+    res.status(400).json({ error: 'accessToken requis.' });
+    return;
+  }
+
+  const { data: { user }, error: userError } = await createAuthClient().auth.getUser(accessToken);
+  if (userError || !user) {
+    res.status(401).json({ error: 'Session invalide.' });
+    return;
+  }
+
+  const { data, error } = await supabase
+    .from('game_history')
+    .select('game_mode, result, score, opponent_name, created_at')
+    .eq('user_id', user.id)
+    .order('created_at', { ascending: false })
+    .limit(10);
+  if (error) {
+    res.status(400).json({ error: "L'historique n'a pas pu être récupéré." });
+    return;
+  }
+
+  res.json({ history: data || [] });
 });
 
 
@@ -1619,9 +1664,21 @@ function resolveAuctionLot(game) {
 function finishAuctionGame(game, reason) {
   game.auctionLot = null;
   game.status = 'finished';
-  // XP (fire-and-forget) : pas de vainqueur en mode Draft (pas de score à comparer),
-  // juste la participation pour qui termine le draft.
-  game.players.forEach(p => awardXp(p, XP_PARTICIPATION));
+  // XP + historique (fire-and-forget) : uniquement pour une fin "normale" (pool épuisé /
+  // 2 équipes pleines) — le cas "forfeit" est géré à part par
+  // finishAuctionGameByForfeit AVANT d'arriver ici (le joueur parti n'est déjà plus dans
+  // game.players à ce stade, donc cette boucle ne le verrait de toute façon jamais).
+  if (reason === 'complete') {
+    game.players.forEach(p => {
+      const opponent = game.players.find(x => x.id !== p.id);
+      recordGameResult(p, XP_PARTICIPATION, {
+        gameMode: 'auction',
+        result: 'participation',
+        score: null,
+        opponentName: opponent ? opponent.name : null
+      });
+    });
+  }
   io.to(game.id).emit('auction_game_over', {
     reason: reason || 'complete', // 'complete' (les 2 équipes sont pleines / pool épuisé) | 'forfeit'
     players: getPublicAuctionPlayers(game),
@@ -1631,8 +1688,21 @@ function finishAuctionGame(game, reason) {
 
 // Déconnexion en cours de draft (cf. finalizePlayerRemoval) : pas de "défaite" à proprement
 // parler (l'enchère n'a pas de score à comparer), juste une fin de partie prématurée —
-// chacun repart avec l'équipe qu'il avait au moment de la coupure.
+// chacun repart avec l'équipe qu'il avait au moment de la coupure. XP/historique quand
+// même enregistrés ici (et pas dans finishAuctionGame) car leavingPlayer n'est déjà plus
+// dans game.players à ce stade (retiré par leaveCurrentGame juste avant).
 function finishAuctionGameByForfeit(game, leavingPlayer) {
+  const remaining = game.players[0]; // un seul joueur restant, cf. leaveCurrentGame()
+  recordGameResult(leavingPlayer, XP_PARTICIPATION, {
+    gameMode: 'auction', result: 'defeat', score: null,
+    opponentName: remaining ? remaining.name : null
+  });
+  if (remaining) {
+    recordGameResult(remaining, XP_PARTICIPATION + XP_VICTORY_BONUS, {
+      gameMode: 'auction', result: 'victory', score: null,
+      opponentName: leavingPlayer.name
+    });
+  }
   finishAuctionGame(game, 'forfeit');
 }
 
@@ -1703,8 +1773,17 @@ function finishGuessGame(game, winnerId, opponentSecretIndex) {
   game.status = 'finished';
   game.guessWinnerId = winnerId;
 
-  // XP (fire-and-forget) : participation pour les deux, bonus pour le gagnant.
-  game.players.forEach(p => awardXp(p, XP_PARTICIPATION + (p.id === winnerId ? XP_VICTORY_BONUS : 0)));
+  // XP + historique (fire-and-forget) : participation pour les deux, bonus pour le
+  // gagnant. Pas de score en mode guess (jamais suivi).
+  game.players.forEach(p => {
+    const opponent = game.players.find(x => x.id !== p.id);
+    recordGameResult(p, XP_PARTICIPATION + (p.id === winnerId ? XP_VICTORY_BONUS : 0), {
+      gameMode: 'guess',
+      result: p.id === winnerId ? 'victory' : 'defeat',
+      score: null,
+      opponentName: opponent ? opponent.name : null
+    });
+  });
 
   const secretMon = game.guessBoard[opponentSecretIndex];
   io.to(game.id).emit('guess_game_over', {
@@ -1729,10 +1808,19 @@ function finishGuessGameByForfeit(game, leavingPlayer) {
   const remaining = game.players[0]; // un seul joueur restant, cf. leaveCurrentGame()/finalizePlayerRemoval()
   game.guessWinnerId = remaining ? remaining.id : null;
 
-  // XP (fire-and-forget) : le joueur qui a quitté n'a que la participation, celui qui
-  // reste (victoire par forfait) touche aussi le bonus.
-  awardXp(leavingPlayer, XP_PARTICIPATION);
-  if (remaining) awardXp(remaining, XP_PARTICIPATION + XP_VICTORY_BONUS);
+  // XP + historique (fire-and-forget) : le joueur qui a quitté n'a que la participation,
+  // celui qui reste (victoire par forfait) touche aussi le bonus. Pas de score en mode
+  // guess (jamais suivi, juste victoire/défaite).
+  recordGameResult(leavingPlayer, XP_PARTICIPATION, {
+    gameMode: 'guess', result: 'defeat', score: null,
+    opponentName: remaining ? remaining.name : null
+  });
+  if (remaining) {
+    recordGameResult(remaining, XP_PARTICIPATION + XP_VICTORY_BONUS, {
+      gameMode: 'guess', result: 'victory', score: null,
+      opponentName: leavingPlayer.name
+    });
+  }
 
   io.to(game.id).emit('guess_game_over', {
     winnerId: game.guessWinnerId,
@@ -2818,10 +2906,17 @@ function finishGame(game) {
     };
   });
 
-  // XP (fire-and-forget, cf. awardXp) : participation pour tous, bonus pour qui a gagné.
+  // XP + historique (fire-and-forget, cf. recordGameResult) : participation pour tous,
+  // bonus pour qui a gagné.
   game.players.forEach(p => {
     const r = results.find(x => x.id === p.id);
-    awardXp(p, XP_PARTICIPATION + (r && r.result === 'victory' ? XP_VICTORY_BONUS : 0));
+    const opponent = game.players.find(x => x.id !== p.id);
+    recordGameResult(p, XP_PARTICIPATION + (r && r.result === 'victory' ? XP_VICTORY_BONUS : 0), {
+      gameMode: game.gameMode,
+      result: r ? r.result : 'defeat',
+      score: p.score,
+      opponentName: opponent ? opponent.name : null
+    });
   });
 
   io.to(game.id).emit('game_finished', {
@@ -3131,10 +3226,18 @@ function finishAdminModeByForfeit(game, leavingPlayer) {
       result: p.id === leavingPlayer.id ? 'defeat' : 'victory'
     }));
 
-  // XP (fire-and-forget) : le joueur qui a quitté n'a que la participation, celui qui
-  // reste (victoire par forfait) touche aussi le bonus.
-  awardXp(leavingPlayer, XP_PARTICIPATION);
-  if (remaining) awardXp(remaining, XP_PARTICIPATION + XP_VICTORY_BONUS);
+  // XP + historique (fire-and-forget) : le joueur qui a quitté n'a que la participation,
+  // celui qui reste (victoire par forfait) touche aussi le bonus.
+  recordGameResult(leavingPlayer, XP_PARTICIPATION, {
+    gameMode: game.gameMode, result: 'defeat', score: leavingPlayer.score,
+    opponentName: remaining ? remaining.name : null
+  });
+  if (remaining) {
+    recordGameResult(remaining, XP_PARTICIPATION + XP_VICTORY_BONUS, {
+      gameMode: game.gameMode, result: 'victory', score: remaining.score,
+      opponentName: leavingPlayer.name
+    });
+  }
 
   io.to(game.id).emit('game_finished', {
     boss: game.boss,
