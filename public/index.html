@@ -710,7 +710,11 @@
           <p id="account-xp-text" class="account-xp-text"></p>
 
           <p class="settings-section__title">Historique (10 dernières parties)</p>
+          <p class="account-history-hint">Touche une partie pour voir l'équipe complète.</p>
           <ul id="account-history-list" class="account-history-list"></ul>
+
+          <p class="settings-section__title">Succès</p>
+          <div id="account-achievements-list" class="account-achievements-list"></div>
 
           <p class="settings-section__title">Choisir un avatar</p>
           <input id="account-avatar-search" type="text" class="account-avatar-search" placeholder="Rechercher (ex: morty, red, korrina)...">
@@ -771,6 +775,11 @@
     </div>
   </div>
 </div>
+
+<!-- Toasts de déblocage de succès (cf. socket.on('achievements_unlocked')) : flottent
+     au-dessus de n'importe quel écran, empilables, disparaissent seuls après quelques
+     secondes. Vide et invisible tant qu'aucun succès n'a été débloqué pendant la session. -->
+<div id="achievement-toast-container" class="achievement-toast-container" aria-live="polite"></div>
 
 <script src="/socket.io/socket.io.js"></script>
 <script src="client.js"></script>

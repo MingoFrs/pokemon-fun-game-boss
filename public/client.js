@@ -105,6 +105,8 @@ const accountXpBarFillEl = document.getElementById('account-xp-bar-fill');
 const accountXpTextEl = document.getElementById('account-xp-text');
 const accountAvatarGridEl = document.getElementById('account-avatar-grid');
 const accountHistoryListEl = document.getElementById('account-history-list');
+const accountAchievementsListEl = document.getElementById('account-achievements-list');
+const achievementToastContainerEl = document.getElementById('achievement-toast-container');
 const accountAvatarSearchEl = document.getElementById('account-avatar-search');
 const accountErrorEl = document.getElementById('account-error');
 
@@ -131,6 +133,32 @@ function renderAccountLevel(account) {
 const GAME_MODE_LABELS = { normal: 'Route du Boss', admin: 'Admin vs Joueur', guess: 'Devine le Pokémon', auction: 'Draft/Enchères' };
 const RESULT_LABELS = { victory: 'Victoire', defeat: 'Défaite', participation: 'Terminé' };
 
+// Détail "équipe complète" d'une ligne d'historique (cf. colonne `team` ajoutée à
+// game_history côté serveur, cf. recordGameResult) : un tableau de Pokémon pour
+// normal/admin/auction, ou null en mode "guess" (pas de concept d'équipe). Replié par
+// défaut (juste le résumé), déplié au clic sur la ligne — jamais les deux affichés
+// d'entrée pour garder la liste compacte.
+function buildAccountHistoryTeamDetail(team) {
+  if (!Array.isArray(team) || team.length === 0) {
+    const empty = document.createElement('p');
+    empty.className = 'account-history-item__team-empty';
+    empty.textContent = "Aucune équipe enregistrée pour cette partie.";
+    return empty;
+  }
+  const wrap = document.createElement('div');
+  wrap.className = 'account-history-item__team';
+  team.forEach(mon => {
+    const slot = document.createElement('div');
+    slot.className = 'account-history-item__team-slot';
+    const img = document.createElement('img');
+    img.src = pokemonSprite(mon);
+    img.alt = mon.name;
+    slot.appendChild(img);
+    wrap.appendChild(slot);
+  });
+  return wrap;
+}
+
 async function fetchAndRenderAccountHistory(account) {
   accountHistoryListEl.innerHTML = '';
   try {
@@ -151,6 +179,9 @@ async function fetchAndRenderAccountHistory(account) {
       const li = document.createElement('li');
       li.className = 'account-history-item' + (entry.result === 'victory' ? ' account-history-item--victory' : entry.result === 'defeat' ? ' account-history-item--defeat' : '');
 
+      const row = document.createElement('div');
+      row.className = 'account-history-item__row';
+
       const mode = document.createElement('span');
       mode.className = 'account-history-item__mode';
       mode.textContent = GAME_MODE_LABELS[entry.game_mode] || entry.game_mode;
@@ -168,9 +199,18 @@ async function fetchAndRenderAccountHistory(account) {
       const d = new Date(entry.created_at);
       date.textContent = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`;
 
-      li.appendChild(mode);
-      li.appendChild(detail);
-      li.appendChild(date);
+      row.appendChild(mode);
+      row.appendChild(detail);
+      row.appendChild(date);
+      li.appendChild(row);
+      li.appendChild(buildAccountHistoryTeamDetail(entry.team));
+
+      // Construit le détail une seule fois (au-dessus), juste replié/déplié au clic —
+      // jamais reconstruit à chaque toggle.
+      li.addEventListener('click', () => {
+        li.classList.toggle('account-history-item--expanded');
+      });
+
       accountHistoryListEl.appendChild(li);
     });
   } catch (err) {
@@ -179,6 +219,116 @@ async function fetchAndRenderAccountHistory(account) {
     empty.textContent = 'Historique indisponible pour le moment.';
     accountHistoryListEl.appendChild(empty);
   }
+}
+
+// ---------- Succès ----------
+const ACHIEVEMENT_CATEGORY_LABELS = { facile: 'Facile', difficile: 'Difficile' };
+// Icône purement décorative par clé — jamais transmise par le serveur (qui ne connaît que
+// label/description/category) : un simple mapping visuel côté client, facile à étendre si
+// de nouveaux succès sont ajoutés côté serveur (retombe sur 🏆 par défaut, jamais cassé).
+const ACHIEVEMENT_ICONS = {
+  first_game: '🎮',
+  first_win: '🥇',
+  first_legendary: '✨',
+  first_shiny: '🌟',
+  games_5: '📅',
+  score_6000: '💯',
+  wins_10: '🏆',
+  beat_extreme: '🔥',
+  full_legendary_team: '👑',
+  auction_full_team: '💰'
+};
+
+async function fetchAndRenderAccountAchievements(account) {
+  accountAchievementsListEl.innerHTML = '';
+  try {
+    const res = await fetch('/api/profile/achievements', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ accessToken: account.accessToken })
+    });
+    const data = await res.json();
+    if (!res.ok || !data.achievements) {
+      const empty = document.createElement('p');
+      empty.className = 'account-history-empty';
+      empty.textContent = 'Succès indisponibles pour le moment.';
+      accountAchievementsListEl.appendChild(empty);
+      return;
+    }
+
+    // 2 catégories fixes (facile/difficile, cf. ACHIEVEMENTS côté serveur) : toujours les
+    // deux affichées, dans cet ordre, même si l'une d'elles n'a encore rien de débloqué.
+    ['facile', 'difficile'].forEach(category => {
+      const items = data.achievements.filter(a => a.category === category);
+      if (items.length === 0) return;
+
+      const block = document.createElement('div');
+      const title = document.createElement('p');
+      title.className = 'account-achievements-category__title';
+      title.textContent = ACHIEVEMENT_CATEGORY_LABELS[category] || category;
+      block.appendChild(title);
+
+      const grid = document.createElement('div');
+      grid.className = 'account-achievements-grid';
+      items.forEach(a => {
+        const badge = document.createElement('div');
+        badge.className = `account-achievement-badge account-achievement-badge--${category}` + (a.unlocked ? ' account-achievement-badge--unlocked' : ' account-achievement-badge--locked');
+        badge.title = a.unlocked ? a.description : `??? — ${a.description}`;
+
+        const icon = document.createElement('span');
+        icon.className = 'account-achievement-badge__icon';
+        icon.textContent = ACHIEVEMENT_ICONS[a.key] || '🏆';
+
+        const label = document.createElement('span');
+        label.className = 'account-achievement-badge__label';
+        label.textContent = a.unlocked ? a.label : '???';
+
+        badge.appendChild(icon);
+        badge.appendChild(label);
+        grid.appendChild(badge);
+      });
+      block.appendChild(grid);
+      accountAchievementsListEl.appendChild(block);
+    });
+  } catch (err) {
+    const empty = document.createElement('p');
+    empty.className = 'account-history-empty';
+    empty.textContent = 'Succès indisponibles pour le moment.';
+    accountAchievementsListEl.appendChild(empty);
+  }
+}
+
+// Toast flottant (cf. #achievement-toast-container dans index.html), un par succès
+// débloqué, empilables si plusieurs arrivent d'un coup (ex: fin de partie qui déclenche
+// 2 succès à la fois). Se retire lui-même du DOM après son animation de sortie — jamais
+// laissé en résidu invisible dans le conteneur.
+function showAchievementToast(achievement) {
+  const toast = document.createElement('div');
+  toast.className = 'achievement-toast';
+
+  const icon = document.createElement('span');
+  icon.className = 'achievement-toast__icon';
+  icon.textContent = ACHIEVEMENT_ICONS[achievement.key] || '🏆';
+
+  const body = document.createElement('div');
+  const eyebrow = document.createElement('p');
+  eyebrow.className = 'achievement-toast__eyebrow';
+  eyebrow.textContent = 'Succès débloqué';
+  const label = document.createElement('p');
+  label.className = 'achievement-toast__label';
+  label.textContent = achievement.label;
+  const description = document.createElement('p');
+  description.className = 'achievement-toast__description';
+  description.textContent = achievement.description;
+  body.appendChild(eyebrow);
+  body.appendChild(label);
+  body.appendChild(description);
+
+  toast.appendChild(icon);
+  toast.appendChild(body);
+  achievementToastContainerEl.appendChild(toast);
+
+  setTimeout(() => toast.remove(), 5000); // couvre large la durée totale de l'animation CSS (4.5s + 0.25s)
 }
 
 // Sprites de dresseurs hébergés par Pokémon Showdown, réutilisés tels quels comme
@@ -326,6 +476,7 @@ function refreshAccountSettingsSection() {
     accountAvatarCurrentEl.src = account.avatar ? avatarUrl(account.avatar) : '';
     renderAccountLevel(account);
     fetchAndRenderAccountHistory(account);
+    fetchAndRenderAccountAchievements(account);
     accountAvatarSearchEl.value = '';
     populateAvatarGrid(account, '');
   } else {
@@ -2530,6 +2681,15 @@ socket.on('game_finished', (payload) => {
     return;
   }
   applyGameFinished(payload);
+});
+
+// Peut arriver après la fin de N'IMPORTE quel mode (normal/admin/guess/auction, cf.
+// recordGameResult côté serveur) : un seul listener global plutôt que dupliqué dans
+// chaque handler de fin de partie. Purement informatif — le succès est déjà enregistré
+// en base au moment où cet event arrive, ce toast ne fait qu'informer le joueur tout de
+// suite plutôt que de le laisser le découvrir à la prochaine ouverture des Réglages.
+socket.on('achievements_unlocked', ({ achievements }) => {
+  (achievements || []).forEach(a => showAchievementToast(a));
 });
 
 // ---------- Événements serveur : événements rares ----------

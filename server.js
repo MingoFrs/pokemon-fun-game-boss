@@ -145,7 +145,11 @@ const XP_VICTORY_BONUS = 20; // en plus de XP_PARTICIPATION, uniquement au(x) va
 // vérification d'identité (au lieu de deux fonctions séparées qui revalideraient chacune
 // le token). Échoue silencieusement si le joueur est invité, son token n'est plus valide,
 // ou Supabase est indisponible — jamais un pré-requis pour terminer une partie.
-// details : { gameMode, result: 'victory'|'defeat'|'participation', score, opponentName }
+// details : { gameMode, result: 'victory'|'defeat'|'participation', score, opponentName,
+//             difficulty (groupe 'easy'|'medium'|'hard'|'extreme', ou null si sans objet —
+//             mode auction), team (équipe complète au moment de la fin de partie, pour le
+//             détail dans l'historique + le calcul des succès ; null en mode "guess", qui
+//             n'a pas de concept d'équipe) }
 async function recordGameResult(player, xpAmount, details) {
   if (!player || !player.accountAccessToken || !supabase || !createAuthClient) return;
   try {
@@ -161,10 +165,112 @@ async function recordGameResult(player, xpAmount, details) {
       game_mode: details.gameMode,
       result: details.result,
       score: details.score ?? null,
-      opponent_name: details.opponentName ?? null
+      opponent_name: details.opponentName ?? null,
+      difficulty: details.difficulty ?? null,
+      team: details.team ?? null
     });
+
+    // Succès (fire-and-forget comme le reste de cette fonction) : jamais bloquant, jamais
+    // un pré-requis pour terminer une partie — cf. checkAndUnlockAchievements.
+    await checkAndUnlockAchievements(user.id, player.id);
   } catch (err) {
     console.error('[fin de partie] échec XP/historique', { err: err.message });
+  }
+}
+
+// -----------------------------------------------------------------
+// SUCCÈS (optionnels, liés au compte comme l'XP) — 2 catégories : "facile" (jalons
+// atteignables en une poignée de parties) et "difficile" (performances qui demandent de
+// la constance ou de la chance). Recalculés à CHAQUE fin de partie à partir de
+// l'historique COMPLET stocké en base (jamais de compteur séparé qui pourrait diverger de
+// la réalité) : source de vérité unique, cf. buildAchievementContext.
+// -----------------------------------------------------------------
+const ACHIEVEMENTS = [
+  { key: 'first_game', category: 'facile', label: 'Premiers pas', description: 'Termine ta première partie.', check: ctx => ctx.gamesPlayed >= 1 },
+  { key: 'first_win', category: 'facile', label: 'Première victoire', description: 'Remporte ta première partie.', check: ctx => ctx.wins >= 1 },
+  { key: 'first_legendary', category: 'facile', label: 'Rencontre légendaire', description: 'Obtiens un Pokémon légendaire dans ton équipe.', check: ctx => ctx.hasLegendary },
+  { key: 'first_shiny', category: 'facile', label: 'Reflet chromatique', description: 'Obtiens un Pokémon shiny.', check: ctx => ctx.hasShiny },
+  { key: 'games_5', category: 'facile', label: 'Habitué', description: 'Termine 5 parties.', check: ctx => ctx.gamesPlayed >= 5 },
+  { key: 'score_6000', category: 'difficile', label: 'Score légendaire', description: 'Atteins un score de 6000 en une seule partie.', check: ctx => ctx.bestScore >= 6000 },
+  { key: 'wins_10', category: 'difficile', label: 'Vétéran', description: 'Remporte 10 parties.', check: ctx => ctx.wins >= 10 },
+  { key: 'beat_extreme', category: 'difficile', label: "Chasseur d'Arceus", description: 'Bats un boss de difficulté extrême.', check: ctx => ctx.beatExtreme },
+  { key: 'full_legendary_team', category: 'difficile', label: 'Équipe de légende', description: 'Termine avec 6 Pokémon légendaires ou pseudo-légendaires.', check: ctx => ctx.fullLegendaryTeam },
+  { key: 'auction_full_team', category: 'difficile', label: 'Collectionneur', description: 'Termine un Draft/Enchères avec une équipe complète de 6.', check: ctx => ctx.auctionFullTeam }
+];
+
+// Agrège toutes les lignes d'historique d'un joueur (déjà chargées) en un contexte plat,
+// pratique à tester dans chaque `check` ci-dessus. rows[i].team est le snapshot stocké par
+// recordGameResult : peut être null (mode "guess") ou un tableau de Pokémon.
+function buildAchievementContext(rows) {
+  const ctx = {
+    gamesPlayed: rows.length,
+    wins: 0,
+    bestScore: 0,
+    hasLegendary: false,
+    hasShiny: false,
+    beatExtreme: false,
+    fullLegendaryTeam: false,
+    auctionFullTeam: false
+  };
+
+  rows.forEach(row => {
+    if (row.result === 'victory') ctx.wins += 1;
+    if (typeof row.score === 'number' && row.score > ctx.bestScore) ctx.bestScore = row.score;
+    if (row.result === 'victory' && (row.game_mode === 'normal' || row.game_mode === 'admin') && row.difficulty === 'extreme') {
+      ctx.beatExtreme = true;
+    }
+    if (Array.isArray(row.team)) {
+      if (row.team.some(mon => mon.rarity === 'legendaire')) ctx.hasLegendary = true;
+      if (row.team.some(mon => mon.shiny)) ctx.hasShiny = true;
+      if (row.game_mode === 'auction' && row.team.length >= 6) ctx.auctionFullTeam = true;
+      if (
+        (row.game_mode === 'normal' || row.game_mode === 'admin') &&
+        row.team.length === 6 &&
+        row.team.every(mon => mon.rarity === 'legendaire' || mon.rarity === 'pseudo_legendaire')
+      ) {
+        ctx.fullLegendaryTeam = true;
+      }
+    }
+  });
+
+  return ctx;
+}
+
+// Recalcule les succès obtenus, insère les nouveaux, et notifie le joueur (SI sa socket
+// est toujours connectée — socketId est son id AU MOMENT de la fin de partie, jamais
+// revalidé : si absent, le succès reste débloqué en base, juste pas de toast affiché tout
+// de suite, il apparaîtra à la prochaine ouverture des Réglages).
+async function checkAndUnlockAchievements(userId, socketId) {
+  try {
+    const { data: rows, error } = await supabase
+      .from('game_history')
+      .select('result, score, team, difficulty, game_mode')
+      .eq('user_id', userId);
+    if (error || !rows) return;
+
+    const ctx = buildAchievementContext(rows);
+
+    const { data: already, error: alreadyError } = await supabase
+      .from('achievements')
+      .select('achievement_key')
+      .eq('user_id', userId);
+    if (alreadyError) return;
+    const unlockedKeys = new Set((already || []).map(a => a.achievement_key));
+
+    const newlyUnlocked = ACHIEVEMENTS.filter(a => !unlockedKeys.has(a.key) && a.check(ctx));
+    if (newlyUnlocked.length === 0) return;
+
+    await supabase.from('achievements').insert(
+      newlyUnlocked.map(a => ({ user_id: userId, achievement_key: a.key }))
+    );
+
+    if (socketId) {
+      io.to(socketId).emit('achievements_unlocked', {
+        achievements: newlyUnlocked.map(a => ({ key: a.key, label: a.label, description: a.description, category: a.category }))
+      });
+    }
+  } catch (err) {
+    console.error('[succès] échec vérification', { err: err.message });
   }
 }
 
@@ -384,6 +490,41 @@ app.post('/api/profile/history', async (req, res) => {
   }
 
   res.json({ history: data || [] });
+});
+
+// Liste des 10 succès (facile/difficile) avec leur état débloqué/verrouillé pour ce
+// compte. La définition (label/description/catégorie) vient toujours du serveur — jamais
+// stockée ni recalculée côté client — seul le statut "unlocked" varie par joueur.
+app.post('/api/profile/achievements', async (req, res) => {
+  if (!requireSupabase(res)) return;
+  const { accessToken } = req.body || {};
+  if (!accessToken) {
+    res.status(400).json({ error: 'accessToken requis.' });
+    return;
+  }
+
+  const { data: { user }, error: userError } = await createAuthClient().auth.getUser(accessToken);
+  if (userError || !user) {
+    res.status(401).json({ error: 'Session invalide.' });
+    return;
+  }
+
+  const { data, error } = await supabase.from('achievements').select('achievement_key').eq('user_id', user.id);
+  if (error) {
+    res.status(400).json({ error: 'Les succès n\'ont pas pu être récupérés.' });
+    return;
+  }
+
+  const unlockedKeys = new Set((data || []).map(a => a.achievement_key));
+  res.json({
+    achievements: ACHIEVEMENTS.map(a => ({
+      key: a.key,
+      category: a.category,
+      label: a.label,
+      description: a.description,
+      unlocked: unlockedKeys.has(a.key)
+    }))
+  });
 });
 
 
@@ -1675,7 +1816,8 @@ function finishAuctionGame(game, reason) {
         gameMode: 'auction',
         result: 'participation',
         score: null,
-        opponentName: opponent ? opponent.name : null
+        opponentName: opponent ? opponent.name : null,
+        team: p.auctionTeam
       });
     });
   }
@@ -1695,12 +1837,14 @@ function finishAuctionGameByForfeit(game, leavingPlayer) {
   const remaining = game.players[0]; // un seul joueur restant, cf. leaveCurrentGame()
   recordGameResult(leavingPlayer, XP_PARTICIPATION, {
     gameMode: 'auction', result: 'defeat', score: null,
-    opponentName: remaining ? remaining.name : null
+    opponentName: remaining ? remaining.name : null,
+    team: leavingPlayer.auctionTeam
   });
   if (remaining) {
     recordGameResult(remaining, XP_PARTICIPATION + XP_VICTORY_BONUS, {
       gameMode: 'auction', result: 'victory', score: null,
-      opponentName: leavingPlayer.name
+      opponentName: leavingPlayer.name,
+      team: remaining.auctionTeam
     });
   }
   finishAuctionGame(game, 'forfeit');
@@ -1781,7 +1925,8 @@ function finishGuessGame(game, winnerId, opponentSecretIndex) {
       gameMode: 'guess',
       result: p.id === winnerId ? 'victory' : 'defeat',
       score: null,
-      opponentName: opponent ? opponent.name : null
+      opponentName: opponent ? opponent.name : null,
+      difficulty: game.selectedDifficulty || null
     });
   });
 
@@ -1813,12 +1958,14 @@ function finishGuessGameByForfeit(game, leavingPlayer) {
   // guess (jamais suivi, juste victoire/défaite).
   recordGameResult(leavingPlayer, XP_PARTICIPATION, {
     gameMode: 'guess', result: 'defeat', score: null,
-    opponentName: remaining ? remaining.name : null
+    opponentName: remaining ? remaining.name : null,
+    difficulty: game.selectedDifficulty || null
   });
   if (remaining) {
     recordGameResult(remaining, XP_PARTICIPATION + XP_VICTORY_BONUS, {
       gameMode: 'guess', result: 'victory', score: null,
-      opponentName: leavingPlayer.name
+      opponentName: leavingPlayer.name,
+      difficulty: game.selectedDifficulty || null
     });
   }
 
@@ -2915,7 +3062,9 @@ function finishGame(game) {
       gameMode: game.gameMode,
       result: r ? r.result : 'defeat',
       score: p.score,
-      opponentName: opponent ? opponent.name : null
+      opponentName: opponent ? opponent.name : null,
+      difficulty: game.selectedDifficulty || null,
+      team: p.team
     });
   });
 
@@ -3230,12 +3379,16 @@ function finishAdminModeByForfeit(game, leavingPlayer) {
   // celui qui reste (victoire par forfait) touche aussi le bonus.
   recordGameResult(leavingPlayer, XP_PARTICIPATION, {
     gameMode: game.gameMode, result: 'defeat', score: leavingPlayer.score,
-    opponentName: remaining ? remaining.name : null
+    opponentName: remaining ? remaining.name : null,
+    difficulty: game.selectedDifficulty || null,
+    team: leavingPlayer.team
   });
   if (remaining) {
     recordGameResult(remaining, XP_PARTICIPATION + XP_VICTORY_BONUS, {
       gameMode: game.gameMode, result: 'victory', score: remaining.score,
-      opponentName: leavingPlayer.name
+      opponentName: leavingPlayer.name,
+      difficulty: game.selectedDifficulty || null,
+      team: remaining.team
     });
   }
 
@@ -4574,24 +4727,6 @@ io.on('connection', (socket) => {
 
     clearTimeout(game.turnTimer);
     resolveTurnTransition(game);
-  });
-
-  socket.on('get_game_state', ({ gameId } = {}) => {
-    const game = games[gameId];
-    if (!game) {
-      socket.emit('error_message', 'Partie introuvable.');
-      return;
-    }
-    socket.emit('game_state', {
-      gameId: game.id,
-      status: game.status,
-      turn: game.turn,
-      maxTurns: game.maxTurns,
-      route: game.route,
-      boss: game.boss,
-      players: getPublicPlayers(game),
-      hostId: game.hostId
-    });
   });
 
   // Reconnexion après une coupure réseau/un refresh pendant une partie en cours
