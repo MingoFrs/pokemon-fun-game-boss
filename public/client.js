@@ -109,6 +109,10 @@ const accountAchievementsListEl = document.getElementById('account-achievements-
 const achievementToastContainerEl = document.getElementById('achievement-toast-container');
 const accountAvatarSearchEl = document.getElementById('account-avatar-search');
 const accountErrorEl = document.getElementById('account-error');
+const settingsTabButtons = Array.from(document.querySelectorAll('.settings-tab'));
+const settingsPageEls = Array.from(document.querySelectorAll('.settings-page'));
+const accountSubtabButtons = Array.from(document.querySelectorAll('.settings-subtab'));
+const accountSubpageEls = Array.from(document.querySelectorAll('.account-subpage'));
 
 // Reflet côté client de la formule de niveau du serveur (cf. xpForLevel/levelForXp dans
 // server.js) : UNIQUEMENT pour afficher la barre de progression jusqu'au niveau suivant
@@ -511,6 +515,52 @@ accountTabButtons.forEach(btn => {
     accountErrorEl.textContent = '';
   });
 });
+
+// Onglets DU HAUT des Réglages (Compte / Préférences / Infos) — une seule page visible à
+// la fois, cf. .settings-page/.settings-tab dans index.html. Même mécanique simple que
+// les sous-onglets ci-dessous : toggle la classe "sélectionné" + screen--hidden en phase.
+settingsTabButtons.forEach(btn => {
+  btn.addEventListener('click', () => {
+    const page = btn.dataset.settingsPage;
+    settingsTabButtons.forEach(b => {
+      const selected = b === btn;
+      b.classList.toggle('settings-tab--selected', selected);
+      b.setAttribute('aria-selected', String(selected));
+    });
+    settingsPageEls.forEach(p => p.classList.toggle('screen--hidden', p.dataset.settingsPage !== page));
+  });
+});
+
+// Sous-onglets DE LA PAGE COMPTE connectée (Historique / Succès / Avatar).
+accountSubtabButtons.forEach(btn => {
+  btn.addEventListener('click', () => {
+    const page = btn.dataset.accountSubpage;
+    accountSubtabButtons.forEach(b => {
+      const selected = b === btn;
+      b.classList.toggle('settings-subtab--selected', selected);
+      b.setAttribute('aria-selected', String(selected));
+    });
+    accountSubpageEls.forEach(p => p.classList.toggle('screen--hidden', p.dataset.accountSubpage !== page));
+  });
+});
+
+// Remet toujours les Réglages sur l'onglet Compte / sous-onglet Historique à l'ouverture
+// (état simple et prévisible plutôt que de retenir le dernier onglet visité — même
+// principe que le retour systématique sur "Connexion", juste au-dessus).
+function resetSettingsTabs() {
+  settingsTabButtons.forEach(b => {
+    const selected = b.dataset.settingsPage === 'account';
+    b.classList.toggle('settings-tab--selected', selected);
+    b.setAttribute('aria-selected', String(selected));
+  });
+  settingsPageEls.forEach(p => p.classList.toggle('screen--hidden', p.dataset.settingsPage !== 'account'));
+  accountSubtabButtons.forEach(b => {
+    const selected = b.dataset.accountSubpage === 'history';
+    b.classList.toggle('settings-subtab--selected', selected);
+    b.setAttribute('aria-selected', String(selected));
+  });
+  accountSubpageEls.forEach(p => p.classList.toggle('screen--hidden', p.dataset.accountSubpage !== 'history'));
+}
 
 btnAccountLogin.addEventListener('click', async () => {
   const email = accountLoginEmailEl.value.trim();
@@ -1683,17 +1733,6 @@ function renderTimeRiftResult(payload) {
   updateMyScore(payload.score, payload.scoreDelta);
 }
 
-function renderMirrorResult(payload) {
-  const wrap = document.createElement('div');
-  wrap.className = 'event-result';
-  wrap.appendChild(buildEventSprite(payload.pokemon.sprite, payload.pokemon.name));
-  wrap.appendChild(buildEventText(`Toi et ${payload.opponentName} recevez ${payload.pokemon.name} !`));
-  wrap.appendChild(buildDeltaLine(payload.pointsGained));
-  eventBodyEl.appendChild(wrap);
-  eventBodyEl.appendChild(buildEventCloseButton());
-  updateMyScore(payload.score, payload.pointsGained);
-}
-
 function renderCrossedFatesResult(payload) {
   const text = payload.subtype === 'linked'
     ? `Ton destin se lie à celui de ${payload.linkedPlayerName} pour le prochain tour.`
@@ -1737,7 +1776,6 @@ function renderEventResult(payload) {
     case 'LUCKY_TURN': renderLuckyTurnResult(payload); break;
     case 'LOTTERY': renderLotteryResult(payload); break;
     case 'TIME_RIFT': renderTimeRiftResult(payload); break;
-    case 'MIRROR': renderMirrorResult(payload); break;
     case 'CROSSED_FATES': renderCrossedFatesResult(payload); break;
     case 'DUEL': renderDuelResult(payload); break;
     default: eventBodyEl.appendChild(buildEventCloseButton());
@@ -3893,6 +3931,7 @@ function applyAutoReconnectSetting(enabled) {
 }
 
 function openSettings() {
+  resetSettingsTabs();
   refreshAccountSettingsSection();
   settingsOverlayEl.classList.remove('screen--hidden');
 }

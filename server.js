@@ -509,6 +509,14 @@ app.post('/api/profile/achievements', async (req, res) => {
     return;
   }
 
+  // Réconcilie silencieusement (sans toast, cf. checkAndUnlockAchievements(..., null))
+  // AVANT de lire l'état actuel : garantit que la liste retournée est toujours à jour,
+  // même pour un succès déjà mérité dans l'historique mais jamais encore vérifié (ex :
+  // juste après le déploiement de cette fonctionnalité, ou après une longue absence).
+  // Sans ça, un succès ancien ne se débloquerait visuellement qu'à la prochaine fin de
+  // partie — quel que soit son résultat, gagné ou perdu — ce qui semble incohérent.
+  await checkAndUnlockAchievements(user.id, null);
+
   const { data, error } = await supabase.from('achievements').select('achievement_key').eq('user_id', user.id);
   if (error) {
     res.status(400).json({ error: 'Les succès n\'ont pas pu être récupérés.' });
@@ -533,6 +541,20 @@ app.post('/api/profile/achievements', async (req, res) => {
 // ---------------------------------------------------------------
 const MAX_TURNS = 6; // aligné sur les 6 slots d'équipe : chaque tour rapporte 1 Pokémon
 const REVEAL_DELAY_MS = 4000; // pause de révélation avant de passer au tour suivant
+
+// Plafond d'équipe (mode normal/admin — l'équipe d'enchères a son propre AUCTION_TEAM_SIZE
+// plus haut). Passe TOUJOURS par pushMonToTeam ci-dessous pour ajouter un Pokémon à une
+// équipe : point de passage unique, pour qu'aucun futur event/bonus ne puisse oublier la
+// vérification et dépasser 6 (cf. l'événement MIRROR, retiré du jeu pour cette raison).
+const MAX_TEAM_SIZE = 6;
+
+// Retourne true si le Pokémon a bien été ajouté, false si l'équipe était déjà pleine
+// (le joueur garde son score/point gagné, juste pas de 7e slot).
+function pushMonToTeam(player, mon) {
+  if (player.team.length >= MAX_TEAM_SIZE) return false;
+  player.team.push(mon);
+  return true;
+}
 
 function spriteUrl(dexId) {
   return `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/${dexId}.png`;
@@ -1464,7 +1486,7 @@ function teamMonFromReward(reward) {
 // floorRarity est optionnel (LUCKY_TURN, TIME_RIFT) ; extraBoost aussi (CROSSED_FATES) :
 // undefined pour les deux = comportement inchangé. shiny est tiré ici, indépendamment de
 // la rareté/l'effet (cf. SHINY_CHANCE) : s'applique donc à TOUT ce qui appelle cette
-// fonction (tirage normal, DOUBLE_ENCOUNTER, MIRROR, TIME_RIFT, LOTTERY).
+// fonction (tirage normal, DOUBLE_ENCOUNTER, TIME_RIFT, LOTTERY).
 function buildRewardOption(useCharm, pity, floorRarity, extraBoost) {
   const rarity = pickRarity(useCharm, pity, floorRarity, extraBoost);
   const pokemon = randomFrom(POKEMON_POOLS[rarity]);
@@ -1997,7 +2019,6 @@ const EVENT_TYPES = {
   HIDDEN_TALENT: 'HIDDEN_TALENT',
   SHINY_POKEMON: 'SHINY_POKEMON',
   DUEL: 'DUEL',
-  MIRROR: 'MIRROR',
   CROSSED_FATES: 'CROSSED_FATES',
   LUCKY_TURN: 'LUCKY_TURN',
   LOTTERY: 'LOTTERY',
@@ -2059,21 +2080,6 @@ const EVENT_DEFINITIONS = [
     scope: 'duo',
     implemented: true,
     condition: (game, player) => !!pickEventOpponent(game, player)
-  },
-  {
-    id: EVENT_TYPES.MIRROR,
-    label: 'Miroir',
-    probability: 0.02,
-    scope: 'duo',
-    // Désactivé sur demande (bugs récurrents en jeu réel : équipes à 7 Pokémon
-    // constatées malgré les gardes team.length<6 côté serveur — cause exacte non
-    // identifiée avec certitude, donc désactivé plutôt que "réparé au hasard").
-    // Le code est conservé tel quel (implemented: false) : ne se déclenche plus jamais,
-    // réactivable d'un mot en repassant à true une fois la cause trouvée.
-    implemented: false,
-    // Les deux équipes doivent avoir de la place : sinon l'événement se déclencherait
-    // pour ne rien donner à personne (cooldown consommé pour rien).
-    condition: (game, player) => player.team.length < 6 && !!pickEventOpponent(game, player, p => p.team.length < 6)
   },
   {
     id: EVENT_TYPES.CROSSED_FATES,
@@ -2150,7 +2156,6 @@ function startEvent(game, player, def) {
     case EVENT_TYPES.LOTTERY: return startLottery(game, player);
     case EVENT_TYPES.TIME_RIFT: return startTimeRift(game, player);
     case EVENT_TYPES.DUEL: return startDuel(game, player);
-    case EVENT_TYPES.MIRROR: return startMirror(game, player);
     case EVENT_TYPES.CROSSED_FATES: return startCrossedFates(game, player);
     default: return null;
   }
@@ -2454,9 +2459,7 @@ function resolveLottery(game, player, action) {
 
   if (card.kind === 'pokemon') {
     player.score += card.pokemon.finalPoints;
-    if (player.team.length < 6) {
-      player.team.push(teamMonFromReward(card.pokemon));
-    }
+    pushMonToTeam(player, teamMonFromReward(card.pokemon));
     result.pokemon = { name: card.pokemon.name, sprite: card.pokemon.sprite };
     result.rarity = card.pokemon.rarity;
     result.pointsGained = card.pokemon.finalPoints;
@@ -2538,7 +2541,7 @@ function resolveTimeRift(game, player, action) {
 }
 
 // -----------------------------------------------------------------
-// ÉVÉNEMENTS À DEUX JOUEURS (DUEL, MIRROR, CROSSED_FATES)
+// ÉVÉNEMENTS À DEUX JOUEURS (DUEL, CROSSED_FATES)
 //
 // Contrairement aux événements solo, ceux-ci concernent deux joueurs de la même partie.
 // Le serveur choisit lui-même un adversaire valide ; jamais le client. Seuls les deux
@@ -2640,40 +2643,11 @@ function resolveDuel(game, player, action) {
   return { resultsByPlayer };
 }
 
-// ---- MIROIR : un seul Pokémon généré, donné TEL QUEL aux deux joueurs (même espèce,
-// même rareté, mêmes points, même trait), chacun l'ajoute à sa PROPRE équipe. Instantané. ----
-function startMirror(game, player) {
-  const opponent = pickEventOpponent(game, player, p => p.team.length < 6);
-  if (!opponent || player.team.length >= 6) return null;
-
-  const useCharm = player.hasShinyCharm && game.turn >= 5;
-  const reward = buildRewardOption(useCharm, player.pity);
-
-  [player, opponent].forEach(p => {
-    p.score += reward.finalPoints;
-    if (p.team.length < 6) {
-      p.team.push(teamMonFromReward(reward));
-    }
-  });
-  opponent.eventCooldown = EVENT_COOLDOWN_TURNS;
-
-  broadcastGameUpdated(game);
-  [player, opponent].forEach(p => {
-    const other = p.id === player.id ? opponent : player;
-    io.to(p.id).emit('rare_event_result', {
-      type: EVENT_TYPES.MIRROR,
-      label: 'Miroir',
-      opponentName: other.name,
-      pokemon: { name: reward.name, sprite: reward.sprite },
-      rarity: reward.rarity,
-      pointsGained: reward.finalPoints,
-      score: p.score,
-      team: p.team
-    });
-  });
-
-  return null; // instantané, rien à résoudre plus tard
-}
+// ---- MIROIR : SUPPRIMÉ (2024) — provoquait, en jeu réel, des équipes à 7 Pokémon
+// malgré les gardes team.length<6 en place (cause exacte jamais identifiée avec
+// certitude ; désactivé un temps via implemented:false, puis retiré du code plutôt que
+// laissé en risque latent réactivable par erreur). Voir MAX_TEAM_SIZE/pushMonToTeam
+// ci-dessous pour le garde-fou désormais unique et partagé par tous les ajouts d'équipe.
 
 // ---- DESTINS CROISÉS : lie 2 joueurs. Règle simple et clairement définie, toujours
 // positive (jamais punitive, cf. consigne générale des événements) : quand l'un des deux
@@ -3120,7 +3094,7 @@ function maybeScheduleTurnTransition(game) {
 // qu'il n'est pas résolu (cf. hasBlockingEvent) — sauf DUEL, jamais bloquant.
 //
 // Mode ADMIN VS JOUEUR : les événements rares sont désactivés pour l'instant (cf. spec
-// section 18). Les événements à deux joueurs (DUEL/MIRROR/CROSSED_FATES) chercheraient
+// section 18). Les événements à deux joueurs (DUEL/CROSSED_FATES) chercheraient
 // un "adversaire" via pickEventOpponent — en mode admin, le seul autre joueur présent
 // est l'ADMIN, qui n'a ni score ni équipe : les activer sans adaptation lui attribuerait
 // à tort des points/Pokémon. À réintroduire, événement par événement, une fois vérifiés
@@ -4350,9 +4324,7 @@ io.on('connection', (socket) => {
     }
 
     player.score += reward.finalPoints;
-    if (player.team.length < 6) {
-      player.team.push(teamMonFromReward(reward));
-    }
+    pushMonToTeam(player, teamMonFromReward(reward));
 
     socket.emit('choice_result', {
       pokemon: { name: reward.name, sprite: reward.sprite, shiny: reward.shiny, shinySprite: reward.shinySprite },

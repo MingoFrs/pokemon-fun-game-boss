@@ -656,17 +656,39 @@
   </div>
 </div>
 
-<!-- Menu Réglages : réduction d'animations, thème de fond, crédits. Persisté en
-     localStorage (rdb_settings_v1) et appliqué via le script anti-flash dans <head>. -->
+<!-- Menu Réglages : compte, préférences d'affichage/partie, thème, crédits. Persisté en
+     localStorage (rdb_settings_v1) et appliqué via le script anti-flash dans <head>.
+     Structure en onglets (Compte / Préférences / Infos) : chaque page a son propre
+     scroll interne, l'en-tête + la barre d'onglets restent fixes — cf. .settings-content. -->
 <div id="settings-overlay" class="event-overlay screen--hidden" role="dialog" aria-modal="true">
   <div class="event-modal settings-modal">
-    <p class="event-modal__eyebrow">Réglages</p>
-    <h3 class="event-modal__title">Réglages</h3>
 
-    <div class="event-modal__body settings-body">
+    <div class="settings-header">
+      <h3 class="settings-header__title">Réglages</h3>
+      <button id="btn-settings-close" type="button" class="settings-header__close" aria-label="Fermer">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true">
+          <line x1="6" y1="6" x2="18" y2="18"></line>
+          <line x1="18" y1="6" x2="6" y2="18"></line>
+        </svg>
+      </button>
+    </div>
 
-      <div class="settings-section">
-        <p class="settings-section__title">Compte</p>
+    <div class="settings-tabs" role="tablist">
+      <button type="button" class="settings-tab settings-tab--selected" data-settings-page="account" role="tab" aria-selected="true">
+        <span class="settings-tab__icon" aria-hidden="true">👤</span>Compte
+      </button>
+      <button type="button" class="settings-tab" data-settings-page="prefs" role="tab" aria-selected="false">
+        <span class="settings-tab__icon" aria-hidden="true">🎨</span>Préférences
+      </button>
+      <button type="button" class="settings-tab" data-settings-page="info" role="tab" aria-selected="false">
+        <span class="settings-tab__icon" aria-hidden="true">ℹ️</span>Infos
+      </button>
+    </div>
+
+    <div class="settings-content">
+
+      <!-- ---------- Page : Compte ---------- -->
+      <div class="settings-page" data-settings-page="account">
         <div id="account-tabs" class="admin-role-options">
           <button type="button" class="admin-role-btn admin-role-btn--selected" data-account-tab="login">Connexion</button>
           <button type="button" class="admin-role-btn" data-account-tab="register">Créer un compte</button>
@@ -701,77 +723,90 @@
         </div>
 
         <div id="account-logged-panel" class="screen--hidden">
-          <p class="account-avatar-current-label">
-            <img id="account-avatar-current" class="account-avatar-current-img" src="" alt="Avatar actuel">
-            <strong id="account-logged-pseudo"></strong>
-          </p>
-          <p class="account-level-label">Niveau <strong id="account-level-value">1</strong></p>
-          <div class="account-xp-bar"><div id="account-xp-bar-fill" class="account-xp-bar__fill"></div></div>
-          <p id="account-xp-text" class="account-xp-text"></p>
+          <div class="account-profile-card">
+            <img id="account-avatar-current" class="account-profile-card__avatar" src="" alt="Avatar actuel">
+            <div class="account-profile-card__info">
+              <strong id="account-logged-pseudo" class="account-profile-card__pseudo"></strong>
+              <p class="account-level-label">Niveau <strong id="account-level-value">1</strong></p>
+              <div class="account-xp-bar"><div id="account-xp-bar-fill" class="account-xp-bar__fill"></div></div>
+              <p id="account-xp-text" class="account-xp-text"></p>
+            </div>
+            <button id="btn-account-logout-modal" type="button" class="account-profile-card__logout">Déconnexion</button>
+          </div>
 
-          <p class="settings-section__title">Historique (10 dernières parties)</p>
-          <p class="account-history-hint">Touche une partie pour voir l'équipe complète.</p>
-          <ul id="account-history-list" class="account-history-list"></ul>
+          <div id="account-subtabs" class="settings-subtabs" role="tablist">
+            <button type="button" class="settings-subtab settings-subtab--selected" data-account-subpage="history" role="tab" aria-selected="true">Historique</button>
+            <button type="button" class="settings-subtab" data-account-subpage="achievements" role="tab" aria-selected="false">Succès</button>
+            <button type="button" class="settings-subtab" data-account-subpage="avatar" role="tab" aria-selected="false">Avatar</button>
+          </div>
 
-          <p class="settings-section__title">Succès</p>
-          <div id="account-achievements-list" class="account-achievements-list"></div>
+          <div class="account-subpage" data-account-subpage="history">
+            <p class="account-history-hint">Touche une partie pour voir l'équipe complète.</p>
+            <ul id="account-history-list" class="account-history-list"></ul>
+          </div>
 
-          <p class="settings-section__title">Choisir un avatar</p>
-          <input id="account-avatar-search" type="text" class="account-avatar-search" placeholder="Rechercher (ex: morty, red, korrina)...">
-          <div id="account-avatar-grid" class="account-avatar-grid"></div>
-          <button id="btn-account-logout-modal" type="button" class="btn btn--ghost btn--block">Déconnexion</button>
+          <div class="account-subpage screen--hidden" data-account-subpage="achievements">
+            <div id="account-achievements-list" class="account-achievements-list"></div>
+          </div>
+
+          <div class="account-subpage screen--hidden" data-account-subpage="avatar">
+            <input id="account-avatar-search" type="text" class="account-avatar-search" placeholder="Rechercher (ex: morty, red, korrina)...">
+            <div id="account-avatar-grid" class="account-avatar-grid"></div>
+          </div>
         </div>
 
         <p id="account-error" class="error-message" role="alert"></p>
       </div>
 
-      <div class="settings-section">
-        <p class="settings-section__title">Affichage</p>
-        <label class="settings-toggle">
-          <span class="settings-toggle__label">Réduire les animations</span>
-          <input type="checkbox" id="settings-reduce-motion" class="settings-toggle__input">
-          <span class="settings-toggle__track"><span class="settings-toggle__thumb"></span></span>
-        </label>
-        <label class="settings-toggle">
-          <span class="settings-toggle__label">Sons</span>
-          <input type="checkbox" id="settings-sound" class="settings-toggle__input">
-          <span class="settings-toggle__track"><span class="settings-toggle__thumb"></span></span>
-        </label>
-      </div>
+      <!-- ---------- Page : Préférences ---------- -->
+      <div class="settings-page screen--hidden" data-settings-page="prefs">
+        <div class="settings-block">
+          <p class="settings-section__title">🖥️ Affichage</p>
+          <label class="settings-toggle">
+            <span class="settings-toggle__label">Réduire les animations</span>
+            <input type="checkbox" id="settings-reduce-motion" class="settings-toggle__input">
+            <span class="settings-toggle__track"><span class="settings-toggle__thumb"></span></span>
+          </label>
+          <label class="settings-toggle">
+            <span class="settings-toggle__label">Sons</span>
+            <input type="checkbox" id="settings-sound" class="settings-toggle__input">
+            <span class="settings-toggle__track"><span class="settings-toggle__thumb"></span></span>
+          </label>
+        </div>
 
-      <div class="settings-section">
-        <p class="settings-section__title">Partie</p>
-        <label class="settings-toggle">
-          <span class="settings-toggle__label">Reconnexion automatique</span>
-          <input type="checkbox" id="settings-auto-reconnect" class="settings-toggle__input">
-          <span class="settings-toggle__track"><span class="settings-toggle__thumb"></span></span>
-        </label>
-      </div>
+        <div class="settings-block">
+          <p class="settings-section__title">🔄 Partie</p>
+          <label class="settings-toggle">
+            <span class="settings-toggle__label">Reconnexion automatique</span>
+            <input type="checkbox" id="settings-auto-reconnect" class="settings-toggle__input">
+            <span class="settings-toggle__track"><span class="settings-toggle__thumb"></span></span>
+          </label>
+        </div>
 
-      <div class="settings-section">
-        <p class="settings-section__title">Couleur de fond</p>
-        <div id="settings-theme-options" class="settings-theme-options">
-          <button type="button" class="settings-theme-swatch" data-theme="default" style="--swatch: #f5a623;" aria-label="Défaut"></button>
-          <button type="button" class="settings-theme-swatch" data-theme="violet" style="--swatch: #9d5cff;" aria-label="Violet"></button>
-          <button type="button" class="settings-theme-swatch" data-theme="crimson" style="--swatch: #e8615d;" aria-label="Rouge"></button>
-          <button type="button" class="settings-theme-swatch" data-theme="emerald" style="--swatch: #3fd096;" aria-label="Vert"></button>
-          <button type="button" class="settings-theme-swatch" data-theme="ocean" style="--swatch: #4fa9e8;" aria-label="Bleu"></button>
+        <div class="settings-block">
+          <p class="settings-section__title">🎨 Couleur de fond</p>
+          <div id="settings-theme-options" class="settings-theme-options">
+            <button type="button" class="settings-theme-swatch" data-theme="default" style="--swatch: #f5a623;" aria-label="Défaut"></button>
+            <button type="button" class="settings-theme-swatch" data-theme="violet" style="--swatch: #9d5cff;" aria-label="Violet"></button>
+            <button type="button" class="settings-theme-swatch" data-theme="crimson" style="--swatch: #e8615d;" aria-label="Rouge"></button>
+            <button type="button" class="settings-theme-swatch" data-theme="emerald" style="--swatch: #3fd096;" aria-label="Vert"></button>
+            <button type="button" class="settings-theme-swatch" data-theme="ocean" style="--swatch: #4fa9e8;" aria-label="Bleu"></button>
+          </div>
         </div>
       </div>
 
-      <div class="settings-section">
-        <p class="settings-section__title">Crédits</p>
-        <ul class="settings-credits">
-          <li>Fait principalement avec l'IA Claude</li>
-          <li>Créateur : <strong>MingoFr</strong></li>
-          <li>Inspiré par les vidéos de <strong>PsakBarney</strong></li>
-        </ul>
+      <!-- ---------- Page : Infos ---------- -->
+      <div class="settings-page screen--hidden" data-settings-page="info">
+        <div class="settings-block">
+          <p class="settings-section__title">✦ Crédits</p>
+          <ul class="settings-credits">
+            <li>Fait principalement avec l'IA Claude</li>
+            <li>Créateur : <strong>MingoFr</strong></li>
+            <li>Inspiré par les vidéos de <strong>PsakBarney</strong></li>
+          </ul>
+        </div>
       </div>
 
-    </div>
-
-    <div class="event-modal__actions">
-      <button id="btn-settings-close" type="button" class="btn btn--ghost btn--block">Fermer</button>
     </div>
   </div>
 </div>

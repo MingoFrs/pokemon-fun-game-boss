@@ -180,14 +180,109 @@ body {
   transform: rotate(45deg);
 }
 
+/* ---------- Réglages : en-tête fixe + onglets fixes + contenu scrollable ----------
+   (.settings-modal étend .event-modal mais annule son padding/overflow/text-align par
+   défaut pour ce layout en 3 zones — n'affecte QUE cette modale, jamais les autres qui
+   réutilisent .event-modal ailleurs). */
 .settings-modal {
-  max-width: 420px;
-}
-
-.settings-body {
+  max-width: 460px;
+  max-height: 85vh;
+  padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 22px;
+  text-align: left;
+  overflow: hidden;
+}
+
+.settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 20px 14px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.settings-header__title {
+  font-family: var(--font-display);
+  font-size: 18px;
+  margin: 0;
+}
+
+.settings-header__close {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: var(--bg-panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+}
+
+.settings-header__close:hover {
+  color: var(--text-primary);
+  border-color: var(--text-muted);
+  transform: rotate(90deg);
+}
+
+.settings-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.settings-tab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 4px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  font-family: var(--font-display);
+  font-size: 11px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.settings-tab__icon {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.settings-tab:hover {
+  color: var(--text-primary);
+}
+
+.settings-tab--selected {
+  color: var(--accent-haut);
+  border-color: var(--accent-haut);
+  background: rgba(245, 166, 35, 0.08);
+}
+
+.settings-content {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 18px 20px 22px;
+}
+
+.settings-block {
+  margin-bottom: 22px;
+}
+
+.settings-block:last-child {
+  margin-bottom: 0;
 }
 
 .settings-section__title {
@@ -198,6 +293,32 @@ body {
   letter-spacing: 0.05em;
   color: var(--text-muted);
   margin: 0 0 10px;
+}
+
+/* Sous-onglets DANS la page Compte connectée (Historique / Succès / Avatar) : même
+   composant visuel que .settings-tab, en plus discret (pas d'icône, 3 colonnes serrées). */
+.settings-subtabs {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.settings-subtab {
+  background: var(--bg-panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 4px;
+  font-family: var(--font-display);
+  font-size: 11px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.settings-subtab--selected {
+  color: var(--accent-bas);
+  border-color: var(--accent-bas);
 }
 
 .settings-toggle {
@@ -666,21 +787,61 @@ input:focus {
   flex-shrink: 0;
 }
 
-.account-avatar-current-label {
+/* Carte de profil compacte en haut de l'onglet Compte connecté : avatar + niveau/XP en
+   ligne, bouton déconnexion toujours visible dans le coin — jamais besoin de changer de
+   sous-onglet pour se déconnecter. */
+.account-profile-card {
   display: flex;
   align-items: center;
   gap: 12px;
-  justify-content: center;
+  padding: 14px;
   margin-bottom: 16px;
+  background: var(--bg-panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 12px;
 }
 
-.account-avatar-current-img {
-  width: 96px;
-  height: 96px;
+.account-profile-card__avatar {
+  width: 52px;
+  height: 52px;
   border-radius: 50%;
   object-fit: cover;
-  background: var(--bg-panel-alt);
-  border: 3px solid var(--accent-haut, #f5a623);
+  background: var(--bg-panel);
+  border: 2px solid var(--accent-haut, #f5a623);
+  flex-shrink: 0;
+}
+
+.account-profile-card__info {
+  flex: 1;
+  min-width: 0;
+}
+
+.account-profile-card__pseudo {
+  display: block;
+  font-family: var(--font-display);
+  font-size: 14px;
+  margin-bottom: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-profile-card__logout {
+  flex-shrink: 0;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-family: var(--font-display);
+  font-size: 11px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.account-profile-card__logout:hover {
+  border-color: var(--danger);
+  color: var(--danger);
 }
 
 .account-avatar-search {
@@ -704,17 +865,17 @@ input:focus {
 }
 
 .account-level-label {
-  text-align: center;
+  text-align: left;
   font-family: var(--font-display);
-  font-size: 15px;
-  margin: 0 0 8px;
+  font-size: 13px;
+  margin: 0 0 6px;
 }
 
 .account-xp-bar {
   width: 100%;
   height: 8px;
   border-radius: 4px;
-  background: var(--bg-panel-alt);
+  background: var(--bg-panel);
   overflow: hidden;
   margin-bottom: 4px;
 }
@@ -727,10 +888,10 @@ input:focus {
 }
 
 .account-xp-text {
-  text-align: center;
-  font-size: 12px;
+  text-align: left;
+  font-size: 11px;
   color: var(--text-muted);
-  margin: 0 0 16px;
+  margin: 0;
 }
 
 .account-history-list {
@@ -2617,13 +2778,6 @@ input:focus {
 .event-modal[data-event-type="TIME_RIFT"] .event-result__sprite {
   animation: revealPopLegendary 1.1s ease both, eventRiftSpin 3s linear 1.1s infinite;
   filter: drop-shadow(0 0 26px rgba(255, 213, 74, 0.9)) drop-shadow(0 0 14px rgba(185, 140, 242, 0.7));
-}
-
-/* ---- MIROIR (2%) : double reflet fantôme du sprite. ---- */
-.event-modal[data-event-type="MIRROR"] { border-color: var(--rarity-rare); }
-.event-modal[data-event-type="MIRROR"] .event-result__sprite {
-  animation: revealPopSoft 0.6s ease both;
-  filter: drop-shadow(-6px 0 0 rgba(79, 169, 232, 0.35)) drop-shadow(6px 0 0 rgba(79, 169, 232, 0.35));
 }
 
 /* ---- DESTINS CROISÉS (2%) : pulsation à deux couleurs (les deux joueurs liés). ---- */
