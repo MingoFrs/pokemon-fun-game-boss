@@ -107,6 +107,7 @@ const accountAvatarGridEl = document.getElementById('account-avatar-grid');
 const accountHistoryListEl = document.getElementById('account-history-list');
 const accountAchievementsListEl = document.getElementById('account-achievements-list');
 const achievementToastContainerEl = document.getElementById('achievement-toast-container');
+const leaderboardListEl = document.getElementById('leaderboard-list');
 const accountAvatarSearchEl = document.getElementById('account-avatar-search');
 const accountErrorEl = document.getElementById('account-error');
 const settingsTabButtons = Array.from(document.querySelectorAll('.settings-tab'));
@@ -234,13 +235,18 @@ const ACHIEVEMENT_ICONS = {
   first_game: '🎮',
   first_win: '🥇',
   first_legendary: '✨',
+  first_epic: '💎',
   first_shiny: '🌟',
   games_5: '📅',
+  guess_win: '🕵️',
+  admin_win: '🤖',
   score_6000: '💯',
   wins_10: '🏆',
   beat_extreme: '🔥',
   full_legendary_team: '👑',
-  auction_full_team: '💰'
+  auction_full_team: '💰',
+  three_modes_win: '🧭',
+  win_streak_3: '⚡'
 };
 
 async function fetchAndRenderAccountAchievements(account) {
@@ -333,6 +339,73 @@ function showAchievementToast(achievement) {
   achievementToastContainerEl.appendChild(toast);
 
   setTimeout(() => toast.remove(), 5000); // couvre large la durée totale de l'animation CSS (4.5s + 0.25s)
+}
+
+// ---------- Classement global ----------
+// Public : fonctionne même sans compte connecté (accessToken omis dans ce cas — le
+// serveur renvoie juste isSelf: false partout). Chargé à la demande, seulement au premier
+// clic sur l'onglet Classement des Réglages, jamais en arrière-plan.
+let leaderboardLoaded = false;
+async function fetchAndRenderLeaderboard() {
+  if (leaderboardLoaded) return;
+  leaderboardLoaded = true;
+  leaderboardListEl.innerHTML = '';
+  try {
+    const account = getStoredAccount();
+    const res = await fetch('/api/leaderboard', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ accessToken: account ? account.accessToken : null })
+    });
+    const data = await res.json();
+    if (!res.ok || !data.leaderboard || !data.leaderboard.length) {
+      const empty = document.createElement('p');
+      empty.className = 'leaderboard-empty';
+      empty.textContent = 'Aucun compte classé pour le moment.';
+      leaderboardListEl.appendChild(empty);
+      leaderboardLoaded = false; // rien de valable affiché : retenter au prochain clic
+      return;
+    }
+    data.leaderboard.forEach((entry, index) => {
+      const rank = index + 1;
+      const li = document.createElement('li');
+      li.className = 'leaderboard-item' + (entry.isSelf ? ' leaderboard-item--self' : '') + (rank <= 3 ? ' leaderboard-item--top3' : '');
+
+      const rankEl = document.createElement('span');
+      rankEl.className = 'leaderboard-item__rank';
+      rankEl.textContent = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : String(rank);
+
+      const avatar = document.createElement('img');
+      avatar.className = 'leaderboard-item__avatar';
+      avatar.src = entry.avatar ? avatarUrl(entry.avatar) : '';
+      avatar.alt = '';
+
+      const pseudo = document.createElement('span');
+      pseudo.className = 'leaderboard-item__pseudo';
+      pseudo.textContent = entry.pseudo;
+
+      const level = document.createElement('span');
+      level.className = 'leaderboard-item__level';
+      level.textContent = `Niv. ${entry.level}`;
+
+      const xp = document.createElement('span');
+      xp.className = 'leaderboard-item__xp';
+      xp.textContent = `${entry.xp} XP`;
+
+      li.appendChild(rankEl);
+      li.appendChild(avatar);
+      li.appendChild(pseudo);
+      li.appendChild(level);
+      li.appendChild(xp);
+      leaderboardListEl.appendChild(li);
+    });
+  } catch (err) {
+    const empty = document.createElement('p');
+    empty.className = 'leaderboard-empty';
+    empty.textContent = 'Classement indisponible pour le moment.';
+    leaderboardListEl.appendChild(empty);
+    leaderboardLoaded = false;
+  }
 }
 
 // Sprites de dresseurs hébergés par Pokémon Showdown, réutilisés tels quels comme
@@ -528,6 +601,7 @@ settingsTabButtons.forEach(btn => {
       b.setAttribute('aria-selected', String(selected));
     });
     settingsPageEls.forEach(p => p.classList.toggle('screen--hidden', p.dataset.settingsPage !== page));
+    if (page === 'leaderboard') fetchAndRenderLeaderboard();
   });
 });
 
@@ -807,6 +881,7 @@ let lastLobbyPlayers = []; // dernière liste de joueurs du lobby, réutilisée 
 let isSpectating = false; // true entre spectate_joined et un retour à l'accueil/spectate_ended
 let spectateBoss = null; // boss caché en local (jamais renvoyé par game_updated, seulement par spectate_joined/game_started)
 let spectateGameMode = null; // idem : certains broadcasts (game_updated) ne portent pas gameMode, on retombe sur ce cache
+let spectateGuessPlayers = []; // idem : guess_turn_started n'inclut pas `players`, on garde le dernier reçu (guess_game_started/guess_players_updated)
 
 const RARITY_LABELS = {
   commun: 'Commun',
@@ -2133,6 +2208,7 @@ socket.on('rejoin_success', (payload) => {
   currentAdminId = payload.adminId || null;
   currentActivePlayerIds = payload.activePlayerIds || [];
   rememberActiveGame(payload.gameId);
+  loadChatHistory(payload.chatMessages); // reprend la discussion en cours, jamais un reset (cf. resetChatPanel)
 
   // Mode "Devine le Pokémon" : structure d'état complètement différente (planche/secret/
   // tour chronométré, aucun boss/route/équipe) — reconstruction dédiée, jamais via
@@ -2373,6 +2449,7 @@ socket.on('players_updated', ({ players, hostId: hId }) => {
 // ---------- Événements serveur : jeu ----------
 function applyGameStarted({ status, turn, maxTurns, route, boss, players, gameMode, adminId }) {
   resetGameUI(); // aucun résidu de l'ancienne partie ; masque aussi le choix tour 4 par défaut
+  resetChatPanel(); // nouvelle partie = discussion vierge
   currentGameMode = gameMode || 'normal';
   currentAdminId = adminId || null;
   myScoreLabelEl.textContent = isAdminNow() ? 'Score du joueur' : 'Ton score';
@@ -3076,14 +3153,16 @@ btnGuessFinishTurn.addEventListener('click', () => {
 socket.on('guess_game_started', ({ gameId, board, players }) => {
   if (isSpectating) {
     // Mis sur le banc en mode "Devine le Pokémon" à >2 joueurs (cf. start_game côté
-    // serveur) : pas de vue plateau dédiée pour l'instant, juste un statut simple sur
-    // l'écran spectateur générique (planche + secrets restent invisibles, comme pour
-    // les 2 joueurs actifs eux-mêmes tant qu'ils n'ont pas révélé quoi que ce soit).
+    // serveur), ou rejoint via code sur une partie déjà lancée : planche/secrets restent
+    // invisibles (comme pour les 2 joueurs actifs eux-mêmes tant qu'ils n'ont rien
+    // révélé) — seul le tour en cours est indiqué, cf. renderSpectateView.
     spectateBoss = null;
+    spectateGuessPlayers = players;
     renderSpectateView({ status: 'playing', gameMode: 'guess', players });
     return;
   }
   resetGuessUI();
+  resetChatPanel(); // nouvelle partie = discussion vierge
   rememberActiveGame(gameId);
   guessBoard = board;
   renderGuessPlayers(players);
@@ -3100,6 +3179,7 @@ socket.on('secret_selection_confirmed', ({ index, name }) => {
 
 socket.on('guess_players_updated', ({ players }) => {
   if (isSpectating) {
+    spectateGuessPlayers = players;
     renderSpectateView({ status: 'playing', gameMode: 'guess', boss: spectateBoss, players });
     return;
   }
@@ -3107,7 +3187,12 @@ socket.on('guess_players_updated', ({ players }) => {
 });
 
 socket.on('guess_turn_started', ({ activePlayerId, turnEndsAt, turnDurationMs }) => {
-  if (isSpectating) return; // pas de minuteur/tour à afficher côté spectateur pour l'instant
+  if (isSpectating) {
+    // Pas de minuteur affiché côté spectateur (juste "à qui le tour") — cf.
+    // renderSpectateView, qui n'a besoin que de l'id et de la liste de joueurs déjà en cache.
+    renderSpectateView({ status: 'playing', gameMode: 'guess', players: spectateGuessPlayers, activePlayerId });
+    return;
+  }
 
   guessActivePlayerId = activePlayerId;
   guessSelectionPanelEl.classList.add('screen--hidden');
@@ -3130,7 +3215,15 @@ socket.on('guess_turn_started', ({ activePlayerId, turnEndsAt, turnDurationMs })
 // Diffusé aux DEUX joueurs, bonne ou mauvaise réponse : ça fait partie du jeu de
 // déduction (cf. spec section 5/9/10). Une mauvaise réponse ne change rien d'autre.
 socket.on('guess_attempt_result', ({ by, index, name, correct }) => {
-  if (isSpectating) return; // écran spectateur générique : pas de fil de tentatives pour l'instant
+  if (isSpectating) {
+    // Une tentative RATÉE ne révèle rien sur le secret de l'adversaire — sans risque à
+    // montrer. Une tentative RÉUSSIE, si, mais la partie se termine dans la foulée
+    // (guess_game_over juste après) donc ce n'est jamais un avantage exploitable ensuite.
+    spectateStatusEl.textContent = correct
+      ? `✅ ${spectateFindPlayerName(spectateGuessPlayers, by)} a trouvé : ${name} !`
+      : `❌ ${spectateFindPlayerName(spectateGuessPlayers, by)} a tenté ${name} — mauvaise réponse.`;
+    return;
+  }
 
   guessLastAttemptEl.classList.remove('guess-last-attempt--correct', 'guess-last-attempt--wrong');
   guessLastAttemptEl.classList.add(correct ? 'guess-last-attempt--correct' : 'guess-last-attempt--wrong');
@@ -3146,6 +3239,7 @@ socket.on('guess_game_over', ({ winnerId, reason, secretPokemon, players }) => {
     // Même logique que game_finished pour Route du Boss : ne jamais rediriger un
     // spectateur vers #screen-guess-finished (vue "victoire/défaite" propre aux 2
     // joueurs actifs, sans objet pour lui).
+    spectateGuessPlayers = players;
     renderSpectateView({ status: 'finished', gameMode: 'guess', boss: spectateBoss, players });
     return;
   }
@@ -3549,23 +3643,43 @@ function addAuctionHistoryEntry({ pokemon, winnerId, winnerName, price }) {
 }
 
 socket.on('auction_game_started', ({ gameId, players }) => {
+  if (isSpectating) return; // ne devrait jamais arriver (les spectateurs ne sont jamais dans game.players côté serveur) — garde défensive
   resetAuctionUI();
+  resetChatPanel(); // nouvelle partie = discussion vierge
   rememberActiveGame(gameId);
   renderAuctionPlayers(players);
   updateAuctionBidAvailability();
   showScreen(screenAuction);
 });
 
+// Ciblé PAR JOUEUR côté serveur (cf. semi-aveugle) : ne concerne donc jamais un
+// spectateur, qui reçoit 'auction_lot_started_spectator' à la place (même moment, vue
+// adaptée — cf. buildSpectatePayload côté serveur).
 socket.on('auction_lot_started', (payload) => {
   renderAuctionLot(payload);
 });
 
+socket.on('auction_lot_started_spectator', (payload) => {
+  if (!isSpectating) return; // les 2 joueurs actifs reçoivent aussi cet event (room-wide) : ignoré pour eux
+  renderSpectateAuctionView(payload);
+});
+
 socket.on('auction_bid_update', (payload) => {
+  if (isSpectating) {
+    renderSpectateAuctionPlayers(payload.players, payload.activePlayerId);
+    spectateTurnEl.textContent = `Au tour de ${spectateFindPlayerName(payload.players, payload.activePlayerId)} de miser...`;
+    spectateAuctionBidEl.textContent = `Enchère actuelle : ${formatAuctionMoneyClient(payload.currentBid)}`;
+    return;
+  }
   playClickSound();
   renderAuctionBidInfo(payload);
 });
 
 socket.on('auction_lot_resolved', (payload) => {
+  if (isSpectating) {
+    renderSpectateAuctionPlayers(payload.players, null);
+    return;
+  }
   playRevealSound();
   renderAuctionPlayers(payload.players);
   updateAuctionBidAvailability();
@@ -3573,6 +3687,12 @@ socket.on('auction_lot_resolved', (payload) => {
 });
 
 socket.on('auction_game_over', ({ reason, players, history }) => {
+  if (isSpectating) {
+    // Même logique que game_finished/guess_game_over : jamais rediriger un spectateur
+    // vers #screen-auction-finished, propre aux 2 joueurs actifs.
+    renderSpectateAuctionView({ status: 'finished', players, lot: null });
+    return;
+  }
   refreshAccountFromServer(); // XP gagnée pendant la partie (cf. awardXp côté serveur)
   renderAuctionFinished({ reason, players, history });
 });
@@ -3693,8 +3813,19 @@ const spectateTurnEl = document.getElementById('spectate-turn');
 const spectatePlayersListEl = document.getElementById('spectate-players-list');
 const spectateStatusEl = document.getElementById('spectate-status');
 const spectateBossPanelEl = document.getElementById('spectate-boss-panel');
+const spectateAuctionPanelEl = document.getElementById('spectate-auction-panel');
+const spectateAuctionSpriteEl = document.getElementById('spectate-auction-sprite');
+const spectateAuctionNameEl = document.getElementById('spectate-auction-name');
+const spectateAuctionBidEl = document.getElementById('spectate-auction-bid');
 
-function renderSpectateView({ status, turn, maxTurns, boss, players, gameMode }) {
+// Trouve un nom de joueur dans la liste PASSÉE (jamais lastGuessPlayers/lastAuctionPlayers,
+// qui appartiennent à l'écran actif — un spectateur n'y transite jamais).
+function spectateFindPlayerName(players, id) {
+  const p = (players || []).find(x => x.id === id);
+  return p ? p.name : '';
+}
+
+function renderSpectateView({ status, turn, maxTurns, boss, players, gameMode, activePlayerId }) {
   if (gameMode) spectateGameMode = gameMode; // certains appelants (game_updated) n'ont pas ce champ
   const isGuess = spectateGameMode === 'guess';
   // Mode "Devine le Pokémon" : aucun concept de boss/route, le panneau n'a pas de sens.
@@ -3720,9 +3851,11 @@ function renderSpectateView({ status, turn, maxTurns, boss, players, gameMode })
   } else if (status === 'waiting') {
     spectateTurnEl.textContent = "En attente du lancement de la partie...";
   } else if (isGuess) {
-    // Pas de vue plateau dédiée pour l'instant côté spectateur (planche/secrets restent
-    // invisibles) : juste un statut simple, cf. socket.on('guess_game_started') plus haut.
-    spectateTurnEl.textContent = 'Duel Devine le Pokémon en cours...';
+    // Planche/secrets restent invisibles (cf. socket.on('guess_game_started') plus haut) —
+    // seul le tour en cours est indiqué, sans détail sur ce qui s'y joue.
+    spectateTurnEl.textContent = activePlayerId
+      ? `Au tour de ${spectateFindPlayerName(players, activePlayerId)}...`
+      : 'Duel Devine le Pokémon en cours...';
   } else {
     spectateTurnEl.textContent = `Tour ${turn} / ${maxTurns}`;
   }
@@ -3730,11 +3863,101 @@ function renderSpectateView({ status, turn, maxTurns, boss, players, gameMode })
   spectateStatusEl.textContent = status === 'finished' ? 'La partie est terminée.' : '';
 }
 
+// ---- Vue spectateur DÉDIÉE au Draft/Enchères : budgets/équipes remplacent le score, pas
+// de "moi vs adversaire" (aucun des deux joueurs n'est le spectateur) — jamais réutilisé
+// via renderAuctionPlayers/renderPlayers, qui supposent tous deux un point de vue joueur.
+function renderSpectateAuctionPlayers(players, activePlayerId) {
+  spectatePlayersListEl.innerHTML = '';
+  (players || []).forEach(p => {
+    const li = document.createElement('li');
+    li.classList.toggle('player-item--disconnected', !!p.disconnected);
+
+    const row = document.createElement('div');
+    row.className = 'player-item__row';
+
+    const identity = document.createElement('div');
+    identity.className = 'player-item__identity';
+    if (p.avatar) {
+      const avatarImg = document.createElement('img');
+      avatarImg.className = 'player-item__avatar';
+      avatarImg.src = avatarUrl(p.avatar);
+      avatarImg.alt = '';
+      identity.appendChild(avatarImg);
+    }
+    const name = document.createElement('span');
+    name.textContent = p.name + (p.id === activePlayerId ? ' 🎯' : '');
+    identity.appendChild(name);
+
+    const budget = document.createElement('span');
+    budget.className = 'player-score';
+    budget.textContent = `${formatAuctionMoneyClient(p.budget)} · ${p.teamCount}/6`;
+
+    row.appendChild(identity);
+    row.appendChild(budget);
+    li.appendChild(row);
+
+    if (p.team && p.team.length > 0) {
+      const teamRow = document.createElement('div');
+      teamRow.className = 'player-item__team';
+      p.team.forEach(mon => {
+        const icon = document.createElement('img');
+        icon.className = 'player-item__team-icon';
+        icon.src = mon.sprite;
+        icon.alt = mon.name;
+        teamRow.appendChild(icon);
+      });
+      li.appendChild(teamRow);
+    }
+
+    spectatePlayersListEl.appendChild(li);
+  });
+}
+
+function renderSpectateAuctionView(payload) {
+  spectateGameMode = 'auction';
+  spectateBossPanelEl.classList.add('screen--hidden');
+  spectateAuctionPanelEl.classList.toggle('screen--hidden', payload.status !== 'playing');
+
+  const lot = payload.lot;
+  if (lot) {
+    if (lot.mystery || !lot.pokemon) {
+      spectateAuctionSpriteEl.src = '';
+      spectateAuctionSpriteEl.alt = '';
+      spectateAuctionNameEl.textContent = 'Lot mystère (semi-aveugle)';
+    } else {
+      spectateAuctionSpriteEl.src = lot.pokemon.sprite;
+      spectateAuctionSpriteEl.alt = lot.pokemon.name;
+      spectateAuctionNameEl.textContent = lot.pokemon.name;
+    }
+    spectateAuctionBidEl.textContent = lot.currentBid
+      ? `Enchère actuelle : ${formatAuctionMoneyClient(lot.currentBid)}`
+      : 'Aucune enchère pour le moment';
+  }
+
+  if (payload.status === 'finished') {
+    spectateTurnEl.textContent = 'Partie terminée';
+  } else if (payload.status === 'waiting') {
+    spectateTurnEl.textContent = "En attente du lancement de la partie...";
+  } else if (lot) {
+    spectateTurnEl.textContent = `Au tour de ${spectateFindPlayerName(payload.players, lot.activePlayerId)} de miser...`;
+  } else {
+    spectateTurnEl.textContent = 'Draft/Enchères en cours...';
+  }
+
+  renderSpectateAuctionPlayers(payload.players, lot ? lot.activePlayerId : null);
+  spectateStatusEl.textContent = payload.status === 'finished' ? 'La partie est terminée.' : '';
+}
+
 socket.on('spectate_joined', (payload) => {
   isSpectating = true;
   hostId = payload.hostId;
   spectateBoss = payload.boss;
-  renderSpectateView(payload);
+  loadChatHistory(payload.chatMessages);
+  if (payload.gameMode === 'auction') {
+    renderSpectateAuctionView(payload);
+  } else {
+    renderSpectateView(payload);
+  }
   showScreen(screenSpectate);
 });
 
@@ -3795,6 +4018,91 @@ reactionButtons.forEach(btn => {
 
 socket.on('reaction', ({ playerName, emoji }) => {
   spawnReactionBubble(playerName, emoji);
+});
+
+// ============================================================
+// CHAT TEXTE DE PARTIE
+// ============================================================
+// Même principe que les réactions juste au-dessus : widget unique et partagé, visibilité
+// gérée en CSS via body[data-screen] (game/guess/auction/spectate uniquement). Fermé par
+// défaut ; les messages continuent d'arriver même panneau fermé (juste le badge "non lu"
+// qui s'allume) — jamais de file d'attente à rejouer à l'ouverture.
+const btnChatToggle = document.getElementById('btn-chat-toggle');
+const btnChatClose = document.getElementById('btn-chat-close');
+const chatPanelEl = document.getElementById('chat-panel');
+const chatMessagesEl = document.getElementById('chat-messages');
+const chatFormEl = document.getElementById('chat-form');
+const chatInputEl = document.getElementById('chat-input');
+const chatUnreadBadgeEl = document.getElementById('chat-unread-badge');
+
+function chatAppendMessage(msg) {
+  const empty = chatMessagesEl.querySelector('.chat-empty');
+  if (empty) empty.remove();
+
+  const li = document.createElement('li');
+  li.className = 'chat-message' + (msg.authorId === myId ? ' chat-message--self' : '') + (msg.isSpectator ? ' chat-message--spectator' : '');
+
+  const author = document.createElement('span');
+  author.className = 'chat-message__author';
+  author.textContent = msg.authorId === myId ? 'Toi' : (msg.isSpectator ? `${msg.name} (spectateur)` : msg.name);
+
+  const text = document.createElement('span');
+  text.className = 'chat-message__text';
+  text.textContent = msg.text;
+
+  li.appendChild(author);
+  li.appendChild(text);
+  chatMessagesEl.appendChild(li);
+  chatMessagesEl.scrollTop = chatMessagesEl.scrollHeight;
+}
+
+// Vide le fil ET affiche le message d'espace vide — appelé au début de chaque NOUVELLE
+// partie (jamais en cours de route, cf. les 3 appelants : applyGameStarted,
+// guess_game_started, auction_game_started).
+function resetChatPanel() {
+  chatMessagesEl.innerHTML = '';
+  const empty = document.createElement('p');
+  empty.className = 'chat-empty';
+  empty.textContent = 'Aucun message pour le moment.';
+  chatMessagesEl.appendChild(empty);
+  chatUnreadBadgeEl.classList.add('screen--hidden');
+}
+
+// Reprend l'historique déjà en cours (spectateur qui rejoint en cours de partie, ou
+// reconnexion) — jamais un simple reset, sinon le contexte de la conversation serait perdu.
+function loadChatHistory(messages) {
+  chatMessagesEl.innerHTML = '';
+  if (!messages || messages.length === 0) {
+    resetChatPanel();
+    return;
+  }
+  messages.forEach(chatAppendMessage);
+}
+
+function setChatPanelOpen(open) {
+  chatPanelEl.classList.toggle('screen--hidden', !open);
+  if (open) chatUnreadBadgeEl.classList.add('screen--hidden');
+}
+
+btnChatToggle.addEventListener('click', () => {
+  setChatPanelOpen(chatPanelEl.classList.contains('screen--hidden'));
+});
+
+btnChatClose.addEventListener('click', () => setChatPanelOpen(false));
+
+chatFormEl.addEventListener('submit', (e) => {
+  e.preventDefault();
+  const text = chatInputEl.value.trim();
+  if (!text) return;
+  socket.emit('chat_message', { text });
+  chatInputEl.value = '';
+});
+
+socket.on('chat_message', (msg) => {
+  chatAppendMessage(msg);
+  if (chatPanelEl.classList.contains('screen--hidden')) {
+    chatUnreadBadgeEl.classList.remove('screen--hidden');
+  }
 });
 // ============================================================
 // SONS COURTS (Réglages > Affichage > Sons)

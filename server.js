@@ -189,38 +189,57 @@ const ACHIEVEMENTS = [
   { key: 'first_game', category: 'facile', label: 'Premiers pas', description: 'Termine ta première partie.', check: ctx => ctx.gamesPlayed >= 1 },
   { key: 'first_win', category: 'facile', label: 'Première victoire', description: 'Remporte ta première partie.', check: ctx => ctx.wins >= 1 },
   { key: 'first_legendary', category: 'facile', label: 'Rencontre légendaire', description: 'Obtiens un Pokémon légendaire dans ton équipe.', check: ctx => ctx.hasLegendary },
+  { key: 'first_epic', category: 'facile', label: 'Coup de chance', description: 'Obtiens un Pokémon épique dans ton équipe.', check: ctx => ctx.hasEpic },
   { key: 'first_shiny', category: 'facile', label: 'Reflet chromatique', description: 'Obtiens un Pokémon shiny.', check: ctx => ctx.hasShiny },
   { key: 'games_5', category: 'facile', label: 'Habitué', description: 'Termine 5 parties.', check: ctx => ctx.gamesPlayed >= 5 },
+  { key: 'guess_win', category: 'facile', label: 'Détective', description: 'Remporte une partie de Devine le Pokémon.', check: ctx => ctx.winModes.has('guess') },
+  { key: 'admin_win', category: 'facile', label: "Face à l'IA", description: 'Remporte une partie en mode Admin vs Joueur.', check: ctx => ctx.winModes.has('admin') },
   { key: 'score_6000', category: 'difficile', label: 'Score légendaire', description: 'Atteins un score de 6000 en une seule partie.', check: ctx => ctx.bestScore >= 6000 },
   { key: 'wins_10', category: 'difficile', label: 'Vétéran', description: 'Remporte 10 parties.', check: ctx => ctx.wins >= 10 },
   { key: 'beat_extreme', category: 'difficile', label: "Chasseur d'Arceus", description: 'Bats un boss de difficulté extrême.', check: ctx => ctx.beatExtreme },
   { key: 'full_legendary_team', category: 'difficile', label: 'Équipe de légende', description: 'Termine avec 6 Pokémon légendaires ou pseudo-légendaires.', check: ctx => ctx.fullLegendaryTeam },
-  { key: 'auction_full_team', category: 'difficile', label: 'Collectionneur', description: 'Termine un Draft/Enchères avec une équipe complète de 6.', check: ctx => ctx.auctionFullTeam }
+  { key: 'auction_full_team', category: 'difficile', label: 'Collectionneur', description: 'Termine un Draft/Enchères avec une équipe complète de 6.', check: ctx => ctx.auctionFullTeam },
+  { key: 'three_modes_win', category: 'difficile', label: 'Polyvalent', description: 'Remporte au moins une partie en Route du Boss, Admin vs Joueur ET Devine le Pokémon.', check: ctx => ['normal', 'admin', 'guess'].every(m => ctx.winModes.has(m)) },
+  { key: 'win_streak_3', category: 'difficile', label: 'Sur une lancée', description: 'Enchaîne 3 victoires d\'affilée.', check: ctx => ctx.maxWinStreak >= 3 }
 ];
 
-// Agrège toutes les lignes d'historique d'un joueur (déjà chargées) en un contexte plat,
-// pratique à tester dans chaque `check` ci-dessus. rows[i].team est le snapshot stocké par
-// recordGameResult : peut être null (mode "guess") ou un tableau de Pokémon.
+// Agrège toutes les lignes d'historique d'un joueur (déjà chargées, triées du plus ancien
+// au plus récent — cf. l'ORDER BY de l'appelant, nécessaire pour maxWinStreak) en un
+// contexte plat, pratique à tester dans chaque `check` ci-dessus. rows[i].team est le
+// snapshot stocké par recordGameResult : peut être null (mode "guess") ou un tableau de
+// Pokémon.
 function buildAchievementContext(rows) {
   const ctx = {
     gamesPlayed: rows.length,
     wins: 0,
     bestScore: 0,
     hasLegendary: false,
+    hasEpic: false,
     hasShiny: false,
     beatExtreme: false,
     fullLegendaryTeam: false,
-    auctionFullTeam: false
+    auctionFullTeam: false,
+    winModes: new Set(),
+    maxWinStreak: 0
   };
 
+  let currentStreak = 0;
   rows.forEach(row => {
-    if (row.result === 'victory') ctx.wins += 1;
+    if (row.result === 'victory') {
+      ctx.wins += 1;
+      ctx.winModes.add(row.game_mode);
+      currentStreak += 1;
+      if (currentStreak > ctx.maxWinStreak) ctx.maxWinStreak = currentStreak;
+    } else if (row.result === 'defeat') {
+      currentStreak = 0;
+    }
     if (typeof row.score === 'number' && row.score > ctx.bestScore) ctx.bestScore = row.score;
     if (row.result === 'victory' && (row.game_mode === 'normal' || row.game_mode === 'admin') && row.difficulty === 'extreme') {
       ctx.beatExtreme = true;
     }
     if (Array.isArray(row.team)) {
       if (row.team.some(mon => mon.rarity === 'legendaire')) ctx.hasLegendary = true;
+      if (row.team.some(mon => mon.rarity === 'epique')) ctx.hasEpic = true;
       if (row.team.some(mon => mon.shiny)) ctx.hasShiny = true;
       if (row.game_mode === 'auction' && row.team.length >= 6) ctx.auctionFullTeam = true;
       if (
@@ -245,7 +264,8 @@ async function checkAndUnlockAchievements(userId, socketId) {
     const { data: rows, error } = await supabase
       .from('game_history')
       .select('result, score, team, difficulty, game_mode')
-      .eq('user_id', userId);
+      .eq('user_id', userId)
+      .order('created_at', { ascending: true });
     if (error || !rows) return;
 
     const ctx = buildAchievementContext(rows);
@@ -480,7 +500,7 @@ app.post('/api/profile/history', async (req, res) => {
 
   const { data, error } = await supabase
     .from('game_history')
-    .select('game_mode, result, score, opponent_name, created_at')
+    .select('game_mode, result, score, opponent_name, team, created_at')
     .eq('user_id', user.id)
     .order('created_at', { ascending: false })
     .limit(10);
@@ -531,6 +551,42 @@ app.post('/api/profile/achievements', async (req, res) => {
       label: a.label,
       description: a.description,
       unlocked: unlockedKeys.has(a.key)
+    }))
+  });
+});
+
+// Classement global par XP — public (aucun accessToken requis, comme /api/avatars),
+// mais accepte un accessToken OPTIONNEL pour indiquer au client quelle ligne est "la
+// sienne" (surlignage) sans lui faire deviner via le pseudo (qu'un autre joueur pourrait
+// avoir choisi à l'identique). N'affecte jamais le classement lui-même : purement pour
+// l'affichage.
+app.post('/api/leaderboard', async (req, res) => {
+  if (!requireSupabase(res)) return;
+  const { accessToken } = req.body || {};
+
+  let selfId = null;
+  if (accessToken) {
+    const { data: { user } } = await createAuthClient().auth.getUser(accessToken);
+    if (user) selfId = user.id;
+  }
+
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('id, pseudo, avatar, xp')
+    .order('xp', { ascending: false })
+    .limit(50);
+  if (error) {
+    res.status(400).json({ error: 'Le classement n\'a pas pu être récupéré.' });
+    return;
+  }
+
+  res.json({
+    leaderboard: (data || []).map(p => ({
+      pseudo: p.pseudo,
+      avatar: p.avatar,
+      xp: p.xp || 0,
+      level: levelForXp(p.xp || 0),
+      isSelf: !!selfId && p.id === selfId
     }))
   });
 });
@@ -1754,6 +1810,14 @@ function broadcastAuctionLot(game) {
       players: publicPlayers
     });
   });
+  // 'auction_lot_started' ci-dessus est ciblé PAR JOUEUR (cf. semi-aveugle) donc ne
+  // touche jamais les spectateurs, contrairement à 'auction_bid_update'/
+  // 'auction_lot_resolved' plus bas qui sont déjà room-wide. Un event dédié, ignoré par
+  // les 2 joueurs (leur client ne l'écoute que si isSpectating) : voir
+  // buildSpectatePayload pour la règle de masquage du Pokémon en semi-aveugle.
+  if (game.spectators.length > 0) {
+    io.to(game.id).emit('auction_lot_started_spectator', buildSpectatePayload(game));
+  }
 }
 
 function startNextAuctionLot(game) {
@@ -1827,6 +1891,7 @@ function resolveAuctionLot(game) {
 function finishAuctionGame(game, reason) {
   game.auctionLot = null;
   game.status = 'finished';
+  deletePersistedGame(game.id); // partie finie : plus jamais besoin de la restaurer après un redémarrage
   // XP + historique (fire-and-forget) : uniquement pour une fin "normale" (pool épuisé /
   // 2 équipes pleines) — le cas "forfeit" est géré à part par
   // finishAuctionGameByForfeit AVANT d'arriver ici (le joueur parti n'est déjà plus dans
@@ -1938,6 +2003,7 @@ function finishGuessGame(game, winnerId, opponentSecretIndex) {
   }
   game.status = 'finished';
   game.guessWinnerId = winnerId;
+  deletePersistedGame(game.id); // partie finie : plus jamais besoin de la restaurer après un redémarrage
 
   // XP + historique (fire-and-forget) : participation pour les deux, bonus pour le
   // gagnant. Pas de score en mode guess (jamais suivi).
@@ -1971,6 +2037,7 @@ function finishGuessGameByForfeit(game, leavingPlayer) {
     game.guessTurnTimer = null;
   }
   game.status = 'finished';
+  deletePersistedGame(game.id); // partie finie : plus jamais besoin de la restaurer après un redémarrage
 
   const remaining = game.players[0]; // un seul joueur restant, cf. leaveCurrentGame()/finalizePlayerRemoval()
   game.guessWinnerId = remaining ? remaining.id : null;
@@ -2748,6 +2815,129 @@ function buildRoute() {
 const games = {};
 
 // -----------------------------------------------------------------
+// PERSISTANCE DES PARTIES EN COURS (table Supabase `active_games`) — pour survivre à un
+// redémarrage du serveur (déploiement Render, crash...) sans perdre les parties déjà
+// lancées. Uniquement les parties status === 'playing' (une partie en lobby ou déjà finie
+// n'a rien à gagner à être restaurée : triviale à recréer, ou déjà entièrement traitée
+// via recordGameResult). Best-effort partout (fire-and-forget, jamais bloquant, jamais un
+// pré-requis pour que le jeu fonctionne) : si Supabase est absent/mal configuré, tout se
+// comporte exactement comme avant cette fonctionnalité, juste sans résistance aux
+// redémarrages.
+// -----------------------------------------------------------------
+
+// Retire tout ce qui n'est PAS sérialisable en JSON (Timeout de setTimeout) — jamais un
+// JSON.stringify(game) direct, qui laisserait passer des objets Timeout à moitié
+// sérialisés (propriétés internes Node, inexploitables à la relecture).
+function serializeGameForPersistence(game) {
+  const { turnTimer, guessTurnTimer, ...rest } = game;
+  return {
+    ...rest,
+    players: game.players.map(p => {
+      const { disconnectTimer, ...playerRest } = p;
+      return playerRest;
+    })
+  };
+}
+
+async function persistGame(game) {
+  if (!supabase || game.status !== 'playing') return;
+  try {
+    await supabase.from('active_games').upsert({
+      game_id: game.id,
+      state: serializeGameForPersistence(game),
+      updated_at: new Date().toISOString()
+    });
+  } catch (err) {
+    console.error('[persistance] échec sauvegarde partie', game.id, err.message);
+  }
+}
+
+async function deletePersistedGame(gameId) {
+  if (!supabase) return;
+  try {
+    await supabase.from('active_games').delete().eq('game_id', gameId);
+  } catch (err) {
+    console.error('[persistance] échec suppression partie', gameId, err.message);
+  }
+}
+
+// Sauvegarde périodique de TOUTES les parties en cours — bien plus simple et fiable que
+// d'ajouter un appel à persistGame() après chaque mutation possible (des dizaines
+// d'endroits différents) ; au pire ~20s de jeu perdues sur un crash brutal, largement
+// acceptable pour ce projet. Les redémarrages "propres" (nouveau déploiement Render) sont
+// couverts séparément par le handler SIGTERM juste en dessous, qui sauvegarde tout juste
+// avant l'arrêt plutôt que d'attendre le prochain tick.
+const PERSIST_INTERVAL_MS = 20000;
+setInterval(() => {
+  if (!supabase) return;
+  Object.values(games).forEach(persistGame);
+}, PERSIST_INTERVAL_MS);
+
+process.on('SIGTERM', async () => {
+  if (supabase) {
+    console.log('[persistance] SIGTERM reçu, sauvegarde des parties en cours...');
+    await Promise.all(Object.values(games).map(persistGame));
+  }
+  process.exit(0);
+});
+
+// Restauration au démarrage : relit toutes les parties persistées et les replace dans
+// `games`, comme si le serveur n'avait jamais redémarré. Personne n'est réellement
+// connecté à ce stade (nouveau process = 0 socket) : chaque joueur est marqué
+// "déconnecté" avec le MÊME délai de grâce qu'une coupure réseau normale (cf.
+// handleSocketDisconnect/RECONNECT_GRACE_MS plus bas) — son client, en se reconnectant
+// tout seul (Socket.IO) puis en renvoyant rejoin_game, le retrouvera et annulera ce délai.
+// S'il ne revient pas à temps, la partie se termine par forfait exactement comme une
+// vraie déconnexion : aucune logique de nettoyage spécifique à inventer ici.
+async function loadPersistedGames() {
+  if (!supabase) return;
+  try {
+    const { data, error } = await supabase.from('active_games').select('game_id, state');
+    if (error || !data || data.length === 0) return;
+
+    data.forEach(row => {
+      const game = row.state;
+      if (!game || !game.id || !Array.isArray(game.players)) return;
+      game.turnTimer = null;
+      game.guessTurnTimer = null;
+      games[game.id] = game;
+
+      game.players.forEach(player => {
+        player.disconnected = true;
+        player.disconnectTimer = setTimeout(() => {
+          game.players = game.players.filter(p => p.token !== player.token);
+          finalizePlayerRemoval(game, game.id, player);
+        }, RECONNECT_GRACE_MS);
+      });
+
+      // Mode "guess" : relance un tour complet (durée pleine plutôt que le temps restant
+      // précis — un redémarrage serveur est rare et perturbateur, autant repartir sur une
+      // base simple et généreuse qu'un calcul de temps restant fragile).
+      if (game.gameMode === 'guess' && game.guessActivePlayerId && game.status === 'playing') {
+        beginGuessTurn(game, game.guessActivePlayerId);
+      }
+
+      // Mode normal/admin : si les joueurs actifs avaient déjà choisi avant l'arrêt du
+      // serveur (transition de tour en attente des 4s de révélation, cf.
+      // resolveTurnTransition), on la résout tout de suite plutôt que de laisser la
+      // partie bloquée indéfiniment — le délai lui-même est de toute façon largement
+      // dépassé par le redémarrage.
+      if ((game.gameMode === 'normal' || game.gameMode === 'admin') && game.status === 'playing') {
+        const activePlayers = game.gameMode === 'admin' ? game.players.filter(p => p.id !== game.adminId) : game.players;
+        if (activePlayers.length > 0 && activePlayers.every(p => p.currentChoice !== null)) {
+          resolveTurnTransition(game);
+        }
+      }
+
+      console.log(`[persistance] partie ${game.id} restaurée (${game.gameMode}, ${game.players.length} joueur(s))`);
+    });
+  } catch (err) {
+    console.error('[persistance] échec restauration des parties', err.message);
+  }
+}
+
+
+// -----------------------------------------------------------------
 // GAMEMODE "ADMIN VS JOUEUR" — cf. set_game_mode / set_admin_role.
 // "normal" = comportement actuel, inchangé. "admin" = à exactement 2 joueurs, l'un
 // devient ADMIN (voit tout, ne joue jamais), l'autre JOUEUR (joue normalement, ne voit
@@ -3003,6 +3193,7 @@ function advanceTurn(game) {
 
 function finishGame(game) {
   game.status = 'finished';
+  deletePersistedGame(game.id); // partie finie : plus jamais besoin de la restaurer après un redémarrage
   game.route[game.route.length - 1].status = 'done';
 
   // Mode ADMIN VS JOUEUR : un seul résultat réel (celui du JOUEUR, seul à avoir un score).
@@ -3134,6 +3325,7 @@ function finalizePlayerRemoval(game, gameId, leavingPlayer) {
     if (game.guessTurnTimer) clearTimeout(game.guessTurnTimer); // sinon timer zombie qui retient `game` en mémoire et peut encore tenter d'émettre sur un salon mort
     clearSpectators(game, gameId);
     delete games[gameId];
+    deletePersistedGame(gameId);
     return;
   }
 
@@ -3210,14 +3402,74 @@ function leaveCurrentGame(socket) {
   finalizePlayerRemoval(game, gameId, leavingPlayer);
 }
 
+// Construit le payload spectateur adapté au mode de jeu — UN SEUL point de construction
+// (plutôt que dupliqué à chaque endroit qui bascule quelqu'un en spectateur : lancement
+// avec banc, rejoint via code sur une partie déjà en cours, transfert lors de "Rejouer").
+// Règle de sécurité : ne JAMAIS montrer à un spectateur plus que ce que verrait le joueur
+// le MOINS informé des deux — cf. l'enchère semi-aveugle, où même un spectateur ne doit
+// jamais voir le Pokémon du lot en cours (il pourrait le révéler au joueur aveugle par
+// Discord, ce qui viderait le mode de son intérêt).
+function buildSpectatePayload(game) {
+  const base = {
+    gameId: game.id,
+    status: game.status,
+    hostId: game.hostId,
+    gameMode: game.gameMode,
+    difficulty: game.selectedDifficulty,
+    spectatorCount: game.spectators.length
+  };
+
+  if (game.gameMode === 'guess') {
+    return {
+      ...base,
+      players: getPublicPlayers(game),
+      activePlayerId: game.guessActivePlayerId || null,
+      turnEndsAt: game.guessTurnEndsAt || null,
+      turnDurationMs: game.guessTurnDurationMs || GUESS_TURN_DURATION_MS,
+      chatMessages: game.chatMessages
+    };
+  }
+
+  if (game.gameMode === 'auction') {
+    const lot = game.auctionLot;
+    const hideLotPokemon = !!lot && game.auctionType === 'semi_blind';
+    return {
+      ...base,
+      players: getPublicAuctionPlayers(game),
+      auctionType: game.auctionType,
+      lot: lot ? {
+        pokemon: hideLotPokemon ? null : lot.pokemon,
+        mystery: hideLotPokemon,
+        currentBid: lot.currentBid,
+        currentBidderId: lot.currentBidderId,
+        activePlayerId: lot.activePlayerId
+      } : null,
+      lotsRemaining: game.auctionPool ? game.auctionPool.length : 0,
+      chatMessages: game.chatMessages
+    };
+  }
+
+  // normal / admin
+  return {
+    ...base,
+    turn: game.turn,
+    maxTurns: game.maxTurns,
+    boss: game.boss || null,
+    route: game.route || null,
+    players: getPublicPlayers(game),
+    adminId: game.adminId,
+    chatMessages: game.chatMessages
+  };
+}
+
 // ---------- MODE SPECTATEUR ----------
-// Rejoindre une partie déjà démarrée (normal/admin uniquement, cf. socket.on('join_game'))
-// place la socket en simple observateur : elle rejoint le même salon Socket.IO que les
-// joueurs, ce qui suffit à recevoir toutes les diffusions déjà PUBLIQUES (game_updated,
-// game_finished...) sans aucun changement côté serveur — tout ce qui est secret
-// (turn_options, choice_result, vue ADMIN...) est déjà ciblé individuellement par id de
-// joueur ailleurs dans ce fichier, jamais diffusé au salon entier. Un spectateur n'entre
-// JAMAIS dans game.players : aucun impact sur le tour, le score, ou la logique de partie.
+// Rejoindre une partie déjà démarrée place la socket en simple observateur : elle rejoint
+// le même salon Socket.IO que les joueurs, ce qui suffit à recevoir toutes les diffusions
+// déjà PUBLIQUES (game_updated, game_finished, guess_turn_started, auction_bid_update...)
+// sans aucun changement côté serveur — tout ce qui est secret (turn_options,
+// choice_result, vue ADMIN...) est déjà ciblé individuellement par id de joueur ailleurs
+// dans ce fichier, jamais diffusé au salon entier. Un spectateur n'entre JAMAIS dans
+// game.players : aucun impact sur le tour, le score, ou la logique de partie.
 function removeSpectator(socket) {
   const gameId = socket.data.spectateGameId;
   if (!gameId) return;
@@ -3228,10 +3480,10 @@ function removeSpectator(socket) {
   if (!game || !game.spectators) return;
   game.spectators = game.spectators.filter(s => s.id !== socket.id);
   // broadcastGameUpdated() a un payload façonné pour Route du Boss (route/turn/maxTurns) :
-  // en mode "guess", ce n'est jamais ce que les 2 joueurs actifs écoutent (leurs mises à
-  // jour passent par guess_players_updated etc.), donc on ne diffuse le compteur de
-  // spectateurs que pour les modes normal/admin.
-  if (game.gameMode !== 'guess') {
+  // en mode "guess"/"auction", ce n'est jamais ce que les joueurs actifs écoutent (leurs
+  // mises à jour passent par guess_players_updated/auction_bid_update etc.), donc on ne
+  // diffuse le compteur de spectateurs que pour les modes normal/admin.
+  if (game.gameMode !== 'guess' && game.gameMode !== 'auction') {
     broadcastGameUpdated(game); // met à jour spectatorCount pour les joueurs restants
   }
 }
@@ -3265,20 +3517,7 @@ function benchExtraPlayersAsSpectators(game, gameId, benchedPlayers) {
     if (!s) return;
     s.data.gameId = null;
     s.data.spectateGameId = gameId;
-    s.emit('spectate_joined', {
-      gameId,
-      status: game.status,
-      turn: game.turn,
-      maxTurns: game.maxTurns,
-      boss: game.boss || null,
-      route: game.route,
-      players: getPublicPlayers(game),
-      hostId: game.hostId,
-      gameMode: game.gameMode,
-      adminId: game.adminId,
-      difficulty: game.selectedDifficulty,
-      spectatorCount: game.spectators.length
-    });
+    s.emit('spectate_joined', buildSpectatePayload(game));
   });
 }
 
@@ -3336,6 +3575,7 @@ function finishAdminModeByForfeit(game, leavingPlayer) {
     game.turnTimer = null;
   }
   game.status = 'finished';
+  deletePersistedGame(game.id); // partie finie : plus jamais besoin de la restaurer après un redémarrage
 
   const remaining = game.players[0]; // un seul joueur restant, cf. leaveCurrentGame()
   const results = [leavingPlayer, remaining]
@@ -3421,7 +3661,8 @@ io.on('connection', (socket) => {
       auctionHistory: [], // [{ pokemon:{id,name,sprite}, winnerId, winnerName, price }], dans l'ordre
       auctionLot: null, // lot en cours : { pokemon, currentBid, currentBidderId, activePlayerId, seerId }
       auctionBlindSeerId: null, // id du joueur qui VOIT au lot en cours (semi_blind uniquement) ; alterne à chaque lot
-      auctionBidStarterId: null // id du joueur qui ouvre les enchères du lot en cours (tour par tour) ; alterne à chaque lot
+      auctionBidStarterId: null, // id du joueur qui ouvre les enchères du lot en cours (tour par tour) ; alterne à chaque lot
+      chatMessages: [] // discussion texte de la partie : { id, name, avatar, isSpectator, text, ts } — jamais persisté au-delà de la session, cf. socket.on('chat_message')
     };
 
     socket.join(gameId);
@@ -3455,14 +3696,11 @@ io.on('connection', (socket) => {
       return;
     }
     if (game.status !== 'waiting') {
-      // Partie déjà démarrée : mode spectateur (normal/admin uniquement — les modes
-      // "guess" et "auction" n'ont pas d'écran spectateur dédié pour l'instant, on garde
-      // l'ancien comportement pour eux). Un spectateur n'entre JAMAIS dans game.players :
-      // voir clearSpectators/removeSpectator plus haut pour le détail de ce que ça implique.
-      if (game.gameMode === 'guess' || game.gameMode === 'auction') {
-        socket.emit('error_message', 'Partie déjà commencée.');
-        return;
-      }
+      // Partie déjà démarrée : mode spectateur, tous modes confondus. Un spectateur
+      // n'entre JAMAIS dans game.players : voir clearSpectators/removeSpectator plus
+      // haut pour le détail de ce que ça implique. Le payload exact (ce qu'un
+      // spectateur a le droit de voir) est décidé par buildSpectatePayload selon le
+      // mode — jamais construit ici.
       if (!trimmedName) {
         socket.emit('error_message', 'Pseudo requis.');
         return;
@@ -3478,21 +3716,14 @@ io.on('connection', (socket) => {
       socket.join(id);
       socket.data.spectateGameId = id;
 
-      socket.emit('spectate_joined', {
-        gameId: id,
-        status: game.status,
-        turn: game.turn,
-        maxTurns: game.maxTurns,
-        boss: game.boss,
-        route: game.route,
-        players: getPublicPlayers(game),
-        hostId: game.hostId,
-        gameMode: game.gameMode,
-        adminId: game.adminId,
-        difficulty: game.selectedDifficulty,
-        spectatorCount: game.spectators.length
-      });
-      broadcastGameUpdated(game); // les joueurs voient tout de suite le compteur de spectateurs bouger
+      socket.emit('spectate_joined', buildSpectatePayload(game));
+      // broadcastGameUpdated() ne convient qu'à normal/admin (cf. removeSpectator) — les
+      // joueurs de ces 2 modes voient tout de suite le compteur de spectateurs bouger ;
+      // pour guess/auction, le prochain événement de partie (déjà room-wide) portera le
+      // compteur à jour de toute façon, cf. buildSpectatePayload > spectatorCount.
+      if (game.gameMode !== 'guess' && game.gameMode !== 'auction') {
+        broadcastGameUpdated(game);
+      }
       return;
     }
 
@@ -3575,6 +3806,46 @@ io.on('connection', (socket) => {
     io.to(gameId).emit('reaction', { playerId: socket.id, playerName, emoji });
   });
 
+  // Discussion texte de la partie (n'importe quel mode) : relayée à tout le salon
+  // Socket.IO, joueurs ET spectateurs compris (déjà dans le même salon, cf. le
+  // commentaire MODE SPECTATEUR plus bas) — jamais stockée au-delà de la session, jamais
+  // persistée en base. Même throttle anti-spam que les réactions rapides, en un peu plus
+  // large (le texte demande plus de temps à taper que de cliquer une réaction).
+  const CHAT_COOLDOWN_MS = 600;
+  const CHAT_MAX_LENGTH = 300;
+  const CHAT_HISTORY_LIMIT = 50; // pour un spectateur qui rejoint en cours de partie
+  socket.on('chat_message', ({ text } = {}) => {
+    const gameId = socket.data.gameId || socket.data.spectateGameId;
+    const game = games[gameId];
+    if (!game) return;
+
+    const trimmed = (text || '').trim().slice(0, CHAT_MAX_LENGTH);
+    if (!trimmed) return;
+
+    const now = Date.now();
+    if (socket.data.lastChatAt && now - socket.data.lastChatAt < CHAT_COOLDOWN_MS) return;
+    socket.data.lastChatAt = now;
+
+    const player = game.players.find(p => p.id === socket.id);
+    const spectator = !player && game.spectators ? game.spectators.find(s => s.id === socket.id) : null;
+    if (!player && !spectator) return; // ni joueur ni spectateur de cette partie : rien à diffuser
+
+    const message = {
+      id: `${now}-${socket.id}`,
+      authorId: socket.id,
+      name: player ? player.name : spectator.name,
+      avatar: player ? player.avatar : null, // les spectateurs n'ont pas d'avatar stocké (cf. game.spectators)
+      isSpectator: !player,
+      text: trimmed,
+      ts: now
+    };
+
+    game.chatMessages.push(message);
+    if (game.chatMessages.length > CHAT_HISTORY_LIMIT) game.chatMessages.shift();
+
+    io.to(gameId).emit('chat_message', message);
+  });
+
   socket.on('start_game', () => {
     const gameId = socket.data.gameId;
     const game = games[gameId];
@@ -3606,6 +3877,7 @@ io.on('connection', (socket) => {
       }
       game.status = 'playing';
       startAuctionGame(game);
+      persistGame(game);
       return;
     }
 
@@ -3651,6 +3923,7 @@ io.on('connection', (socket) => {
       game.players.forEach(p => { p.secretPokemonIndex = null; });
       benchExtraPlayersAsSpectators(game, gameId, benchedPlayers);
       startGuessGame(game);
+      persistGame(game);
       return;
     }
 
@@ -3690,6 +3963,7 @@ io.on('connection', (socket) => {
     });
 
     startTurnForPlayers(game);
+    persistGame(game);
   });
 
   // ---------------------------------------------------------------
@@ -4006,7 +4280,8 @@ io.on('connection', (socket) => {
       auctionHistory: [],
       auctionLot: null,
       auctionBlindSeerId: null,
-      auctionBidStarterId: null
+      auctionBidStarterId: null,
+      chatMessages: [] // nouvelle partie = discussion vierge, jamais reprise de l'ancienne
     };
 
     games[newGameId] = newGame;
@@ -4033,25 +4308,13 @@ io.on('connection', (socket) => {
       specSocket.leave(oldGameId);
       specSocket.join(newGameId);
       specSocket.data.spectateGameId = newGameId;
-      specSocket.emit('spectate_joined', {
-        gameId: newGameId,
-        status: newGame.status,
-        turn: newGame.turn,
-        maxTurns: newGame.maxTurns,
-        boss: newGame.boss,
-        route: newGame.route,
-        players: getPublicPlayers(newGame),
-        hostId: newGame.hostId,
-        gameMode: newGame.gameMode,
-        adminId: newGame.adminId,
-        difficulty: newGame.selectedDifficulty,
-        spectatorCount: newGame.spectators.length
-      });
+      specSocket.emit('spectate_joined', buildSpectatePayload(newGame));
     });
 
     if (oldGame.turnTimer) clearTimeout(oldGame.turnTimer); // filet de sécurité : status 'finished' devrait déjà l'avoir nettoyé
     if (oldGame.guessTurnTimer) clearTimeout(oldGame.guessTurnTimer);
     delete games[oldGameId];
+    deletePersistedGame(oldGameId);
 
     io.to(newGameId).emit('game_replayed', {
       gameId: newGameId,
@@ -4781,7 +5044,8 @@ io.on('connection', (socket) => {
       // intermédiaire manquant. auctionHistory permet de reconstruire l'écran final
       // (liste des lots vendus) si la reconnexion arrive après la fin du draft.
       auctionType: game.gameMode === 'auction' ? game.auctionType : undefined,
-      auctionHistory: game.gameMode === 'auction' ? game.auctionHistory : undefined
+      auctionHistory: game.gameMode === 'auction' ? game.auctionHistory : undefined,
+      chatMessages: game.chatMessages
     });
 
     // Mode "auction" : renvoie le lot en cours à CE seul joueur, avec la même règle de
@@ -4854,9 +5118,16 @@ io.on('connection', (socket) => {
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-  console.log(`Serveur lancé sur http://localhost:${PORT}`);
-});
+// Restaure les parties persistées AVANT d'accepter des connexions : sinon un client qui
+// se reconnecte dans la fraction de seconde suivant le démarrage pourrait arriver avant
+// que sa partie soit relue, et se voir répondre "partie introuvable" à tort.
+loadPersistedGames()
+  .catch(err => console.error('[persistance] échec inattendu au démarrage', err.message))
+  .finally(() => {
+    server.listen(PORT, () => {
+      console.log(`Serveur lancé sur http://localhost:${PORT}`);
+    });
+  });
 
 // Export test-only : n'affecte rien en production (module.exports est ignoré quand ce
 // fichier est lancé directement via `node server.js`), utilisé uniquement par les

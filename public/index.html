@@ -625,6 +625,13 @@
       <p class="boss-target">Objectif : <span id="spectate-boss-target">0</span> PTS</p>
     </div>
 
+    <div class="boss-panel screen--hidden" id="spectate-auction-panel">
+      <p class="eyebrow">Lot en cours</p>
+      <img id="spectate-auction-sprite" class="boss-sprite" src="" alt="">
+      <h2 id="spectate-auction-name" class="boss-name">—</h2>
+      <p class="boss-target" id="spectate-auction-bid">Aucune enchère</p>
+    </div>
+
     <p id="spectate-turn" class="spectate-turn">Tour — / 6</p>
 
     <div class="players-panel">
@@ -645,6 +652,24 @@
   <button type="button" class="reaction-btn" data-emoji="😭" aria-label="Réagir en pleurant">😭</button>
   <button type="button" class="reaction-btn" data-emoji="💀" aria-label="Réagir avec la tête de mort">💀</button>
   <button type="button" class="reaction-btn" data-emoji="⚡" aria-label="Réagir avec l'éclair">⚡</button>
+</div>
+
+<!-- Chat texte de la partie : même principe que reaction-bar (widget unique et partagé,
+     visible en partie/spectateur uniquement, cf. body[data-screen] dans style.css).
+     Fermé par défaut ; s'ouvre en drawer au clic sur le bouton flottant. -->
+<button type="button" id="btn-chat-toggle" class="chat-toggle" aria-label="Discussion">
+  💬<span id="chat-unread-badge" class="chat-unread-badge screen--hidden"></span>
+</button>
+<div id="chat-panel" class="chat-panel screen--hidden">
+  <div class="chat-panel__header">
+    <span>Discussion</span>
+    <button type="button" id="btn-chat-close" class="chat-panel__close" aria-label="Fermer la discussion">✕</button>
+  </div>
+  <ul id="chat-messages" class="chat-messages"></ul>
+  <form id="chat-form" class="chat-form">
+    <input id="chat-input" type="text" class="chat-input" placeholder="Écrire un message..." maxlength="300" autocomplete="off">
+    <button type="submit" class="chat-send" aria-label="Envoyer">➤</button>
+  </form>
 </div>
 <div id="reaction-bubbles" class="reaction-bubbles" aria-hidden="true"></div>
 
@@ -676,6 +701,9 @@
     <div class="settings-tabs" role="tablist">
       <button type="button" class="settings-tab settings-tab--selected" data-settings-page="account" role="tab" aria-selected="true">
         <span class="settings-tab__icon" aria-hidden="true">👤</span>Compte
+      </button>
+      <button type="button" class="settings-tab" data-settings-page="leaderboard" role="tab" aria-selected="false">
+        <span class="settings-tab__icon" aria-hidden="true">🏆</span>Classement
       </button>
       <button type="button" class="settings-tab" data-settings-page="prefs" role="tab" aria-selected="false">
         <span class="settings-tab__icon" aria-hidden="true">🎨</span>Préférences
@@ -756,6 +784,12 @@
         </div>
 
         <p id="account-error" class="error-message" role="alert"></p>
+      </div>
+
+      <!-- ---------- Page : Classement ---------- -->
+      <div class="settings-page screen--hidden" data-settings-page="leaderboard">
+        <p class="account-history-hint">Top 50 par XP, tous comptes confondus.</p>
+        <ol id="leaderboard-list" class="leaderboard-list"></ol>
       </div>
 
       <!-- ---------- Page : Préférences ---------- -->
