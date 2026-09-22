@@ -555,6 +555,103 @@ app.post('/api/profile/achievements', async (req, res) => {
   });
 });
 
+// Pokédex personnel : tous les Pokémon obtenus au moins une fois, toutes parties/modes
+// confondus — dérivé de game_history.team (déjà stocké pour le détail d'historique et les
+// succès), jamais une table à part : une seule source de vérité. auctionTeam n'a pas de
+// champ shiny (jamais aveugle en Draft/Enchères) donc ignoré pour ce flag spécifiquement,
+// mais compte quand même comme "obtenu".
+app.post('/api/profile/pokedex', async (req, res) => {
+  if (!requireSupabase(res)) return;
+  const { accessToken } = req.body || {};
+  if (!accessToken) {
+    res.status(400).json({ error: 'accessToken requis.' });
+    return;
+  }
+
+  const { data: { user }, error: userError } = await createAuthClient().auth.getUser(accessToken);
+  if (userError || !user) {
+    res.status(401).json({ error: 'Session invalide.' });
+    return;
+  }
+
+  const { data, error } = await supabase.from('game_history').select('team').eq('user_id', user.id);
+  if (error) {
+    res.status(400).json({ error: 'Le Pokédex n\'a pas pu être récupéré.' });
+    return;
+  }
+
+  const seen = new Map(); // id -> { id, name, sprite, shiny }
+  (data || []).forEach(row => {
+    if (!Array.isArray(row.team)) return;
+    row.team.forEach(mon => {
+      if (!mon || !mon.id) return;
+      const existing = seen.get(mon.id);
+      if (existing) {
+        if (mon.shiny) existing.shiny = true;
+      } else {
+        seen.set(mon.id, { id: mon.id, name: mon.name, sprite: mon.sprite, shiny: !!mon.shiny });
+      }
+    });
+  });
+
+  res.json({ seen: Array.from(seen.values()) });
+});
+
+// Stats de profil : Pokémon le plus tiré, taux de victoire par mode, meilleur score par
+// difficulté — dérivé de game_history comme le Pokédex, mêmes principes (rien de
+// persisté à part, tout recalculé à la demande).
+app.post('/api/profile/stats', async (req, res) => {
+  if (!requireSupabase(res)) return;
+  const { accessToken } = req.body || {};
+  if (!accessToken) {
+    res.status(400).json({ error: 'accessToken requis.' });
+    return;
+  }
+
+  const { data: { user }, error: userError } = await createAuthClient().auth.getUser(accessToken);
+  if (userError || !user) {
+    res.status(401).json({ error: 'Session invalide.' });
+    return;
+  }
+
+  const { data, error } = await supabase.from('game_history').select('game_mode, result, score, difficulty, team').eq('user_id', user.id);
+  if (error) {
+    res.status(400).json({ error: 'Les statistiques n\'ont pas pu être récupérées.' });
+    return;
+  }
+
+  const rows = data || [];
+  const winRateByMode = {};
+  const bestScoreByDifficulty = {};
+  const pokemonCounts = new Map(); // id -> { id, name, sprite, count }
+
+  rows.forEach(row => {
+    if (!winRateByMode[row.game_mode]) winRateByMode[row.game_mode] = { wins: 0, total: 0 };
+    winRateByMode[row.game_mode].total += 1;
+    if (row.result === 'victory') winRateByMode[row.game_mode].wins += 1;
+
+    if (typeof row.score === 'number' && row.difficulty) {
+      const current = bestScoreByDifficulty[row.difficulty];
+      if (current === undefined || row.score > current) bestScoreByDifficulty[row.difficulty] = row.score;
+    }
+
+    if (Array.isArray(row.team)) {
+      row.team.forEach(mon => {
+        if (!mon || !mon.id) return;
+        const existing = pokemonCounts.get(mon.id);
+        if (existing) existing.count += 1;
+        else pokemonCounts.set(mon.id, { id: mon.id, name: mon.name, sprite: mon.sprite, count: 1 });
+      });
+    }
+  });
+
+  const topPokemon = Array.from(pokemonCounts.values())
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 10);
+
+  res.json({ gamesPlayed: rows.length, winRateByMode, bestScoreByDifficulty, topPokemon });
+});
+
 // Classement global par XP — public (aucun accessToken requis, comme /api/avatars),
 // mais accepte un accessToken OPTIONNEL pour indiquer au client quelle ligne est "la
 // sienne" (surlignage) sans lui faire deviner via le pseudo (qu'un autre joueur pourrait

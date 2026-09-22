@@ -1154,6 +1154,72 @@ input:focus {
   border-color: var(--accent-haut);
 }
 
+/* ---------- Pokédex personnel ---------- */
+.account-pokedex-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+  gap: 8px;
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+.account-pokedex-cell {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 4px;
+  border-radius: 8px;
+  background: var(--bg-panel-alt);
+  border: 1px solid var(--border);
+}
+
+.account-pokedex-cell img {
+  width: 48px;
+  height: 48px;
+  object-fit: contain;
+}
+
+.account-pokedex-cell__shiny {
+  position: absolute;
+  top: 2px;
+  right: 4px;
+  font-size: 11px;
+}
+
+.account-pokedex-cell__name {
+  font-size: 9px;
+  color: var(--text-muted);
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+/* ---------- Stats de profil ---------- */
+.account-stats-block {
+  margin-bottom: 18px;
+}
+
+.account-stats-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 10px;
+  margin-bottom: 6px;
+  border-radius: 8px;
+  background: var(--bg-panel-alt);
+  border: 1px solid var(--border);
+  font-size: 12px;
+}
+
+.account-stats-row span:last-child {
+  font-family: var(--font-mono);
+  color: var(--accent-haut);
+}
+
 /* ---------- Toasts de succès débloqués ---------- */
 .achievement-toast-container {
   position: fixed;

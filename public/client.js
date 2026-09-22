@@ -108,6 +108,10 @@ const accountHistoryListEl = document.getElementById('account-history-list');
 const accountAchievementsListEl = document.getElementById('account-achievements-list');
 const achievementToastContainerEl = document.getElementById('achievement-toast-container');
 const leaderboardListEl = document.getElementById('leaderboard-list');
+const accountPokedexCountEl = document.getElementById('account-pokedex-count');
+const accountPokedexSearchEl = document.getElementById('account-pokedex-search');
+const accountPokedexGridEl = document.getElementById('account-pokedex-grid');
+const accountStatsContentEl = document.getElementById('account-stats-content');
 const accountAvatarSearchEl = document.getElementById('account-avatar-search');
 const accountErrorEl = document.getElementById('account-error');
 const settingsTabButtons = Array.from(document.querySelectorAll('.settings-tab'));
@@ -305,6 +309,179 @@ async function fetchAndRenderAccountAchievements(account) {
     empty.className = 'account-history-empty';
     empty.textContent = 'Succès indisponibles pour le moment.';
     accountAchievementsListEl.appendChild(empty);
+  }
+}
+
+// ---------- Pokédex personnel ----------
+// Galerie de tout ce qui a déjà été obtenu au moins une fois (toutes parties/modes
+// confondus) — PAS un dex complet avec silhouettes des non-obtenus (jamais demandé, et le
+// client n'a de toute façon pas la liste complète des ~1073 Pokémon/méga possibles).
+let pokedexSeenCache = [];
+async function fetchAndRenderPokedex(account) {
+  accountPokedexGridEl.innerHTML = '';
+  accountPokedexCountEl.textContent = 'Chargement...';
+  try {
+    const res = await fetch('/api/profile/pokedex', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ accessToken: account.accessToken })
+    });
+    const data = await res.json();
+    if (!res.ok || !data.seen) {
+      accountPokedexCountEl.textContent = 'Pokédex indisponible pour le moment.';
+      return;
+    }
+    pokedexSeenCache = data.seen.sort((a, b) => a.id - b.id);
+    renderPokedexGrid(pokedexSeenCache);
+  } catch (err) {
+    accountPokedexCountEl.textContent = 'Pokédex indisponible pour le moment.';
+  }
+}
+
+function renderPokedexGrid(list) {
+  accountPokedexGridEl.innerHTML = '';
+  accountPokedexCountEl.textContent = `${pokedexSeenCache.length} Pokémon obtenus`;
+  if (list.length === 0) {
+    const empty = document.createElement('p');
+    empty.className = 'account-history-empty';
+    empty.textContent = 'Aucun Pokémon obtenu pour le moment.';
+    accountPokedexGridEl.appendChild(empty);
+    return;
+  }
+  list.forEach(mon => {
+    const cell = document.createElement('div');
+    cell.className = 'account-pokedex-cell';
+    cell.title = mon.name;
+    const img = document.createElement('img');
+    img.src = mon.sprite;
+    img.alt = mon.name;
+    img.loading = 'lazy';
+    cell.appendChild(img);
+    if (mon.shiny) {
+      const star = document.createElement('span');
+      star.className = 'account-pokedex-cell__shiny';
+      star.textContent = '✨';
+      cell.appendChild(star);
+    }
+    const name = document.createElement('span');
+    name.className = 'account-pokedex-cell__name';
+    name.textContent = mon.name;
+    cell.appendChild(name);
+    accountPokedexGridEl.appendChild(cell);
+  });
+}
+
+accountPokedexSearchEl.addEventListener('input', () => {
+  const query = accountPokedexSearchEl.value.trim().toLowerCase();
+  const filtered = query ? pokedexSeenCache.filter(m => m.name.toLowerCase().includes(query)) : pokedexSeenCache;
+  renderPokedexGrid(filtered);
+});
+
+// ---------- Stats de profil ----------
+const STATS_MODE_LABELS = { normal: 'Route du Boss', admin: 'Admin vs Joueur', guess: 'Devine le Pokémon', auction: 'Draft/Enchères' };
+const STATS_DIFFICULTY_LABELS = { easy: 'Facile', medium: 'Moyen', hard: 'Difficile', extreme: 'Extrême' };
+
+async function fetchAndRenderProfileStats(account) {
+  accountStatsContentEl.innerHTML = '';
+  try {
+    const res = await fetch('/api/profile/stats', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ accessToken: account.accessToken })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      const empty = document.createElement('p');
+      empty.className = 'account-history-empty';
+      empty.textContent = 'Statistiques indisponibles pour le moment.';
+      accountStatsContentEl.appendChild(empty);
+      return;
+    }
+
+    if (!data.gamesPlayed) {
+      const empty = document.createElement('p');
+      empty.className = 'account-history-empty';
+      empty.textContent = 'Aucune partie terminée pour le moment.';
+      accountStatsContentEl.appendChild(empty);
+      return;
+    }
+
+    // Bloc taux de victoire par mode.
+    const winBlock = document.createElement('div');
+    winBlock.className = 'account-stats-block';
+    const winTitle = document.createElement('p');
+    winTitle.className = 'account-achievements-category__title';
+    winTitle.textContent = 'Taux de victoire par mode';
+    winBlock.appendChild(winTitle);
+    Object.entries(data.winRateByMode || {}).forEach(([mode, stat]) => {
+      const row = document.createElement('div');
+      row.className = 'account-stats-row';
+      const label = document.createElement('span');
+      label.textContent = STATS_MODE_LABELS[mode] || mode;
+      const value = document.createElement('span');
+      const pct = stat.total > 0 ? Math.round((stat.wins / stat.total) * 100) : 0;
+      value.textContent = `${stat.wins}/${stat.total} (${pct}%)`;
+      row.appendChild(label);
+      row.appendChild(value);
+      winBlock.appendChild(row);
+    });
+    accountStatsContentEl.appendChild(winBlock);
+
+    // Bloc meilleur score par difficulté.
+    if (Object.keys(data.bestScoreByDifficulty || {}).length > 0) {
+      const scoreBlock = document.createElement('div');
+      scoreBlock.className = 'account-stats-block';
+      const scoreTitle = document.createElement('p');
+      scoreTitle.className = 'account-achievements-category__title';
+      scoreTitle.textContent = 'Meilleur score par difficulté';
+      scoreBlock.appendChild(scoreTitle);
+      Object.entries(data.bestScoreByDifficulty).forEach(([difficulty, best]) => {
+        const row = document.createElement('div');
+        row.className = 'account-stats-row';
+        const label = document.createElement('span');
+        label.textContent = STATS_DIFFICULTY_LABELS[difficulty] || difficulty;
+        const value = document.createElement('span');
+        value.textContent = `${best} pts`;
+        row.appendChild(label);
+        row.appendChild(value);
+        scoreBlock.appendChild(row);
+      });
+      accountStatsContentEl.appendChild(scoreBlock);
+    }
+
+    // Bloc Pokémon les plus tirés.
+    if ((data.topPokemon || []).length > 0) {
+      const topBlock = document.createElement('div');
+      topBlock.className = 'account-stats-block';
+      const topTitle = document.createElement('p');
+      topTitle.className = 'account-achievements-category__title';
+      topTitle.textContent = 'Pokémon les plus tirés';
+      topBlock.appendChild(topTitle);
+      const topGrid = document.createElement('div');
+      topGrid.className = 'account-pokedex-grid';
+      data.topPokemon.forEach(mon => {
+        const cell = document.createElement('div');
+        cell.className = 'account-pokedex-cell';
+        cell.title = mon.name;
+        const img = document.createElement('img');
+        img.src = mon.sprite;
+        img.alt = mon.name;
+        img.loading = 'lazy';
+        cell.appendChild(img);
+        const name = document.createElement('span');
+        name.className = 'account-pokedex-cell__name';
+        name.textContent = `${mon.name} ×${mon.count}`;
+        cell.appendChild(name);
+        topGrid.appendChild(cell);
+      });
+      topBlock.appendChild(topGrid);
+      accountStatsContentEl.appendChild(topBlock);
+    }
+  } catch (err) {
+    const empty = document.createElement('p');
+    empty.className = 'account-history-empty';
+    empty.textContent = 'Statistiques indisponibles pour le moment.';
+    accountStatsContentEl.appendChild(empty);
   }
 }
 
@@ -554,6 +731,8 @@ function refreshAccountSettingsSection() {
     renderAccountLevel(account);
     fetchAndRenderAccountHistory(account);
     fetchAndRenderAccountAchievements(account);
+    fetchAndRenderPokedex(account);
+    fetchAndRenderProfileStats(account);
     accountAvatarSearchEl.value = '';
     populateAvatarGrid(account, '');
   } else {

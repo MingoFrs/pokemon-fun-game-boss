@@ -765,6 +765,8 @@
           <div id="account-subtabs" class="settings-subtabs" role="tablist">
             <button type="button" class="settings-subtab settings-subtab--selected" data-account-subpage="history" role="tab" aria-selected="true">Historique</button>
             <button type="button" class="settings-subtab" data-account-subpage="achievements" role="tab" aria-selected="false">Succès</button>
+            <button type="button" class="settings-subtab" data-account-subpage="pokedex" role="tab" aria-selected="false">Pokédex</button>
+            <button type="button" class="settings-subtab" data-account-subpage="stats" role="tab" aria-selected="false">Stats</button>
             <button type="button" class="settings-subtab" data-account-subpage="avatar" role="tab" aria-selected="false">Avatar</button>
           </div>
 
@@ -775,6 +777,16 @@
 
           <div class="account-subpage screen--hidden" data-account-subpage="achievements">
             <div id="account-achievements-list" class="account-achievements-list"></div>
+          </div>
+
+          <div class="account-subpage screen--hidden" data-account-subpage="pokedex">
+            <p id="account-pokedex-count" class="account-history-hint">0 / 0 Pokémon obtenus</p>
+            <input id="account-pokedex-search" type="text" class="account-avatar-search" placeholder="Rechercher un Pokémon...">
+            <div id="account-pokedex-grid" class="account-pokedex-grid"></div>
+          </div>
+
+          <div class="account-subpage screen--hidden" data-account-subpage="stats">
+            <div id="account-stats-content"></div>
           </div>
 
           <div class="account-subpage screen--hidden" data-account-subpage="avatar">
