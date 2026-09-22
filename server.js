@@ -728,7 +728,170 @@ const COMMON_RAW = [
   { id: 296, name: 'Makuhita', points: 190 },
   { id: 415, name: 'Apitrini', points: 190 },
   { id: 293, name: 'Chuchmur', points: 190 },
-  { id: 108, name: 'Excelangue', points: 196 }
+  { id: 108, name: 'Excelangue', points: 196 },
+  { id: 236, name: 'Debugant', points: 121 },
+  { id: 238, name: 'Lippouti', points: 118 },
+  { id: 239, name: 'Élekid', points: 133 },
+  { id: 240, name: 'Magby', points: 133 },
+  { id: 495, name: 'Vipélierre', points: 135 },
+  { id: 498, name: 'Gruikui', points: 136 },
+  { id: 501, name: 'Moustillon', points: 137 },
+  { id: 504, name: 'Ratentif', points: 139 },
+  { id: 506, name: 'Ponchiot', points: 140 },
+  { id: 509, name: 'Chacripan', points: 141 },
+  { id: 511, name: 'Feuillajou', points: 142 },
+  { id: 513, name: 'Flamajou', points: 143 },
+  { id: 515, name: 'Flotajou', points: 145 },
+  { id: 517, name: 'Munna', points: 146 },
+  { id: 519, name: 'Poichigeon', points: 147 },
+  { id: 522, name: 'Zébibron', points: 148 },
+  { id: 524, name: 'Nodulithe', points: 149 },
+  { id: 527, name: 'Chovsourir', points: 151 },
+  { id: 529, name: 'Rototaupe', points: 152 },
+  { id: 532, name: 'Charpenti', points: 153 },
+  { id: 535, name: 'Tritonde', points: 154 },
+  { id: 540, name: 'Larveyette', points: 155 },
+  { id: 543, name: 'Venipatte', points: 157 },
+  { id: 546, name: 'Doudouvet', points: 158 },
+  { id: 548, name: 'Chlorobule', points: 159 },
+  { id: 551, name: 'Mascaïman', points: 160 },
+  { id: 554, name: 'Darumarond', points: 161 },
+  { id: 557, name: 'Crabicoque', points: 163 },
+  { id: 559, name: 'Baggiguane', points: 164 },
+  { id: 562, name: 'Tutafeh', points: 165 },
+  { id: 564, name: 'Carapagos', points: 166 },
+  { id: 566, name: 'Arkéapti', points: 168 },
+  { id: 568, name: 'Miamiasme', points: 169 },
+  { id: 570, name: 'Zorua', points: 170 },
+  { id: 572, name: 'Chinchidou', points: 171 },
+  { id: 574, name: 'Scrutella', points: 172 },
+  { id: 577, name: 'Nucléos', points: 174 },
+  { id: 580, name: 'Couaneton', points: 175 },
+  { id: 582, name: 'Sorbébé', points: 176 },
+  { id: 585, name: 'Vivaldaim', points: 177 },
+  { id: 588, name: 'Carabing', points: 178 },
+  { id: 590, name: 'Trompignon', points: 180 },
+  { id: 592, name: 'Viskuse', points: 181 },
+  { id: 595, name: 'Statitik', points: 182 },
+  { id: 597, name: 'Grindur', points: 183 },
+  { id: 599, name: 'Tic', points: 184 },
+  { id: 602, name: 'Anchwatt', points: 186 },
+  { id: 605, name: 'Lewsor', points: 187 },
+  { id: 607, name: 'Funécire', points: 188 },
+  { id: 610, name: 'Coupenotte', points: 189 },
+  { id: 613, name: 'Polarhume', points: 190 },
+  { id: 616, name: 'Escargaume', points: 192 },
+  { id: 619, name: 'Kungfouine', points: 193 },
+  { id: 622, name: 'Gringolem', points: 194 },
+  { id: 624, name: 'Scalpion', points: 195 },
+  { id: 627, name: 'Furaiglon', points: 196 },
+  { id: 629, name: 'Vostourno', points: 198 },
+  { id: 633, name: 'Solochi', points: 199 },
+  { id: 636, name: 'Pyronille', points: 200 },
+  { id: 650, name: 'Marisson', points: 135 },
+  { id: 653, name: 'Feunnec', points: 138 },
+  { id: 656, name: 'Grenousse', points: 141 },
+  { id: 659, name: 'Sapereau', points: 143 },
+  { id: 661, name: 'Passerouge', points: 146 },
+  { id: 664, name: 'Lépidonille', points: 149 },
+  { id: 667, name: 'Hélionceau', points: 152 },
+  { id: 669, name: 'Flabébé', points: 155 },
+  { id: 672, name: 'Cabriolaine', points: 157 },
+  { id: 674, name: 'Pandespiègle', points: 160 },
+  { id: 677, name: 'Psystigri', points: 163 },
+  { id: 679, name: 'Monorpale', points: 166 },
+  { id: 682, name: 'Fluvetin', points: 169 },
+  { id: 684, name: 'Sucroquin', points: 171 },
+  { id: 686, name: 'Sepiatop', points: 174 },
+  { id: 688, name: 'Opermine', points: 177 },
+  { id: 690, name: 'Venalgue', points: 180 },
+  { id: 692, name: 'Flingouste', points: 183 },
+  { id: 694, name: 'Galvaran', points: 185 },
+  { id: 696, name: 'Ptyranidur', points: 188 },
+  { id: 698, name: 'Amagara', points: 191 },
+  { id: 704, name: 'Mucuscule', points: 194 },
+  { id: 708, name: 'Brocélôme', points: 197 },
+  { id: 710, name: 'Pitrouille', points: 199 },
+  { id: 712, name: 'Grelaçon', points: 202 },
+  { id: 714, name: 'Sonistrelle', points: 205 },
+  { id: 722, name: 'Brindibou', points: 135 },
+  { id: 725, name: 'Flamiaou', points: 138 },
+  { id: 728, name: 'Otaquin', points: 141 },
+  { id: 731, name: 'Picassaut', points: 145 },
+  { id: 734, name: 'Manglouton', points: 148 },
+  { id: 736, name: 'Larvibule', points: 151 },
+  { id: 739, name: 'Crabagarre', points: 154 },
+  { id: 742, name: 'Bombydou', points: 157 },
+  { id: 744, name: 'Rocabot', points: 160 },
+  { id: 747, name: 'Vorastérie', points: 164 },
+  { id: 749, name: 'Tiboudet', points: 167 },
+  { id: 751, name: 'Araqua', points: 170 },
+  { id: 753, name: 'Mimantis', points: 173 },
+  { id: 755, name: 'Spododo', points: 176 },
+  { id: 757, name: 'Tritox', points: 180 },
+  { id: 759, name: 'Nounourson', points: 183 },
+  { id: 761, name: 'Croquine', points: 186 },
+  { id: 767, name: 'Sovkipou', points: 189 },
+  { id: 769, name: 'Bacabouh', points: 192 },
+  { id: 782, name: 'Bébécaille', points: 195 },
+  { id: 789, name: 'Cosmog', points: 199 },
+  { id: 803, name: 'Véminigon', points: 202 },
+  { id: 808, name: 'Meltan', points: 205 },
+  { id: 810, name: 'Ouistempo', points: 135 },
+  { id: 813, name: 'Flambino', points: 138 },
+  { id: 816, name: 'Larméléon', points: 141 },
+  { id: 819, name: 'Rongourmand', points: 144 },
+  { id: 821, name: 'Minisange', points: 147 },
+  { id: 824, name: 'Larvadar', points: 150 },
+  { id: 827, name: 'Goupilou', points: 152 },
+  { id: 829, name: 'Tournicoton', points: 155 },
+  { id: 831, name: 'Moumouton', points: 158 },
+  { id: 833, name: 'Khélocrok', points: 161 },
+  { id: 835, name: 'Voltoutou', points: 164 },
+  { id: 837, name: 'Charbi', points: 167 },
+  { id: 840, name: 'Verpom', points: 170 },
+  { id: 843, name: 'Dunaja', points: 173 },
+  { id: 846, name: 'Embrochet', points: 176 },
+  { id: 848, name: 'Toxizap', points: 179 },
+  { id: 850, name: 'Grillepattes', points: 182 },
+  { id: 852, name: 'Poulpaf', points: 185 },
+  { id: 854, name: 'Théffroi', points: 188 },
+  { id: 856, name: 'Bibichut', points: 190 },
+  { id: 859, name: 'Grimalin', points: 193 },
+  { id: 868, name: 'Crèmy', points: 196 },
+  { id: 872, name: 'Frissonille', points: 199 },
+  { id: 878, name: 'Charibari', points: 202 },
+  { id: 885, name: 'Fantyrm', points: 205 },
+  { id: 906, name: 'Poussacha', points: 135 },
+  { id: 909, name: 'Chochodile', points: 137 },
+  { id: 912, name: 'Coiffeton', points: 140 },
+  { id: 915, name: 'Gourmelet', points: 142 },
+  { id: 917, name: 'Tissenboule', points: 145 },
+  { id: 919, name: 'Lilliterelle', points: 147 },
+  { id: 921, name: 'Pohm', points: 149 },
+  { id: 924, name: 'Compagnol', points: 152 },
+  { id: 926, name: 'Pâtachiot', points: 154 },
+  { id: 928, name: 'Olivini', points: 157 },
+  { id: 932, name: 'Selutin', points: 159 },
+  { id: 935, name: 'Charbambin', points: 162 },
+  { id: 938, name: 'Têtampoule', points: 164 },
+  { id: 940, name: 'Zapétrel', points: 166 },
+  { id: 942, name: 'Grondogue', points: 169 },
+  { id: 944, name: 'Gribouraigne', points: 171 },
+  { id: 946, name: 'Viroment', points: 174 },
+  { id: 948, name: 'Terracool', points: 176 },
+  { id: 951, name: 'Pimito', points: 178 },
+  { id: 953, name: 'Léboulérou', points: 181 },
+  { id: 955, name: 'Flotillon', points: 183 },
+  { id: 957, name: 'Forgerette', points: 186 },
+  { id: 960, name: 'Taupikeau', points: 188 },
+  { id: 963, name: 'Dofin', points: 191 },
+  { id: 965, name: 'Vrombi', points: 193 },
+  { id: 969, name: 'Germéclat', points: 195 },
+  { id: 971, name: 'Toutombe', points: 198 },
+  { id: 974, name: 'Piétacé', points: 200 },
+  { id: 996, name: 'Frigodo', points: 203 },
+  { id: 1012, name: 'Poltchageist', points: 205 }
 
 ];
 
@@ -829,7 +992,151 @@ const UNCOMMON_RAW = [
   { id: 331, name: 'Cacnea', points: 294 },
   { id: 459, name: 'Blizzi', points: 294 },
   { id: 246, name: 'Embrylex', points: 294 },
-  { id: 121, name: 'Staross', points: 296 }
+  { id: 121, name: 'Staross', points: 296 },
+  { id: 234, name: 'Cerfrousse', points: 245 },
+  { id: 235, name: 'Queulorior', points: 250 },
+  { id: 496, name: 'Lianaja', points: 210 },
+  { id: 499, name: 'Grotichon', points: 212 },
+  { id: 502, name: 'Mateloutre', points: 214 },
+  { id: 505, name: 'Miradar', points: 216 },
+  { id: 507, name: 'Ponchien', points: 217 },
+  { id: 510, name: 'Léopardus', points: 219 },
+  { id: 512, name: 'Feuiloutan', points: 221 },
+  { id: 514, name: 'Flamoutan', points: 223 },
+  { id: 516, name: 'Flotoutan', points: 225 },
+  { id: 518, name: 'Mushana', points: 227 },
+  { id: 520, name: 'Colombeau', points: 229 },
+  { id: 523, name: 'Zéblitz', points: 231 },
+  { id: 525, name: 'Géolithe', points: 232 },
+  { id: 528, name: 'Rhinolove', points: 234 },
+  { id: 531, name: 'Nanméouïe', points: 236 },
+  { id: 533, name: 'Ouvrifier', points: 238 },
+  { id: 536, name: 'Batracné', points: 240 },
+  { id: 541, name: 'Couverdure', points: 242 },
+  { id: 544, name: 'Scobolide', points: 244 },
+  { id: 547, name: 'Farfaduvet', points: 246 },
+  { id: 550, name: 'Bargantua', points: 247 },
+  { id: 552, name: 'Escroco', points: 249 },
+  { id: 556, name: 'Maracachi', points: 251 },
+  { id: 558, name: 'Crabaraque', points: 253 },
+  { id: 569, name: 'Miasmax', points: 255 },
+  { id: 573, name: 'Pashmilla', points: 257 },
+  { id: 575, name: 'Mesmérella', points: 259 },
+  { id: 578, name: 'Méios', points: 260 },
+  { id: 581, name: 'Lakmécygne', points: 262 },
+  { id: 583, name: 'Sorboul', points: 264 },
+  { id: 586, name: 'Haydaim', points: 266 },
+  { id: 587, name: 'Emolga', points: 268 },
+  { id: 591, name: 'Gaulet', points: 270 },
+  { id: 593, name: 'Moyade', points: 272 },
+  { id: 594, name: 'Mamanbo', points: 274 },
+  { id: 600, name: 'Clic', points: 275 },
+  { id: 603, name: 'Lampéroie', points: 277 },
+  { id: 606, name: 'Neitram', points: 279 },
+  { id: 608, name: 'Mélancolux', points: 281 },
+  { id: 611, name: 'Incisache', points: 283 },
+  { id: 614, name: 'Polagriffe', points: 285 },
+  { id: 617, name: 'Limaspeed', points: 287 },
+  { id: 618, name: 'Limonde', points: 289 },
+  { id: 626, name: 'Frison', points: 290 },
+  { id: 631, name: 'Aflamanoir', points: 292 },
+  { id: 632, name: 'Fermite', points: 294 },
+  { id: 634, name: 'Diamat', points: 296 },
+  { id: 651, name: 'Boguérisse', points: 210 },
+  { id: 654, name: 'Roussil', points: 215 },
+  { id: 657, name: 'Croâporal', points: 221 },
+  { id: 660, name: 'Excavarenne', points: 226 },
+  { id: 662, name: 'Braisillon', points: 232 },
+  { id: 665, name: 'Pérégrain', points: 237 },
+  { id: 670, name: 'Floette', points: 242 },
+  { id: 673, name: 'Chevroum', points: 248 },
+  { id: 676, name: 'Couafarel', points: 253 },
+  { id: 680, name: 'Dimoclès', points: 258 },
+  { id: 683, name: 'Cocotine', points: 264 },
+  { id: 685, name: 'Cupcanaille', points: 269 },
+  { id: 695, name: 'Iguolta', points: 274 },
+  { id: 702, name: 'Dedenne', points: 280 },
+  { id: 703, name: 'Strassie', points: 285 },
+  { id: 705, name: 'Colimucus', points: 291 },
+  { id: 707, name: 'Trousselin', points: 296 },
+  { id: 723, name: 'Efflèche', points: 210 },
+  { id: 726, name: 'Matoufeu', points: 215 },
+  { id: 729, name: 'Otarlette', points: 219 },
+  { id: 732, name: 'Piclairon', points: 224 },
+  { id: 735, name: 'Argouste', points: 228 },
+  { id: 737, name: 'Chrysapile', points: 233 },
+  { id: 743, name: 'Rubombelle', points: 237 },
+  { id: 746, name: 'Froussardine', points: 242 },
+  { id: 750, name: 'Bourrinos', points: 246 },
+  { id: 752, name: 'Tarenbulle', points: 251 },
+  { id: 756, name: 'Lampignon', points: 255 },
+  { id: 762, name: 'Candine', points: 260 },
+  { id: 764, name: 'Guérilande', points: 264 },
+  { id: 771, name: 'Concombaffe', points: 269 },
+  { id: 774, name: 'Météno', points: 273 },
+  { id: 775, name: 'Dodoala', points: 278 },
+  { id: 777, name: 'Togedemaru', points: 282 },
+  { id: 779, name: 'Denticrisse', points: 287 },
+  { id: 783, name: 'Écaïd', points: 291 },
+  { id: 790, name: 'Cosmovum', points: 296 },
+  { id: 811, name: 'Badabouin', points: 210 },
+  { id: 814, name: 'Lapyro', points: 213 },
+  { id: 817, name: 'Arrozard', points: 216 },
+  { id: 820, name: 'Rongrigou', points: 220 },
+  { id: 822, name: 'Bleuseille', points: 223 },
+  { id: 825, name: 'Coléodôme', points: 226 },
+  { id: 828, name: 'Roublenard', points: 229 },
+  { id: 830, name: 'Blancoton', points: 232 },
+  { id: 832, name: 'Moumouflon', points: 235 },
+  { id: 836, name: 'Fulgudog', points: 239 },
+  { id: 838, name: 'Wagomine', points: 242 },
+  { id: 844, name: 'Dunaconda', points: 245 },
+  { id: 845, name: 'Nigosier', points: 248 },
+  { id: 855, name: 'Polthégeist', points: 251 },
+  { id: 857, name: 'Chapotus', points: 255 },
+  { id: 860, name: 'Fourbelin', points: 258 },
+  { id: 863, name: 'Berserkatt', points: 261 },
+  { id: 864, name: 'Corayôme', points: 264 },
+  { id: 866, name: 'M. Glaquette', points: 267 },
+  { id: 867, name: 'Tutétékri', points: 271 },
+  { id: 869, name: 'Charmilly', points: 274 },
+  { id: 871, name: 'Wattapik', points: 277 },
+  { id: 873, name: 'Beldeneige', points: 280 },
+  { id: 874, name: 'Dolman', points: 283 },
+  { id: 876, name: 'Wimessir', points: 286 },
+  { id: 877, name: 'Morpeko', points: 290 },
+  { id: 884, name: 'Duralugon', points: 293 },
+  { id: 886, name: 'Dispareptil', points: 296 },
+  { id: 907, name: 'Matourgeon', points: 210 },
+  { id: 910, name: 'Crocogril', points: 213 },
+  { id: 913, name: 'Canarbello', points: 216 },
+  { id: 916, name: 'Fragroin', points: 219 },
+  { id: 918, name: 'Filentrappe', points: 222 },
+  { id: 920, name: 'Gambex', points: 225 },
+  { id: 922, name: 'Pohmotte', points: 228 },
+  { id: 925, name: 'Famignol', points: 231 },
+  { id: 927, name: 'Briochien', points: 234 },
+  { id: 929, name: 'Olivado', points: 237 },
+  { id: 931, name: 'Tapatoès', points: 240 },
+  { id: 933, name: 'Amassel', points: 243 },
+  { id: 936, name: 'Carmadura', points: 246 },
+  { id: 939, name: 'Ampibidou', points: 249 },
+  { id: 941, name: 'Fulgulairo', points: 252 },
+  { id: 943, name: 'Dogrino', points: 254 },
+  { id: 945, name: 'Tag-Tag', points: 257 },
+  { id: 947, name: 'Virevorreur', points: 260 },
+  { id: 954, name: 'Bérasca', points: 263 },
+  { id: 958, name: 'Forgella', points: 266 },
+  { id: 961, name: 'Triopikeau', points: 269 },
+  { id: 962, name: 'Lestombaile', points: 272 },
+  { id: 966, name: 'Vrombotor', points: 275 },
+  { id: 968, name: 'Ferdeter', points: 278 },
+  { id: 972, name: 'Tomberro', points: 281 },
+  { id: 973, name: 'Flamenroule', points: 284 },
+  { id: 980, name: 'Terraiste', points: 287 },
+  { id: 982, name: 'Deusolourdo', points: 290 },
+  { id: 997, name: 'Cryodo', points: 293 },
+  { id: 1011, name: 'Pomdramour', points: 296 }
 
 ];
 
@@ -1001,7 +1308,132 @@ const RARE_RAW = [
   { id: 435, name: 'Moufflair', points: 480 },
   { id: 210, name: 'Granbull', points: 480 },
   { id: 489, name: 'Phione', points: 481 },
-  { id: 130, name: 'Léviator', points: 482 }
+  { id: 130, name: 'Léviator', points: 482 },
+  { id: 201, name: 'Zarbi', points: 320 },
+  { id: 224, name: 'Octillery', points: 460 },
+  { id: 226, name: 'Démanta', points: 465 },
+  { id: 227, name: 'Airmure', points: 470 },
+  { id: 237, name: 'Kapoera', points: 455 },
+  { id: 508, name: 'Mastouffe', points: 310 },
+  { id: 521, name: 'Déflaisan', points: 315 },
+  { id: 526, name: 'Gigalithe', points: 320 },
+  { id: 530, name: 'Minotaupe', points: 325 },
+  { id: 534, name: 'Bétochef', points: 330 },
+  { id: 537, name: 'Crapustule', points: 335 },
+  { id: 538, name: 'Judokrak', points: 340 },
+  { id: 539, name: 'Karaclée', points: 345 },
+  { id: 542, name: 'Manternel', points: 350 },
+  { id: 545, name: 'Brutapode', points: 355 },
+  { id: 549, name: 'Fragilady', points: 360 },
+  { id: 553, name: 'Crocorible', points: 365 },
+  { id: 555, name: 'Darumacho', points: 370 },
+  { id: 560, name: 'Baggaïd', points: 375 },
+  { id: 561, name: 'Cryptéro', points: 380 },
+  { id: 563, name: 'Tutankafer', points: 385 },
+  { id: 565, name: 'Mégapagos', points: 390 },
+  { id: 567, name: 'Aéroptéryx', points: 395 },
+  { id: 571, name: 'Zoroark', points: 400 },
+  { id: 576, name: 'Sidérella', points: 405 },
+  { id: 579, name: 'Symbios', points: 410 },
+  { id: 584, name: 'Sorbouboul', points: 415 },
+  { id: 589, name: 'Lançargot', points: 420 },
+  { id: 596, name: 'Mygavolt', points: 425 },
+  { id: 598, name: 'Noacier', points: 430 },
+  { id: 601, name: 'Cliticlic', points: 435 },
+  { id: 604, name: 'Ohmassacre', points: 440 },
+  { id: 609, name: 'Lugulabre', points: 445 },
+  { id: 615, name: 'Hexagel', points: 450 },
+  { id: 620, name: 'Shaofouine', points: 455 },
+  { id: 621, name: 'Drakkarmin', points: 460 },
+  { id: 623, name: 'Golemastoc', points: 465 },
+  { id: 625, name: 'Scalproie', points: 470 },
+  { id: 628, name: 'Guerlaigle', points: 475 },
+  { id: 630, name: 'Vaututrice', points: 480 },
+  { id: 663, name: 'Flambusard', points: 310 },
+  { id: 666, name: 'Prismillon', points: 321 },
+  { id: 668, name: 'Néméleos', points: 331 },
+  { id: 671, name: 'Florges', points: 342 },
+  { id: 675, name: 'Pandarbare', points: 352 },
+  { id: 678, name: 'Mistigrix', points: 363 },
+  { id: 687, name: 'Sepiatroce', points: 374 },
+  { id: 689, name: 'Golgopathe', points: 384 },
+  { id: 691, name: 'Kravarech', points: 395 },
+  { id: 693, name: 'Gamblast', points: 406 },
+  { id: 697, name: 'Rexillius', points: 416 },
+  { id: 699, name: 'Dragmara', points: 427 },
+  { id: 701, name: 'Brutalibré', points: 438 },
+  { id: 709, name: 'Desséliande', points: 448 },
+  { id: 711, name: 'Banshitrouye', points: 459 },
+  { id: 713, name: 'Séracrawl', points: 469 },
+  { id: 715, name: 'Bruyverne', points: 480 },
+  { id: 733, name: 'Bazoucan', points: 310 },
+  { id: 738, name: 'Lucanon', points: 319 },
+  { id: 740, name: 'Crabominable', points: 328 },
+  { id: 741, name: 'Plumeline', points: 337 },
+  { id: 745, name: 'Lougaroc', points: 346 },
+  { id: 748, name: 'Prédastérie', points: 355 },
+  { id: 754, name: 'Floramantis', points: 364 },
+  { id: 758, name: 'Malamandre', points: 373 },
+  { id: 760, name: 'Chelours', points: 382 },
+  { id: 763, name: 'Sucreine', points: 391 },
+  { id: 765, name: 'Gouroutan', points: 399 },
+  { id: 766, name: 'Quartermac', points: 408 },
+  { id: 768, name: 'Sarmuraï', points: 417 },
+  { id: 770, name: 'Trépassable', points: 426 },
+  { id: 772, name: 'Type:0', points: 435 },
+  { id: 776, name: 'Boumata', points: 444 },
+  { id: 780, name: 'Draïeul', points: 453 },
+  { id: 781, name: 'Sinistrail', points: 462 },
+  { id: 784, name: 'Ékaïser', points: 471 },
+  { id: 804, name: 'Mandrillon', points: 480 },
+  { id: 823, name: 'Corvaillus', points: 310 },
+  { id: 826, name: 'Astronelle', points: 317 },
+  { id: 834, name: 'Torgamord', points: 323 },
+  { id: 839, name: 'Monthracite', points: 330 },
+  { id: 841, name: 'Pomdrapi', points: 336 },
+  { id: 842, name: 'Dratatin', points: 343 },
+  { id: 847, name: 'Hastacuda', points: 349 },
+  { id: 849, name: 'Salarsen', points: 356 },
+  { id: 851, name: 'Scolocendre', points: 362 },
+  { id: 853, name: 'Krakos', points: 369 },
+  { id: 858, name: 'Sorcilence', points: 375 },
+  { id: 861, name: 'Angoliath', points: 382 },
+  { id: 862, name: 'Ixon', points: 388 },
+  { id: 865, name: 'Palarticho', points: 395 },
+  { id: 870, name: 'Hexadron', points: 402 },
+  { id: 875, name: 'Bekaglaçon', points: 408 },
+  { id: 879, name: 'Pachyradjah', points: 415 },
+  { id: 880, name: 'Galvagon', points: 421 },
+  { id: 881, name: 'Galvagla', points: 428 },
+  { id: 882, name: 'Hydragon', points: 434 },
+  { id: 883, name: 'Hydragla', points: 441 },
+  { id: 899, name: 'Cerbyllin', points: 447 },
+  { id: 900, name: 'Hachécateur', points: 454 },
+  { id: 901, name: 'Ursaking', points: 460 },
+  { id: 902, name: 'Paragruel', points: 467 },
+  { id: 903, name: 'Farfurex', points: 473 },
+  { id: 904, name: 'Qwilpik', points: 480 },
+  { id: 923, name: 'Pohmarmotte', points: 310 },
+  { id: 930, name: 'Arboliva', points: 318 },
+  { id: 934, name: 'Giganssel', points: 327 },
+  { id: 937, name: 'Malvalame', points: 336 },
+  { id: 949, name: 'Terracruel', points: 344 },
+  { id: 950, name: 'Craparoi', points: 352 },
+  { id: 952, name: 'Scovilain', points: 361 },
+  { id: 956, name: 'Cléopsytra', points: 370 },
+  { id: 959, name: 'Forgelina', points: 378 },
+  { id: 964, name: 'Superdofin', points: 386 },
+  { id: 967, name: 'Motorizard', points: 395 },
+  { id: 970, name: 'Floréclat', points: 404 },
+  { id: 975, name: 'Balbalèze', points: 412 },
+  { id: 976, name: 'Délestin', points: 420 },
+  { id: 977, name: 'Oyacata', points: 429 },
+  { id: 978, name: 'Nigirigon', points: 438 },
+  { id: 979, name: 'Courrousinge', points: 446 },
+  { id: 981, name: 'Farigiraf', points: 454 },
+  { id: 999, name: 'Mordudor', points: 463 },
+  { id: 1013, name: 'Théffroyable', points: 472 },
+  { id: 1019, name: 'Pomdorochi', points: 480 }
 
 ];
 
@@ -1108,8 +1540,100 @@ const EPIC_RAW = [
   { id: 306, name: 'Galeking', points: 678 },
   { id: 365, name: 'Kaimorse', points: 678 },
   { id: 468, name: 'Togekiss', points: 690 },
-  { id: 289, name: 'Monaflèmit', points: 690 }
+  { id: 289, name: 'Monaflèmit', points: 690 },
+  { id: 242, name: 'Leuphorie', points: 650 },
+  { id: 497, name: 'Majaspic', points: 500 },
+  { id: 500, name: 'Roitiflam', points: 560 },
+  { id: 503, name: 'Clamiral', points: 620 },
+  { id: 612, name: 'Tranchodon', points: 680 },
+  { id: 652, name: 'Blindépique', points: 500 },
+  { id: 655, name: 'Goupelin', points: 545 },
+  { id: 658, name: 'Amphinobi', points: 590 },
+  { id: 681, name: 'Exagide', points: 635 },
+  { id: 700, name: 'Nymphali', points: 680 },
+  { id: 724, name: 'Archéduc', points: 500 },
+  { id: 727, name: 'Félinferno', points: 545 },
+  { id: 730, name: 'Oratoria', points: 590 },
+  { id: 773, name: 'Silvallié', points: 635 },
+  { id: 809, name: 'Melmetal', points: 680 },
+  { id: 812, name: 'Gorythmic', points: 500 },
+  { id: 815, name: 'Pyrobut', points: 590 },
+  { id: 818, name: 'Lézargus', points: 680 },
+  { id: 908, name: 'Miascarade', points: 500 },
+  { id: 911, name: 'Flâmigator', points: 510 },
+  { id: 914, name: 'Palmaval', points: 520 },
+  { id: 983, name: 'Scalpereur', points: 530 },
+  { id: 984, name: 'Fort-Ivoire', points: 540 },
+  { id: 985, name: 'Hurle-Queue', points: 550 },
+  { id: 986, name: 'Fongus-Furie', points: 560 },
+  { id: 987, name: 'Flotte-Mèche', points: 570 },
+  { id: 988, name: 'Rampe-Ailes', points: 580 },
+  { id: 989, name: 'Pelage-Sablé', points: 590 },
+  { id: 990, name: 'Roue-de-Fer', points: 600 },
+  { id: 991, name: 'Hotte-de-Fer', points: 610 },
+  { id: 992, name: 'Paume-de-Fer', points: 620 },
+  { id: 993, name: 'Têtes-de-Fer', points: 630 },
+  { id: 994, name: 'Mite-de-Fer', points: 640 },
+  { id: 995, name: 'Épine-de-Fer', points: 650 },
+  { id: 998, name: 'Glaivodo', points: 660 },
+  { id: 1000, name: 'Gromago', points: 670 },
+  { id: 1018, name: 'Pondralugon', points: 680 }
+];
 
+// --- Méga-Évolutions (les 48 formes "classiques", X/Y + Rubis Oméga/Saphir Alpha — hors
+// nouvelles Méga-Évolutions de Légendes Pokémon : Z-A / Méga-Dimension, dont les sprites
+// ne sont pas encore disponibles de façon fiable). Palier à part entière ('mega' dans
+// RARITY_ORDER, entre pseudo-légendaire et légendaire) : disponibilité et poids gérés
+// PAR MODE, cf. RARITY_TABLE_BY_MODE / GUESS_TIER_COUNTS_BY_DIFFICULTY /
+// AUCTION_POOL_TIER_COUNTS. Toutes sur la base species NON légendaire ici : les Méga
+// d'espèces déjà légendaires (Mewtwo, Latias, Latios, Rayquaza, Diancie) sont dans
+// MEGA_LEGENDARY_RAW plus bas, ajoutées à LEGENDARY_RAW (elles restent "légendaire",
+// jamais "méga" — déjà les plus fortes du jeu avant même le bonus mega). id = identifiant
+// PokeAPI dédié à la forme méga (10033+, PAS le numéro Pokédex de l'espèce de base), pour
+// un sprite distinct de la forme normale.
+const MEGA_RAW = [
+  { id: 10033, name: 'Méga-Florizarre', points: 600 },
+  { id: 10034, name: 'Méga-Dracaufeu X', points: 690 },
+  { id: 10035, name: 'Méga-Dracaufeu Y', points: 690 },
+  { id: 10036, name: 'Méga-Tortank', points: 605 },
+  { id: 10090, name: 'Méga-Dardargnan', points: 610 },
+  { id: 10073, name: 'Méga-Roucarnage', points: 615 },
+  { id: 10037, name: 'Méga-Alakazam', points: 655 },
+  { id: 10071, name: 'Méga-Flagadoss', points: 620 },
+  { id: 10038, name: 'Méga-Ectoplasma', points: 640 },
+  { id: 10039, name: 'Méga-Kangourex', points: 625 },
+  { id: 10040, name: 'Méga-Scarabrute', points: 615 },
+  { id: 10041, name: 'Méga-Léviator', points: 660 },
+  { id: 10042, name: 'Méga-Ptéra', points: 645 },
+  { id: 10045, name: 'Méga-Pharamp', points: 630 },
+  { id: 10072, name: 'Méga-Steelix', points: 665 },
+  { id: 10046, name: 'Méga-Cizayox', points: 650 },
+  { id: 10047, name: 'Méga-Scarhino', points: 650 },
+  { id: 10048, name: 'Méga-Démolosse', points: 645 },
+  { id: 10050, name: 'Méga-Braségali', points: 655 },
+  { id: 10064, name: 'Méga-Laggron', points: 650 },
+  { id: 10051, name: 'Méga-Gardevoir', points: 660 },
+  { id: 10066, name: 'Méga-Ténéfix', points: 620 },
+  { id: 10052, name: 'Méga-Mysdibule', points: 600 },
+  { id: 10053, name: 'Méga-Galeking', points: 670 },
+  { id: 10054, name: 'Méga-Charmina', points: 615 },
+  { id: 10055, name: 'Méga-Élecsprint', points: 625 },
+  { id: 10070, name: 'Méga-Sharpedo', points: 630 },
+  { id: 10087, name: 'Méga-Camérupt', points: 625 },
+  { id: 10067, name: 'Méga-Altaria', points: 640 },
+  { id: 10056, name: 'Méga-Branette', points: 610 },
+  { id: 10057, name: 'Méga-Absol', points: 635 },
+  { id: 10074, name: 'Méga-Oniglali', points: 645 },
+  { id: 10089, name: 'Méga-Drattak', points: 700 },
+  { id: 10076, name: 'Méga-Métalosse', points: 710 },
+  { id: 10065, name: 'Méga-Jungko', points: 620 },
+  { id: 10088, name: 'Méga-Lockpin', points: 635 },
+  { id: 10058, name: 'Méga-Carchacrok', points: 715 },
+  { id: 10059, name: 'Méga-Lucario', points: 680 },
+  { id: 10060, name: 'Méga-Blizzaroi', points: 660 },
+  { id: 10068, name: 'Méga-Gallame', points: 645 },
+  { id: 10069, name: 'Méga-Nanméouïe', points: 630 },
+  { id: 10049, name: 'Méga-Tyranocif', points: 720 }
 ];
 
 // Vrais pseudo-légendaires (évolution 3 stades, très puissants, mais pas légendaires).
@@ -1180,7 +1704,72 @@ const LEGENDARY_RAW = [
   { id: 487, name: 'Giratina', points: 1273 },
   { id: 384, name: 'Rayquaza', points: 1274 },
   { id: 643, name: 'Reshiram', points: 1274 },
-  { id: 493, name: 'Arceus', points: 1401 }
+  { id: 493, name: 'Arceus', points: 1401 },
+
+  // --- Ajouts génération 5 à 9 (trio, forces de la nature, gardiens, bêtes ultimes,
+  // steeds légendaires, trésors de la ruine, paradoxes, mythiques...) ---
+  { id: 638, name: 'Cobaltium', points: 960 },
+  { id: 639, name: 'Terrakium', points: 961 },
+  { id: 640, name: 'Viridium', points: 962 },
+  { id: 641, name: 'Boréas', points: 990 },
+  { id: 642, name: 'Fulguris', points: 991 },
+  { id: 645, name: 'Démétéros', points: 992 },
+  { id: 647, name: 'Keldeo', points: 1016 },
+  { id: 648, name: 'Meloetta', points: 1017 },
+  { id: 649, name: 'Genesect', points: 1018 },
+  { id: 719, name: 'Diancie', points: 1019 },
+  { id: 718, name: 'Zygarde', points: 1290 },
+  { id: 721, name: 'Volcanion', points: 1021 },
+  { id: 785, name: 'Tokorico', points: 993 },
+  { id: 786, name: 'Tokopiyon', points: 994 },
+  { id: 787, name: 'Tokotoro', points: 995 },
+  { id: 788, name: 'Tokopisco', points: 996 },
+  { id: 793, name: 'Zéroïd', points: 1000 },
+  { id: 794, name: 'Mouscoto', points: 1001 },
+  { id: 795, name: 'Cancrelove', points: 1002 },
+  { id: 796, name: 'Câblifère', points: 1003 },
+  { id: 797, name: 'Bamboiselle', points: 1004 },
+  { id: 798, name: 'Katagami', points: 1005 },
+  { id: 799, name: 'Engloutyran', points: 1006 },
+  { id: 801, name: 'Magearna', points: 1020 },
+  { id: 805, name: 'Ama-Ama', points: 1007 },
+  { id: 806, name: 'Pierroteknik', points: 1008 },
+  { id: 891, name: 'Wushours', points: 1021 },
+  { id: 892, name: 'Shifours', points: 1022 },
+  { id: 893, name: 'Zarude', points: 1023 },
+  { id: 894, name: 'Regieleki', points: 1024 },
+  { id: 895, name: 'Regidrago', points: 1025 },
+  { id: 896, name: 'Blizzeval', points: 1180 },
+  { id: 897, name: 'Spectreval', points: 1181 },
+  { id: 898, name: 'Sylveroy', points: 1275 },
+  { id: 1001, name: 'Chongjian', points: 1009 },
+  { id: 1002, name: 'Baojian', points: 1010 },
+  { id: 1003, name: 'Dinglu', points: 1011 },
+  { id: 1004, name: 'Yuyu', points: 1012 },
+  { id: 1005, name: 'Rugit-Lune', points: 1182 },
+  { id: 1006, name: 'Garde-de-Fer', points: 1183 },
+  { id: 1009, name: 'Serpente-Eau', points: 1184 },
+  { id: 1010, name: 'Vert-de-Fer', points: 1185 },
+  { id: 1014, name: 'Félicanis', points: 1013 },
+  { id: 1015, name: 'Fortusimia', points: 1014 },
+  { id: 1016, name: 'Favianos', points: 1015 },
+  { id: 1017, name: 'Ogerpon', points: 1026 },
+  { id: 1022, name: 'Roc-de-Fer', points: 1186 },
+  { id: 1023, name: 'Chef-de-Fer', points: 1187 },
+  { id: 1024, name: 'Terapagos', points: 1276 },
+  { id: 1025, name: 'Pêchaminus', points: 1027 },
+  { id: 890, name: 'Éthernatos', points: 1400 },
+  { id: 905, name: 'Amovénus', points: 993 },
+  { id: 1020, name: 'Feu-Perçant', points: 1188 },
+  { id: 1021, name: 'Ire-Foudre', points: 1189 },
+
+  // Méga-Évolutions d'espèces déjà légendaires (encore plus fortes que la forme de base).
+  { id: 10043, name: 'Méga-Mewtwo X', points: 1450 },
+  { id: 10044, name: 'Méga-Mewtwo Y', points: 1450 },
+  { id: 10079, name: 'Méga-Rayquaza', points: 1450 },
+  { id: 10062, name: 'Méga-Latias', points: 1300 },
+  { id: 10063, name: 'Méga-Latios', points: 1300 },
+  { id: 10075, name: 'Méga-Diancie', points: 1330 }
 ];
 
 function buildPool(rarity, entries) {
@@ -1258,6 +1847,7 @@ const POKEMON_POOLS = {
   rare: buildPool('rare', RARE_RAW),
   epique: buildPool('epique', EPIC_RAW),
   pseudo_legendaire: buildPool('pseudo_legendaire', PSEUDO_LEGENDARY_RAW),
+  mega: buildPool('mega', MEGA_RAW),
   legendaire: buildPool('legendaire', LEGENDARY_RAW)
 };
 
@@ -1273,6 +1863,10 @@ const ALL_DEX_IDS = [...new Set(
 // Probabilité de tirage de chaque rareté (somme = 1). Commun très fréquent,
 // légendaire extrêmement rare, mais assez généreux pour qu'une partie complète
 // (6 tours × 2 options) ait de bonnes chances de croiser au moins un Pokémon fort.
+// "méga" n'y figure PAS : elle ne participe au tirage classique qu'en mode admin vs
+// joueur (ajoutée dynamiquement, cf. MEGA_ADMIN_WEIGHT/buildWeightedRarityTable) — en
+// mode normal, le SEUL moyen d'obtenir un méga est l'event MEGA_GEM (très faible
+// probabilité dédiée, cf. EVENT_DEFINITIONS), jamais ce tirage-ci.
 const RARITY_TABLE = [
   { rarity: 'commun', weight: 0.39 },
   { rarity: 'peu_commun', weight: 0.26 },
@@ -1282,11 +1876,20 @@ const RARITY_TABLE = [
   { rarity: 'legendaire', weight: 0.03 }
 ];
 
+// Poids de "méga" quand elle rejoint le tirage classique (mode admin vs joueur
+// uniquement) : entre pseudo-légendaire (0.06) et légendaire (0.03), comme demandé —
+// plus dur à obtenir qu'un pseudo-légendaire, plus facile qu'un légendaire.
+const MEGA_ADMIN_WEIGHT = 0.045;
+
+// Bonus de points d'un Pokémon méga, appliqué en plus de tout le reste (multiplicateur
+// d'effet, shiny...) — même principe que SHINY_POINTS_MULTIPLIER plus bas.
+const MEGA_POINTS_MULTIPLIER = 1.5;
+
 // Charme Chroma : les raretés "puissantes" voient leur poids multiplié par ×2.5,
 // le reste est renormalisé proportionnellement pour que la somme reste 1 (pas de
 // probabilité invalide, pas de garantie absolue non plus).
 const SHINY_CHARM_MULTIPLIER = 2.5;
-const SHINY_CHARM_BOOSTED_RARITIES = ['epique', 'pseudo_legendaire', 'legendaire'];
+const SHINY_CHARM_BOOSTED_RARITIES = ['epique', 'pseudo_legendaire', 'mega', 'legendaire'];
 
 // -----------------------------------------------------------------
 // Anti-RNG / pity, par joueur. N'accorde JAMAIS de légendaire garanti : réduit
@@ -1295,7 +1898,7 @@ const SHINY_CHARM_BOOSTED_RARITIES = ['epique', 'pseudo_legendaire', 'legendaire
 // Progressif comme demandé (0 -> normal, 1 très léger, 2 léger, 3-4 supplémentaire,
 // 5+ plus important), plafonné à 5 pour éviter un boost qui grandit indéfiniment.
 // -----------------------------------------------------------------
-const PITY_BOOSTED_RARITIES = ['rare', 'epique', 'pseudo_legendaire', 'legendaire'];
+const PITY_BOOSTED_RARITIES = ['rare', 'epique', 'pseudo_legendaire', 'mega', 'legendaire'];
 const PITY_GOOD_RARITIES = PITY_BOOSTED_RARITIES;
 const PITY_MULTIPLIER_BY_LEVEL = [1.0, 1.15, 1.35, 1.6, 1.9, 2.3]; // index = pity (0..5, plafonné)
 
@@ -1308,18 +1911,24 @@ function getPityMultiplier(pity) {
 // tout ce qui est strictement en dessous du plancher voit son poids ramené à 0, puis la
 // table est renormalisée — même principe que le boost pity/Charme Chroma, jamais une
 // probabilité négative ni une garantie de légendaire (le plancher n'élimine QUE le bas
-// de la table, il ne force jamais une seule rareté à 100%).
-const RARITY_ORDER = ['commun', 'peu_commun', 'rare', 'epique', 'pseudo_legendaire', 'legendaire'];
+// de la table, il ne force jamais une seule rareté à 100%). "méga" est placée entre
+// pseudo-légendaire et légendaire, à sa place dans la hiérarchie.
+const RARITY_ORDER = ['commun', 'peu_commun', 'rare', 'epique', 'pseudo_legendaire', 'mega', 'legendaire'];
 
 // Applique un ou plusieurs boosts multiplicatifs à une table de poids, PUIS
 // normalise une seule fois à la fin (jamais de "probabilité × pity × 2.5" brut,
 // qui produirait des probabilités absurdes en cas de cumul).
 // extraBoost est optionnel (CROSSED_FATES) : un petit bonus supplémentaire sur les mêmes
 // raretés que le pity, cumulable avec pity/Charme mais toujours renormalisé une seule fois.
-function buildWeightedRarityTable({ useCharm, pity, floorRarity, extraBoost }) {
+// gameMode détermine si "méga" participe DU TOUT à ce tirage (admin vs joueur uniquement,
+// cf. RARITY_TABLE ci-dessus) — absent/'normal' : jamais incluse ici.
+function buildWeightedRarityTable({ useCharm, pity, floorRarity, extraBoost, gameMode }) {
   const pityMultiplier = getPityMultiplier(pity);
   const boost = extraBoost || 1;
-  let weighted = RARITY_TABLE.map(entry => {
+  const baseTable = gameMode === 'admin'
+    ? [...RARITY_TABLE, { rarity: 'mega', weight: MEGA_ADMIN_WEIGHT }]
+    : RARITY_TABLE;
+  let weighted = baseTable.map(entry => {
     let weight = entry.weight;
     if (useCharm && SHINY_CHARM_BOOSTED_RARITIES.includes(entry.rarity)) weight *= SHINY_CHARM_MULTIPLIER;
     if (PITY_BOOSTED_RARITIES.includes(entry.rarity)) weight *= pityMultiplier * boost;
@@ -1337,8 +1946,8 @@ function buildWeightedRarityTable({ useCharm, pity, floorRarity, extraBoost }) {
   return weighted.map(e => ({ rarity: e.rarity, weight: total > 0 ? e.weight / total : 0 }));
 }
 
-function pickRarity(useCharm, pity, floorRarity, extraBoost) {
-  const table = buildWeightedRarityTable({ useCharm, pity, floorRarity, extraBoost });
+function pickRarity(useCharm, pity, floorRarity, extraBoost, gameMode) {
+  const table = buildWeightedRarityTable({ useCharm, pity, floorRarity, extraBoost, gameMode });
   const roll = Math.random();
   let cumulative = 0;
   for (const entry of table) {
@@ -1542,13 +2151,21 @@ function teamMonFromReward(reward) {
 // floorRarity est optionnel (LUCKY_TURN, TIME_RIFT) ; extraBoost aussi (CROSSED_FATES) :
 // undefined pour les deux = comportement inchangé. shiny est tiré ici, indépendamment de
 // la rareté/l'effet (cf. SHINY_CHANCE) : s'applique donc à TOUT ce qui appelle cette
-// fonction (tirage normal, DOUBLE_ENCOUNTER, TIME_RIFT, LOTTERY).
-function buildRewardOption(useCharm, pity, floorRarity, extraBoost) {
-  const rarity = pickRarity(useCharm, pity, floorRarity, extraBoost);
+// fonction (tirage normal, DOUBLE_ENCOUNTER, TIME_RIFT, LOTTERY). gameMode détermine si
+// "méga" participe au tirage (admin vs joueur uniquement, cf. pickRarity) — un méga
+// obtenu ici a TOUJOURS son bonus ×1.5 (cf. MEGA_POINTS_MULTIPLIER), qu'il vienne de ce
+// tirage classique (admin) ou de l'event MEGA_GEM dédié (normal, cf. startMegaGem).
+function buildRewardOption(useCharm, pity, floorRarity, extraBoost, gameMode) {
+  const rarity = pickRarity(useCharm, pity, floorRarity, extraBoost, gameMode);
   const pokemon = randomFrom(POKEMON_POOLS[rarity]);
   const effect = pickEffect();
   const shiny = rollShiny();
-  const finalPoints = Math.round(pokemon.points * effect.multiplier * (shiny ? SHINY_POINTS_MULTIPLIER : 1));
+  const finalPoints = Math.round(
+    pokemon.points *
+    effect.multiplier *
+    (shiny ? SHINY_POINTS_MULTIPLIER : 1) *
+    (rarity === 'mega' ? MEGA_POINTS_MULTIPLIER : 1)
+  );
 
   return {
     pokemonId: pokemon.id,
@@ -1565,13 +2182,13 @@ function buildRewardOption(useCharm, pity, floorRarity, extraBoost) {
 }
 
 // Génère les 2 options HAUT/BAS d'un joueur pour un tour (toujours 2 Pokémon distincts).
-function pickPlayerTurnOptions(useCharm, pity, floorRarity, extraBoost) {
-  const haut = buildRewardOption(useCharm, pity, floorRarity, extraBoost);
-  let bas = buildRewardOption(useCharm, pity, floorRarity, extraBoost);
+function pickPlayerTurnOptions(useCharm, pity, floorRarity, extraBoost, gameMode) {
+  const haut = buildRewardOption(useCharm, pity, floorRarity, extraBoost, gameMode);
+  let bas = buildRewardOption(useCharm, pity, floorRarity, extraBoost, gameMode);
 
   let guard = 0;
   while (bas.pokemonId === haut.pokemonId && guard < 10) {
-    bas = buildRewardOption(useCharm, pity, floorRarity, extraBoost);
+    bas = buildRewardOption(useCharm, pity, floorRarity, extraBoost, gameMode);
     guard += 1;
   }
 
@@ -1673,10 +2290,10 @@ const GUESS_BOARD_SIZE_BY_DIFFICULTY = {
 // ligne correspond exactement à la taille visée). Toujours un peu de chaque palier,
 // jamais tout un palier d'un coup : la planche reste variée même à 15 cases.
 const GUESS_TIER_COUNTS_BY_DIFFICULTY = {
-  easy: { commun: 5, peu_commun: 3, rare: 3, epique: 2, pseudo_legendaire: 1, legendaire: 1 },
-  medium: { commun: 6, peu_commun: 5, rare: 4, epique: 3, pseudo_legendaire: 1, legendaire: 1 },
-  hard: { commun: 9, peu_commun: 7, rare: 6, epique: 5, pseudo_legendaire: 2, legendaire: 1 },
-  extreme: { commun: 11, peu_commun: 9, rare: 8, epique: 6, pseudo_legendaire: 3, legendaire: 3 }
+  easy: { commun: 5, peu_commun: 3, rare: 3, epique: 2, pseudo_legendaire: 1, mega: 1, legendaire: 1 },
+  medium: { commun: 6, peu_commun: 5, rare: 4, epique: 3, pseudo_legendaire: 1, mega: 1, legendaire: 1 },
+  hard: { commun: 9, peu_commun: 7, rare: 6, epique: 5, pseudo_legendaire: 2, mega: 2, legendaire: 1 },
+  extreme: { commun: 11, peu_commun: 9, rare: 8, epique: 6, pseudo_legendaire: 3, mega: 3, legendaire: 3 }
 };
 
 // Fisher-Yates : mélange correct et non biaisé (contrairement à `sort(() => Math.random())`,
@@ -1728,7 +2345,15 @@ function buildAuctionPool() {
     const shuffled = shuffleArray(POKEMON_POOLS[tier]);
     picked.push(...shuffled.slice(0, count));
   }
-  return shuffleArray(picked).map(p => ({ id: p.id, name: p.name, sprite: p.sprite, points: p.points }));
+  // "méga" a son bonus ×1.5 même ici (cf. MEGA_POINTS_MULTIPLIER), pour rester cohérent
+  // avec les autres modes — même si `points` ne sert ici qu'en interne (jamais montré tel
+  // quel pendant l'enchère, qui se joue sur le budget virtuel des joueurs).
+  return shuffleArray(picked).map(p => ({
+    id: p.id,
+    name: p.name,
+    sprite: p.sprite,
+    points: p.rarity === 'mega' ? Math.round(p.points * MEGA_POINTS_MULTIPLIER) : p.points
+  }));
 }
 
 function getPublicAuctionPlayers(game) {
@@ -2089,7 +2714,8 @@ const EVENT_TYPES = {
   CROSSED_FATES: 'CROSSED_FATES',
   LUCKY_TURN: 'LUCKY_TURN',
   LOTTERY: 'LOTTERY',
-  TIME_RIFT: 'TIME_RIFT'
+  TIME_RIFT: 'TIME_RIFT',
+  MEGA_GEM: 'MEGA_GEM'
 };
 
 // scope 'solo' = ne concerne que le joueur qui vient de finir son tour.
@@ -2179,6 +2805,21 @@ const EVENT_DEFINITIONS = [
     scope: 'solo',
     implemented: true,
     condition: (game, player) => player.team.length > 0 // remplace un Pokémon existant, ou skip
+  },
+  {
+    id: EVENT_TYPES.MEGA_GEM,
+    label: 'Méga Gemme',
+    // Volontairement très en dessous des autres events (0.5% contre 1-3%) : en mode
+    // normal, c'est le SEUL moyen d'obtenir un méga (jamais dans le tirage HAUT/BAS
+    // classique, cf. RARITY_TABLE/buildWeightedRarityTable — contrairement au mode admin
+    // vs joueur, où les méga font partie du tirage habituel à un poids dédié). Ne se
+    // déclenche d'ailleurs QUE pour ce mode : les events sont déjà désactivés en admin
+    // (cf. finalizePlayerTurn), et jamais tirés en guess/auction (flux de tour différents,
+    // n'appellent jamais maybeTriggerEvent).
+    probability: 0.005,
+    scope: 'solo',
+    implemented: true,
+    condition: (game, player) => player.team.length < 6 // ne grossit jamais l'équipe au-delà de 6
   }
 ];
 
@@ -2222,6 +2863,7 @@ function startEvent(game, player, def) {
     case EVENT_TYPES.LUCKY_TURN: return startLuckyTurn(game, player);
     case EVENT_TYPES.LOTTERY: return startLottery(game, player);
     case EVENT_TYPES.TIME_RIFT: return startTimeRift(game, player);
+    case EVENT_TYPES.MEGA_GEM: return startMegaGem(game, player);
     case EVENT_TYPES.DUEL: return startDuel(game, player);
     case EVENT_TYPES.CROSSED_FATES: return startCrossedFates(game, player);
     default: return null;
@@ -2232,11 +2874,11 @@ function startEvent(game, player, def) {
 // N'affecte PAS le pity : c'est un tirage bonus hors flux principal, pas un tour normal.
 function startDoubleEncounter(game, player) {
   const useCharm = player.hasShinyCharm && game.turn >= 5;
-  const optionA = buildRewardOption(useCharm, player.pity);
-  let optionB = buildRewardOption(useCharm, player.pity);
+  const optionA = buildRewardOption(useCharm, player.pity, undefined, undefined, game.gameMode);
+  let optionB = buildRewardOption(useCharm, player.pity, undefined, undefined, game.gameMode);
   let guard = 0;
   while (optionB.pokemonId === optionA.pokemonId && guard < 10) {
-    optionB = buildRewardOption(useCharm, player.pity);
+    optionB = buildRewardOption(useCharm, player.pity, undefined, undefined, game.gameMode);
     guard += 1;
   }
 
@@ -2500,7 +3142,7 @@ function buildLotteryCard(game, player) {
   }
   // kind === 'pokemon' (toujours disponible, défaut)
   const useCharm = player.hasShinyCharm && game.turn >= 5;
-  return { kind: 'pokemon', pokemon: buildRewardOption(useCharm, player.pity) };
+  return { kind: 'pokemon', pokemon: buildRewardOption(useCharm, player.pity, undefined, undefined, game.gameMode) };
 }
 
 function startLottery(game, player) {
@@ -2567,7 +3209,7 @@ const TIME_RIFT_FLOOR_RARITY = 'pseudo_legendaire'; // uniquement pseudo-légend
 // joueur doit choisir lequel de ses Pokémon actuels il remplace, ou skip (rien ne change).
 function startTimeRift(game, player) {
   const useCharm = player.hasShinyCharm && game.turn >= 5;
-  const reward = buildRewardOption(useCharm, player.pity, TIME_RIFT_FLOOR_RARITY);
+  const reward = buildRewardOption(useCharm, player.pity, TIME_RIFT_FLOOR_RARITY, undefined, game.gameMode);
 
   player.activeEvent = { type: EVENT_TYPES.TIME_RIFT, reward };
 
@@ -2578,6 +3220,47 @@ function startTimeRift(game, player) {
     team: player.team.map((mon, index) => ({ index, id: mon.id, name: mon.name, sprite: mon.sprite }))
   });
   return player.activeEvent;
+}
+
+// ---- MÉGA GEMME : SEUL moyen d'obtenir un méga en mode normal (cf. EVENT_DEFINITIONS
+// pour la probabilité dédiée, très faible). Instantané comme SHINY_POKEMON/LUCKY_TURN :
+// ajoute directement un méga à l'équipe (jamais de choix à faire), bonus ×1.5 déjà inclus
+// (cf. MEGA_POINTS_MULTIPLIER). Pioche directement dans POKEMON_POOLS.mega plutôt que par
+// pickRarity : on veut TOUJOURS un méga ici, jamais "méga ou mieux".
+function startMegaGem(game, player) {
+  const pokemon = randomFrom(POKEMON_POOLS.mega);
+  const effect = pickEffect();
+  const shiny = rollShiny();
+  const finalPoints = Math.round(
+    pokemon.points * effect.multiplier * (shiny ? SHINY_POINTS_MULTIPLIER : 1) * MEGA_POINTS_MULTIPLIER
+  );
+  const reward = {
+    pokemonId: pokemon.id,
+    name: pokemon.name,
+    sprite: pokemon.sprite,
+    rarity: pokemon.rarity,
+    basePoints: pokemon.points,
+    effectName: effect.name,
+    multiplier: effect.multiplier,
+    shiny,
+    shinySprite: shiny ? shinySpriteUrl(pokemon.id) : null,
+    finalPoints
+  };
+
+  player.score += reward.finalPoints;
+  pushMonToTeam(player, teamMonFromReward(reward));
+
+  broadcastGameUpdated(game); // score/équipe changés hors du flux de tour déjà diffusé par finalizePlayerTurn
+  io.to(player.id).emit('rare_event_result', {
+    type: EVENT_TYPES.MEGA_GEM,
+    label: 'Méga Gemme',
+    pokemon: { name: reward.name, sprite: reward.sprite },
+    rarity: reward.rarity,
+    pointsGained: reward.finalPoints,
+    score: player.score,
+    team: player.team
+  });
+  return null; // instantané, rien à résoudre plus tard
 }
 
 function resolveTimeRift(game, player, action) {
@@ -2979,15 +3662,17 @@ const AUCTION_STARTING_BUDGET = 500_000_000;
 const AUCTION_MIN_BID = 10_000_000; // plancher fixe (pas de prix de départ par lot) ; garde aussi formatAuctionMoney lisible
 const AUCTION_TEAM_SIZE = 6;
 const AUCTION_POOL_TIER_COUNTS = {
-  // Mélange volontairement large et varié (30 lots), tiré sans répétition depuis
+  // Mélange volontairement large et varié (32 lots), tiré sans répétition depuis
   // POKEMON_POOLS (cf. buildAuctionPool) — largement assez pour que les 2 joueurs
   // puissent chacun compléter une équipe de 6, même si plusieurs lots ne trouvent
   // aucun acheteur (cf. section 26 du brief : Pokémon retiré si personne n'enchérit).
+  // "mega" comme en admin vs joueur : entre pseudo-légendaire et légendaire.
   commun: 8,
   peu_commun: 6,
   rare: 6,
   epique: 5,
   pseudo_legendaire: 3,
+  mega: 2,
   legendaire: 2
 };
 
@@ -3108,7 +3793,7 @@ function broadcastGameUpdated(game) {
 function assignTurnOptions(game) {
   game.players.forEach(p => {
     const useCharm = p.hasShinyCharm && game.turn >= 5;
-    p.currentOptions = pickPlayerTurnOptions(useCharm, p.pity, p.rarityFloor || undefined, p.rarityBoost || undefined);
+    p.currentOptions = pickPlayerTurnOptions(useCharm, p.pity, p.rarityFloor || undefined, p.rarityBoost || undefined, game.gameMode);
     p.rarityFloor = null; // effet LUCKY_TURN consommé, à usage unique
     p.rarityBoost = null; // effet CROSSED_FATES consommé, à usage unique
     io.to(p.id).emit('turn_options', {
@@ -4637,7 +5322,7 @@ io.on('connection', (socket) => {
 
     if (mode === 'POKEMON') {
       // Flux identique aux autres tours (charme jamais actif au tour 4, il ne commence qu'au tour 5).
-      player.currentOptions = pickPlayerTurnOptions(false, player.pity, player.rarityFloor || undefined, player.rarityBoost || undefined);
+      player.currentOptions = pickPlayerTurnOptions(false, player.pity, player.rarityFloor || undefined, player.rarityBoost || undefined, game.gameMode);
       player.rarityFloor = null; // effet LUCKY_TURN consommé, à usage unique
       player.rarityBoost = null; // effet CROSSED_FATES consommé, à usage unique
       socket.emit('turn_options', {

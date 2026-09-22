@@ -889,6 +889,7 @@ const RARITY_LABELS = {
   rare: 'Rare',
   epique: 'Épique',
   pseudo_legendaire: 'Pseudo-légendaire',
+  mega: 'Méga',
   legendaire: 'Légendaire'
 };
 
@@ -1808,6 +1809,19 @@ function renderTimeRiftResult(payload) {
   updateMyScore(payload.score, payload.scoreDelta);
 }
 
+// ---- MÉGA GEMME : instantané, ajoute directement un méga à l'équipe (jamais de choix) —
+// même forme que Destins croisés/Faille spatio-temporelle, juste un texte dédié.
+function renderMegaGemResult(payload) {
+  const wrap = document.createElement('div');
+  wrap.className = 'event-result';
+  wrap.appendChild(buildEventSprite(payload.pokemon.sprite, payload.pokemon.name));
+  wrap.appendChild(buildEventText(`Tu trouves une Méga Gemme : ${payload.pokemon.name} rejoint ton équipe !`));
+  wrap.appendChild(buildDeltaLine(payload.pointsGained));
+  eventBodyEl.appendChild(wrap);
+  eventBodyEl.appendChild(buildEventCloseButton());
+  updateMyScore(payload.score, payload.pointsGained);
+}
+
 function renderCrossedFatesResult(payload) {
   const text = payload.subtype === 'linked'
     ? `Ton destin se lie à celui de ${payload.linkedPlayerName} pour le prochain tour.`
@@ -1851,6 +1865,7 @@ function renderEventResult(payload) {
     case 'LUCKY_TURN': renderLuckyTurnResult(payload); break;
     case 'LOTTERY': renderLotteryResult(payload); break;
     case 'TIME_RIFT': renderTimeRiftResult(payload); break;
+    case 'MEGA_GEM': renderMegaGemResult(payload); break;
     case 'CROSSED_FATES': renderCrossedFatesResult(payload); break;
     case 'DUEL': renderDuelResult(payload); break;
     default: eventBodyEl.appendChild(buildEventCloseButton());

@@ -18,6 +18,7 @@
   --rarity-rare: #4fa9e8;
   --rarity-epique: #b98cf2;
   --rarity-pseudo: #f2578c;
+  --rarity-mega: #3ee6d8;
   --rarity-legendaire: #ffd54a;
 
   --font-display: 'Chakra Petch', sans-serif;
@@ -2025,6 +2026,7 @@ input:focus {
 .admin-view-card__rarity[data-rarity="rare"] { color: var(--rarity-rare); }
 .admin-view-card__rarity[data-rarity="epique"] { color: var(--rarity-epique); }
 .admin-view-card__rarity[data-rarity="pseudo_legendaire"] { color: var(--rarity-pseudo); }
+.admin-view-card__rarity[data-rarity="mega"] { color: var(--rarity-mega); }
 .admin-view-card__rarity[data-rarity="legendaire"] { color: var(--rarity-legendaire); }
 
 .admin-view-card__points {
@@ -2158,6 +2160,12 @@ input:focus {
 .result-panel[data-rarity="pseudo_legendaire"] .result-sprite { filter: drop-shadow(0 0 22px rgba(242, 87, 140, 0.8)); }
 .result-panel--animate[data-rarity="pseudo_legendaire"] .result-sprite { animation: revealPopStrong 0.9s ease both; }
 .result-panel--animate[data-rarity="pseudo_legendaire"] { animation: revealPanelGlow 0.9s ease both; }
+
+.result-panel[data-rarity="mega"] { border-color: var(--rarity-mega); box-shadow: 0 0 26px rgba(62, 230, 216, 0.25); }
+.result-panel[data-rarity="mega"] .result-rarity { color: var(--rarity-mega); }
+.result-panel[data-rarity="mega"] .result-sprite { filter: drop-shadow(0 0 26px rgba(62, 230, 216, 0.85)); }
+.result-panel--animate[data-rarity="mega"] .result-sprite { animation: revealPopStrong 1s ease both; }
+.result-panel--animate[data-rarity="mega"] { animation: revealPanelGlow 1s ease both; }
 
 .result-panel[data-rarity="legendaire"] { border-color: var(--rarity-legendaire); box-shadow: 0 0 32px rgba(255, 213, 74, 0.3); }
 .result-panel[data-rarity="legendaire"] .result-rarity { color: var(--rarity-legendaire); }
@@ -2683,6 +2691,7 @@ input:focus {
 .event-card[data-rarity="rare"] .event-card__rarity { color: var(--rarity-rare); }
 .event-card[data-rarity="epique"] .event-card__rarity { color: var(--rarity-epique); }
 .event-card[data-rarity="pseudo_legendaire"] .event-card__rarity { color: var(--rarity-pseudo); }
+.event-card[data-rarity="mega"] .event-card__rarity { color: var(--rarity-mega); }
 .event-card[data-rarity="legendaire"] .event-card__rarity { color: var(--rarity-legendaire); }
 
 .event-card__points {
@@ -2752,6 +2761,11 @@ input:focus {
 .event-card[data-rarity="epique"] { border-color: var(--rarity-epique); }
 .event-card[data-rarity="pseudo_legendaire"] .choice-card__sprite { filter: drop-shadow(0 0 22px rgba(242, 87, 140, 0.8)); }
 .event-card[data-rarity="pseudo_legendaire"] { border-color: var(--rarity-pseudo); }
+.event-card[data-rarity="mega"] .choice-card__sprite {
+  filter: drop-shadow(0 0 25px rgba(62, 230, 216, 0.85));
+  animation: eventCardIn 0.35s ease both, teamSlotGlow 1.4s ease-in-out 0.4s infinite;
+}
+.event-card[data-rarity="mega"] { border-color: var(--rarity-mega); }
 .event-card[data-rarity="legendaire"] .choice-card__sprite {
   filter: drop-shadow(0 0 28px rgba(255, 213, 74, 0.9));
   animation: eventCardIn 0.35s ease both, teamSlotGlow 1.4s ease-in-out 0.4s infinite;
@@ -2774,6 +2788,11 @@ input:focus {
   animation: revealPopStrong 0.9s ease both;
 }
 .event-modal[data-rarity="pseudo_legendaire"] { border-color: var(--rarity-pseudo); box-shadow: 0 0 26px rgba(242, 87, 140, 0.25); }
+.event-modal[data-rarity="mega"] .event-result__sprite {
+  filter: drop-shadow(0 0 26px rgba(62, 230, 216, 0.85));
+  animation: revealPopStrong 1s ease both;
+}
+.event-modal[data-rarity="mega"] { border-color: var(--rarity-mega); box-shadow: 0 0 30px rgba(62, 230, 216, 0.3); }
 .event-modal[data-rarity="legendaire"] .event-result__sprite {
   filter: drop-shadow(0 0 30px rgba(255, 213, 74, 0.95));
   animation: revealPopLegendary 1.1s ease both;
@@ -2857,6 +2876,13 @@ input:focus {
 .event-modal[data-event-type="TIME_RIFT"] .event-result__sprite {
   animation: revealPopLegendary 1.1s ease both, eventRiftSpin 3s linear 1.1s infinite;
   filter: drop-shadow(0 0 26px rgba(255, 213, 74, 0.9)) drop-shadow(0 0 14px rgba(185, 140, 242, 0.7));
+}
+
+/* ---- MÉGA GEMME (0.5%) : le plus rare des events "solo" — pulsation cyan continue,
+   rareté toujours "mega" donc le glow/bordure vient déjà de [data-rarity="mega"]
+   ci-dessus, ce bloc n'ajoute que la pulsation propre à cet event. ---- */
+.event-modal[data-event-type="MEGA_GEM"] {
+  animation: eventRiftPulse 2s ease-in-out infinite;
 }
 
 /* ---- DESTINS CROISÉS (2%) : pulsation à deux couleurs (les deux joueurs liés). ---- */
