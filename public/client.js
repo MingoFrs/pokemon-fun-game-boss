@@ -139,6 +139,38 @@ function renderAccountLevel(account) {
   accountXpTextEl.textContent = `${xp} / ${ceil} XP`;
 }
 
+// ---------- Déblocages par niveau (couleurs de thème + cadres d'avatar) ----------
+// Chaque swatch porte data-required-level dans le HTML — une seule fonction pour les deux
+// familles (même mécanique). Un invité (pas de compte) garde TOUT ouvert : le système de
+// déblocage n'a de sens que pour un compte qui progresse en XP/niveau.
+const accountFrameButtons = Array.from(document.querySelectorAll('.account-frame-swatch'));
+
+function applyUnlockLocks(buttons, level) {
+  buttons.forEach(btn => {
+    const required = Number(btn.dataset.requiredLevel || 1);
+    const locked = level !== null && level < required;
+    btn.classList.toggle('is-locked', locked);
+    btn.disabled = locked;
+  });
+}
+
+function refreshCosmeticLocks() {
+  const account = getStoredAccount();
+  const level = account ? (account.level || 1) : null; // null = invité : rien de verrouillé
+  applyUnlockLocks(settingsThemeButtons, level);
+  applyUnlockLocks(accountFrameButtons, level);
+  accountFrameButtons.forEach(btn => {
+    btn.classList.toggle('account-frame-swatch--selected', !!account && (account.frame || '') === btn.dataset.frame);
+  });
+}
+
+// Applique le cadre choisi à UNE image d'avatar donnée (retire l'ancien, pose le nouveau) —
+// utilisé partout où un avatar de compte est affiché.
+function applyAvatarFrame(imgEl, frame) {
+  ['bronze', 'silver', 'gold', 'legendary'].forEach(f => imgEl.classList.remove(`avatar-frame--${f}`));
+  if (frame) imgEl.classList.add(`avatar-frame--${frame}`);
+}
+
 const GAME_MODE_LABELS = { normal: 'Route du Boss', admin: 'Admin vs Joueur', guess: 'Devine le Pokémon', auction: 'Draft/Enchères' };
 const RESULT_LABELS = { victory: 'Victoire', defeat: 'Défaite', participation: 'Terminé' };
 
@@ -656,7 +688,7 @@ async function refreshAccountFromServer() {
       applyAccountUI(null);
       return;
     }
-    const account = { accessToken: data.accessToken, refreshToken: data.refreshToken, pseudo: data.pseudo, avatar: data.avatar, xp: data.xp, level: data.level };
+    const account = { accessToken: data.accessToken, refreshToken: data.refreshToken, pseudo: data.pseudo, avatar: data.avatar, frame: data.frame || '', xp: data.xp, level: data.level };
     setStoredAccount(account);
     applyAccountUI(account);
   } catch (err) {
@@ -722,12 +754,14 @@ function refreshAccountSettingsSection() {
 
   accountTabsContainerEl.classList.toggle('screen--hidden', loggedIn);
   accountLoggedPanelEl.classList.toggle('screen--hidden', !loggedIn);
+  refreshCosmeticLocks();
 
   if (loggedIn) {
     accountFormLoginEl.classList.add('screen--hidden');
     accountFormRegisterEl.classList.add('screen--hidden');
     accountLoggedPseudoEl.textContent = account.pseudo;
     accountAvatarCurrentEl.src = account.avatar ? avatarUrl(account.avatar) : '';
+    applyAvatarFrame(accountAvatarCurrentEl, account.frame);
     renderAccountLevel(account);
     fetchAndRenderAccountHistory(account);
     fetchAndRenderAccountAchievements(account);
@@ -834,7 +868,7 @@ btnAccountLogin.addEventListener('click', async () => {
       accountErrorEl.textContent = data.error || 'Connexion impossible.';
       return;
     }
-    const account = { accessToken: data.accessToken, refreshToken: data.refreshToken, pseudo: data.pseudo, avatar: data.avatar, xp: data.xp, level: data.level };
+    const account = { accessToken: data.accessToken, refreshToken: data.refreshToken, pseudo: data.pseudo, avatar: data.avatar, frame: data.frame || '', xp: data.xp, level: data.level };
     setStoredAccount(account);
     applyAccountUI(account);
     refreshAccountSettingsSection();
@@ -869,7 +903,7 @@ btnAccountRegister.addEventListener('click', async () => {
       accountErrorEl.textContent = 'Compte créé : vérifie tes emails avant de te connecter.';
       return;
     }
-    const account = { accessToken: data.accessToken, refreshToken: data.refreshToken, pseudo: data.pseudo, avatar: data.avatar, xp: data.xp, level: data.level };
+    const account = { accessToken: data.accessToken, refreshToken: data.refreshToken, pseudo: data.pseudo, avatar: data.avatar, frame: data.frame || '', xp: data.xp, level: data.level };
     setStoredAccount(account);
     applyAccountUI(account);
     refreshAccountSettingsSection();
@@ -4488,6 +4522,35 @@ settingsThemeButtons.forEach(btn => {
     settings.theme = btn.dataset.theme;
     saveSettings(settings);
     applyTheme(settings.theme);
+  });
+});
+
+// Cadre : contrairement au thème (préférence locale, cf. ci-dessus), c'est un attribut du
+// COMPTE (comme l'avatar) — persisté serveur, jamais juste en localStorage. Les boutons
+// verrouillés sont natively disabled (cf. applyUnlockLocks), donc jamais cliquables ici.
+accountFrameButtons.forEach(btn => {
+  btn.addEventListener('click', async () => {
+    const account = getStoredAccount();
+    if (!account) return;
+    const frame = btn.dataset.frame || '';
+    try {
+      const res = await fetch('/api/profile/frame', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accessToken: account.accessToken, frame })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        accountErrorEl.textContent = data.error || "Le cadre n'a pas pu être changé.";
+        return;
+      }
+      const updated = Object.assign({}, account, { frame: data.frame });
+      setStoredAccount(updated);
+      applyAvatarFrame(accountAvatarCurrentEl, updated.frame);
+      refreshCosmeticLocks();
+    } catch (err) {
+      accountErrorEl.textContent = 'Connexion au serveur impossible.';
+    }
   });
 });
 

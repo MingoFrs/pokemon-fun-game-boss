@@ -790,6 +790,15 @@
           </div>
 
           <div class="account-subpage screen--hidden" data-account-subpage="avatar">
+            <p class="settings-section__title">Cadre (débloqué en montant de niveau)</p>
+            <div id="account-frame-options" class="account-frame-options">
+              <button type="button" class="account-frame-swatch" data-frame="" data-required-level="1" aria-label="Aucun cadre"><span class="account-frame-swatch__preview account-frame-preview--"></span></button>
+              <button type="button" class="account-frame-swatch" data-frame="bronze" data-required-level="5" aria-label="Cadre bronze — débloqué niveau 5"><span class="account-frame-swatch__preview account-frame-preview--bronze"></span></button>
+              <button type="button" class="account-frame-swatch" data-frame="silver" data-required-level="10" aria-label="Cadre argent — débloqué niveau 10"><span class="account-frame-swatch__preview account-frame-preview--silver"></span></button>
+              <button type="button" class="account-frame-swatch" data-frame="gold" data-required-level="20" aria-label="Cadre or — débloqué niveau 20"><span class="account-frame-swatch__preview account-frame-preview--gold"></span></button>
+              <button type="button" class="account-frame-swatch" data-frame="legendary" data-required-level="30" aria-label="Cadre légendaire — débloqué niveau 30"><span class="account-frame-swatch__preview account-frame-preview--legendary"></span></button>
+            </div>
+            <p class="settings-section__title">Choisir un avatar</p>
             <input id="account-avatar-search" type="text" class="account-avatar-search" placeholder="Rechercher (ex: morty, red, korrina)...">
             <div id="account-avatar-grid" class="account-avatar-grid"></div>
           </div>
@@ -831,12 +840,13 @@
 
         <div class="settings-block">
           <p class="settings-section__title">🎨 Couleur de fond</p>
+          <p class="account-history-hint">Les couleurs autres que Défaut se débloquent en montant de niveau.</p>
           <div id="settings-theme-options" class="settings-theme-options">
-            <button type="button" class="settings-theme-swatch" data-theme="default" style="--swatch: #f5a623;" aria-label="Défaut"></button>
-            <button type="button" class="settings-theme-swatch" data-theme="violet" style="--swatch: #9d5cff;" aria-label="Violet"></button>
-            <button type="button" class="settings-theme-swatch" data-theme="crimson" style="--swatch: #e8615d;" aria-label="Rouge"></button>
-            <button type="button" class="settings-theme-swatch" data-theme="emerald" style="--swatch: #3fd096;" aria-label="Vert"></button>
-            <button type="button" class="settings-theme-swatch" data-theme="ocean" style="--swatch: #4fa9e8;" aria-label="Bleu"></button>
+            <button type="button" class="settings-theme-swatch" data-theme="default" data-required-level="1" style="--swatch: #f5a623;" aria-label="Défaut"></button>
+            <button type="button" class="settings-theme-swatch" data-theme="violet" data-required-level="5" style="--swatch: #9d5cff;" aria-label="Violet — débloqué niveau 5"></button>
+            <button type="button" class="settings-theme-swatch" data-theme="crimson" data-required-level="10" style="--swatch: #e8615d;" aria-label="Rouge — débloqué niveau 10"></button>
+            <button type="button" class="settings-theme-swatch" data-theme="emerald" data-required-level="15" style="--swatch: #3fd096;" aria-label="Vert — débloqué niveau 15"></button>
+            <button type="button" class="settings-theme-swatch" data-theme="ocean" data-required-level="20" style="--swatch: #4fa9e8;" aria-label="Bleu — débloqué niveau 20"></button>
           </div>
         </div>
       </div>

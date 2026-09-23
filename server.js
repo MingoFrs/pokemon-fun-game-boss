@@ -379,6 +379,7 @@ app.post('/api/register', async (req, res) => {
     refreshToken: data.session.refresh_token,
     pseudo: cleanPseudo,
     avatar: startingAvatar,
+    frame: '',
     xp: 0,
     level: levelForXp(0)
   });
@@ -400,7 +401,7 @@ app.post('/api/login', async (req, res) => {
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('pseudo, avatar, xp')
+    .select('pseudo, avatar, frame, xp')
     .eq('id', data.user.id)
     .single();
 
@@ -410,6 +411,7 @@ app.post('/api/login', async (req, res) => {
     refreshToken: data.session.refresh_token,
     pseudo: profile ? profile.pseudo : '',
     avatar: profile ? profile.avatar : null,
+    frame: profile ? (profile.frame || '') : '',
     xp,
     level: levelForXp(xp)
   });
@@ -435,7 +437,7 @@ app.post('/api/session', async (req, res) => {
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('pseudo, avatar, xp')
+    .select('pseudo, avatar, frame, xp')
     .eq('id', data.user.id)
     .single();
 
@@ -445,6 +447,7 @@ app.post('/api/session', async (req, res) => {
     refreshToken: data.session.refresh_token,
     pseudo: profile ? profile.pseudo : '',
     avatar: profile ? profile.avatar : null,
+    frame: profile ? (profile.frame || '') : '',
     xp,
     level: levelForXp(xp)
   });
@@ -480,6 +483,53 @@ app.post('/api/profile/avatar', async (req, res) => {
   }
 
   res.json({ avatar });
+});
+
+// Cadres cosmétiques autour de l'avatar, débloqués en montant de niveau (comme les
+// couleurs de thème, cf. FRAME_REQUIRED_LEVEL côté client pour l'affichage verrouillé/
+// déverrouillé) — revalidé ICI côté serveur avant d'enregistrer, jamais une simple
+// confiance dans ce que le client envoie.
+const FRAME_REQUIRED_LEVEL = { '': 1, bronze: 5, silver: 10, gold: 20, legendary: 30 };
+
+app.post('/api/profile/frame', async (req, res) => {
+  if (!requireSupabase(res)) return;
+  const { accessToken, frame } = req.body || {};
+  if (!accessToken || frame === undefined) {
+    res.status(400).json({ error: 'accessToken et frame requis.' });
+    return;
+  }
+  if (!(frame in FRAME_REQUIRED_LEVEL)) {
+    res.status(400).json({ error: 'Cadre inconnu.' });
+    return;
+  }
+
+  const { data: { user }, error: userError } = await createAuthClient().auth.getUser(accessToken);
+  if (userError || !user) {
+    res.status(401).json({ error: 'Session invalide.' });
+    return;
+  }
+
+  const { data: profile, error: profileError } = await supabase.from('profiles').select('xp').eq('id', user.id).single();
+  if (profileError) {
+    res.status(400).json({ error: 'Profil introuvable.' });
+    return;
+  }
+  const level = levelForXp(profile.xp || 0);
+  if (level < FRAME_REQUIRED_LEVEL[frame]) {
+    res.status(403).json({ error: `Ce cadre se débloque au niveau ${FRAME_REQUIRED_LEVEL[frame]}.` });
+    return;
+  }
+
+  const { error: updateError } = await supabase
+    .from('profiles')
+    .update({ frame })
+    .eq('id', user.id);
+  if (updateError) {
+    res.status(400).json({ error: "Le cadre n'a pas pu être enregistré : " + updateError.message });
+    return;
+  }
+
+  res.json({ frame });
 });
 
 // Historique des 10 dernières parties terminées (cf. recordGameResult, appelé à chaque
