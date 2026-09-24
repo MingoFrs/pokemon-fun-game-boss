@@ -133,7 +133,15 @@
         </div>
         <p id="copy-feedback" class="copy-feedback"></p>
       </div>
-      <button id="btn-leave" class="btn btn--ghost">Quitter</button>
+      <div class="lobby-header__actions">
+        <button id="btn-invite-friend" type="button" class="btn btn--ghost screen--hidden">Inviter un ami</button>
+        <button id="btn-leave" class="btn btn--ghost">Quitter</button>
+      </div>
+    </div>
+
+    <div id="invite-friend-panel" class="invite-friend-panel screen--hidden">
+      <p class="settings-section__title">Inviter un ami en ligne</p>
+      <div id="invite-friend-list" class="friends-list"></div>
     </div>
 
     <div class="lobby-grid">
@@ -767,6 +775,7 @@
             <button type="button" class="settings-subtab" data-account-subpage="achievements" role="tab" aria-selected="false">Succès</button>
             <button type="button" class="settings-subtab" data-account-subpage="pokedex" role="tab" aria-selected="false">Pokédex</button>
             <button type="button" class="settings-subtab" data-account-subpage="stats" role="tab" aria-selected="false">Stats</button>
+            <button type="button" class="settings-subtab" data-account-subpage="friends" role="tab" aria-selected="false">Amis</button>
             <button type="button" class="settings-subtab" data-account-subpage="avatar" role="tab" aria-selected="false">Avatar</button>
           </div>
 
@@ -787,6 +796,24 @@
 
           <div class="account-subpage screen--hidden" data-account-subpage="stats">
             <div id="account-stats-content"></div>
+          </div>
+
+          <div class="account-subpage screen--hidden" data-account-subpage="friends">
+            <input id="friends-search-input" type="text" class="account-avatar-search" placeholder="Chercher un pseudo...">
+            <div id="friends-search-results" class="friends-list"></div>
+
+            <div id="friends-incoming-block" class="screen--hidden">
+              <p class="settings-section__title">Demandes reçues</p>
+              <div id="friends-incoming-list" class="friends-list"></div>
+            </div>
+
+            <div id="friends-outgoing-block" class="screen--hidden">
+              <p class="settings-section__title">Demandes envoyées</p>
+              <div id="friends-outgoing-list" class="friends-list"></div>
+            </div>
+
+            <p class="settings-section__title">Mes amis</p>
+            <div id="friends-list" class="friends-list"></div>
           </div>
 
           <div class="account-subpage screen--hidden" data-account-subpage="avatar">
@@ -871,6 +898,10 @@
      au-dessus de n'importe quel écran, empilables, disparaissent seuls après quelques
      secondes. Vide et invisible tant qu'aucun succès n'a été débloqué pendant la session. -->
 <div id="achievement-toast-container" class="achievement-toast-container" aria-live="polite"></div>
+
+<!-- Invitations de parties reçues d'un ami en ligne (cf. socket.on('friend_game_invite')) :
+     même widget flottant que les succès, ID à part pour ne jamais se mélanger. -->
+<div id="friend-invite-toast-container" class="achievement-toast-container" aria-live="polite"></div>
 
 <script src="/socket.io/socket.io.js"></script>
 <script src="client.js"></script>

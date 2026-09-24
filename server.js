@@ -702,6 +702,195 @@ app.post('/api/profile/stats', async (req, res) => {
   res.json({ gamesPlayed: rows.length, winRateByMode, bestScoreByDifficulty, topPokemon });
 });
 
+// -----------------------------------------------------------------
+// AMIS — table `friendships` : une ligne par relation, PEU IMPORTE le sens
+// (user_id = qui a envoyé la demande, friend_id = qui l'a reçue), status
+// 'pending'|'accepted'. Toujours vérifiée dans LES DEUX sens (cf. .or(...) plus bas) :
+// une amitié acceptée ou une demande en cours n'a qu'une seule ligne, jamais deux.
+// -----------------------------------------------------------------
+async function getAuthedUser(accessToken) {
+  if (!accessToken) return null;
+  const { data: { user } } = await createAuthClient().auth.getUser(accessToken);
+  return user || null;
+}
+
+// Recherche par pseudo (insensible à la casse), exclut soi-même, indique pour chaque
+// résultat la relation déjà existante (aucune/demande envoyée/demande reçue/ami) pour que
+// le client affiche le bon bouton sans avoir à deviner.
+app.post('/api/friends/search', async (req, res) => {
+  if (!requireSupabase(res)) return;
+  const { accessToken, query } = req.body || {};
+  const user = await getAuthedUser(accessToken);
+  if (!user) {
+    res.status(401).json({ error: 'Session invalide.' });
+    return;
+  }
+  const trimmed = (query || '').trim();
+  if (trimmed.length < 2) {
+    res.json({ results: [] });
+    return;
+  }
+
+  const { data: profiles, error } = await supabase
+    .from('profiles')
+    .select('id, pseudo, avatar, frame')
+    .ilike('pseudo', `%${trimmed}%`)
+    .neq('id', user.id)
+    .limit(10);
+  if (error) {
+    res.status(400).json({ error: 'La recherche a échoué.' });
+    return;
+  }
+
+  const { data: relations } = await supabase
+    .from('friendships')
+    .select('user_id, friend_id, status')
+    .or(`user_id.eq.${user.id},friend_id.eq.${user.id}`);
+
+  const results = (profiles || []).map(p => {
+    const rel = (relations || []).find(r => r.user_id === p.id || r.friend_id === p.id);
+    let relation = 'none';
+    if (rel) {
+      if (rel.status === 'accepted') relation = 'friend';
+      else if (rel.user_id === user.id) relation = 'pending_sent';
+      else relation = 'pending_received';
+    }
+    return { id: p.id, pseudo: p.pseudo, avatar: p.avatar, frame: p.frame || '', relation };
+  });
+  res.json({ results });
+});
+
+app.post('/api/friends/request', async (req, res) => {
+  if (!requireSupabase(res)) return;
+  const { accessToken, targetId } = req.body || {};
+  const user = await getAuthedUser(accessToken);
+  if (!user) {
+    res.status(401).json({ error: 'Session invalide.' });
+    return;
+  }
+  if (!targetId || targetId === user.id) {
+    res.status(400).json({ error: 'Destinataire invalide.' });
+    return;
+  }
+
+  const { data: existing } = await supabase
+    .from('friendships')
+    .select('user_id, friend_id, status')
+    .or(`user_id.eq.${user.id},friend_id.eq.${user.id}`)
+    .or(`user_id.eq.${targetId},friend_id.eq.${targetId}`);
+  const already = (existing || []).find(r =>
+    (r.user_id === user.id && r.friend_id === targetId) || (r.user_id === targetId && r.friend_id === user.id)
+  );
+  if (already) {
+    res.status(400).json({ error: 'Une relation existe déjà avec ce joueur.' });
+    return;
+  }
+
+  const { error } = await supabase.from('friendships').insert({ user_id: user.id, friend_id: targetId, status: 'pending' });
+  if (error) {
+    res.status(400).json({ error: "La demande n'a pas pu être envoyée." });
+    return;
+  }
+  res.json({ ok: true });
+});
+
+// accept: true accepte, false refuse (supprime la ligne). Seul le DESTINATAIRE
+// (friend_id) d'une demande en attente peut répondre — jamais celui qui l'a envoyée.
+app.post('/api/friends/respond', async (req, res) => {
+  if (!requireSupabase(res)) return;
+  const { accessToken, requesterId, accept } = req.body || {};
+  const user = await getAuthedUser(accessToken);
+  if (!user) {
+    res.status(401).json({ error: 'Session invalide.' });
+    return;
+  }
+  if (!requesterId) {
+    res.status(400).json({ error: 'Demande invalide.' });
+    return;
+  }
+
+  if (accept) {
+    const { error } = await supabase
+      .from('friendships')
+      .update({ status: 'accepted' })
+      .eq('user_id', requesterId)
+      .eq('friend_id', user.id)
+      .eq('status', 'pending');
+    if (error) {
+      res.status(400).json({ error: "La demande n'a pas pu être acceptée." });
+      return;
+    }
+  } else {
+    await supabase.from('friendships').delete().eq('user_id', requesterId).eq('friend_id', user.id).eq('status', 'pending');
+  }
+  res.json({ ok: true });
+});
+
+app.post('/api/friends/remove', async (req, res) => {
+  if (!requireSupabase(res)) return;
+  const { accessToken, friendId } = req.body || {};
+  const user = await getAuthedUser(accessToken);
+  if (!user) {
+    res.status(401).json({ error: 'Session invalide.' });
+    return;
+  }
+  if (!friendId) {
+    res.status(400).json({ error: 'Ami invalide.' });
+    return;
+  }
+  await supabase.from('friendships').delete().eq('user_id', user.id).eq('friend_id', friendId);
+  await supabase.from('friendships').delete().eq('user_id', friendId).eq('friend_id', user.id);
+  res.json({ ok: true });
+});
+
+// Liste complète : amis acceptés (avec statut en ligne, cf. onlineAccounts plus bas),
+// demandes reçues (à répondre) et demandes envoyées (en attente de l'autre).
+app.post('/api/friends/list', async (req, res) => {
+  if (!requireSupabase(res)) return;
+  const { accessToken } = req.body || {};
+  const user = await getAuthedUser(accessToken);
+  if (!user) {
+    res.status(401).json({ error: 'Session invalide.' });
+    return;
+  }
+
+  const { data: relations, error } = await supabase
+    .from('friendships')
+    .select('user_id, friend_id, status')
+    .or(`user_id.eq.${user.id},friend_id.eq.${user.id}`);
+  if (error) {
+    res.status(400).json({ error: 'La liste d\'amis n\'a pas pu être récupérée.' });
+    return;
+  }
+
+  const otherIds = (relations || []).map(r => (r.user_id === user.id ? r.friend_id : r.user_id));
+  let profilesById = {};
+  if (otherIds.length > 0) {
+    const { data: profiles } = await supabase.from('profiles').select('id, pseudo, avatar, frame').in('id', otherIds);
+    profilesById = Object.fromEntries((profiles || []).map(p => [p.id, p]));
+  }
+
+  const friends = [];
+  const incoming = [];
+  const outgoing = [];
+  (relations || []).forEach(r => {
+    const otherId = r.user_id === user.id ? r.friend_id : r.user_id;
+    const profile = profilesById[otherId];
+    if (!profile) return;
+    const entry = { id: otherId, pseudo: profile.pseudo, avatar: profile.avatar, frame: profile.frame || '' };
+    if (r.status === 'accepted') {
+      entry.online = isAccountOnline(otherId);
+      friends.push(entry);
+    } else if (r.friend_id === user.id) {
+      incoming.push(entry);
+    } else {
+      outgoing.push(entry);
+    }
+  });
+
+  res.json({ friends, incoming, outgoing });
+});
+
 // Classement global par XP — public (aucun accessToken requis, comme /api/avatars),
 // mais accepte un accessToken OPTIONNEL pour indiquer au client quelle ligne est "la
 // sienne" (surlignage) sans lui faire deviner via le pseudo (qu'un autre joueur pourrait
@@ -3645,6 +3834,30 @@ function buildRoute() {
 const games = {};
 
 // -----------------------------------------------------------------
+// PRÉSENCE EN LIGNE (comptes) — nécessaire pour savoir quels amis inviter directement
+// (cf. socket.on('invite_friend') plus bas) sans que la personne soit forcément déjà
+// dans une partie. userId -> Set de socket.id (plusieurs onglets/appareils possibles).
+// Best-effort, jamais persisté : un redémarrage serveur vide simplement le registre, les
+// clients se ré-identifient tout seuls à la reconnexion (cf. socket.on('identify_account')).
+// -----------------------------------------------------------------
+const onlineAccounts = {};
+
+function isAccountOnline(userId) {
+  return !!(onlineAccounts[userId] && onlineAccounts[userId].size > 0);
+}
+
+function registerAccountSocket(userId, socketId) {
+  if (!onlineAccounts[userId]) onlineAccounts[userId] = new Set();
+  onlineAccounts[userId].add(socketId);
+}
+
+function unregisterAccountSocket(userId, socketId) {
+  if (!onlineAccounts[userId]) return;
+  onlineAccounts[userId].delete(socketId);
+  if (onlineAccounts[userId].size === 0) delete onlineAccounts[userId];
+}
+
+// -----------------------------------------------------------------
 // PERSISTANCE DES PARTIES EN COURS (table Supabase `active_games`) — pour survivre à un
 // redémarrage du serveur (déploiement Render, crash...) sans perdre les parties déjà
 // lancées. Uniquement les parties status === 'playing' (une partie en lobby ou déjà finie
@@ -4450,6 +4663,38 @@ function finishAdminModeByForfeit(game, leavingPlayer) {
 }
 
 io.on('connection', (socket) => {
+  // Présence en ligne pour les amis (cf. onlineAccounts plus haut) : indépendant de toute
+  // partie, un compte connecté sur l'accueil doit déjà pouvoir recevoir une invitation.
+  // Jamais un pré-requis : un client qui n'appelle jamais ceci fonctionne normalement,
+  // juste invisible pour ses amis.
+  socket.on('identify_account', async ({ accessToken } = {}) => {
+    if (!accessToken || !createAuthClient) return;
+    try {
+      const { data: { user } } = await createAuthClient().auth.getUser(accessToken);
+      if (!user) return;
+      socket.data.accountUserId = user.id;
+      registerAccountSocket(user.id, socket.id);
+    } catch (err) {
+      // Jeton invalide/expiré : on ignore simplement, pas d'impact sur le reste du jeu.
+    }
+  });
+
+  // Envoie une invitation à un ami actuellement connecté (n'importe où — pas
+  // nécessairement dans une partie), à rejoindre la partie du joueur courant. Ne fait
+  // RIEN si l'ami n'est pas en ligne (cf. isAccountOnline) : pas de file d'attente, pas
+  // de notification différée, uniquement du temps réel.
+  socket.on('invite_friend', ({ friendUserId, fromPseudo, fromAvatar } = {}) => {
+    const gameId = socket.data.gameId;
+    if (!gameId || !friendUserId || !onlineAccounts[friendUserId]) return;
+    onlineAccounts[friendUserId].forEach(sid => {
+      io.to(sid).emit('friend_game_invite', {
+        gameId,
+        fromPseudo: fromPseudo || 'Un ami',
+        fromAvatar: fromAvatar || null
+      });
+    });
+  });
+
   socket.on('create_game', ({ name, token, avatar, accessToken } = {}) => {
     const trimmed = (name || '').trim();
     if (!trimmed) {
@@ -5946,6 +6191,7 @@ io.on('connection', (socket) => {
 
   socket.on('disconnect', () => {
     handleSocketDisconnect(socket);
+    if (socket.data.accountUserId) unregisterAccountSocket(socket.data.accountUserId, socket.id);
   });
 });
 

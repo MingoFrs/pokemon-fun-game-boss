@@ -108,6 +108,17 @@ const accountHistoryListEl = document.getElementById('account-history-list');
 const accountAchievementsListEl = document.getElementById('account-achievements-list');
 const achievementToastContainerEl = document.getElementById('achievement-toast-container');
 const leaderboardListEl = document.getElementById('leaderboard-list');
+const friendsSearchInputEl = document.getElementById('friends-search-input');
+const friendsSearchResultsEl = document.getElementById('friends-search-results');
+const friendsIncomingBlockEl = document.getElementById('friends-incoming-block');
+const friendsIncomingListEl = document.getElementById('friends-incoming-list');
+const friendsOutgoingBlockEl = document.getElementById('friends-outgoing-block');
+const friendsOutgoingListEl = document.getElementById('friends-outgoing-list');
+const friendsListEl = document.getElementById('friends-list');
+const btnInviteFriend = document.getElementById('btn-invite-friend');
+const inviteFriendPanelEl = document.getElementById('invite-friend-panel');
+const inviteFriendListEl = document.getElementById('invite-friend-list');
+const friendInviteToastContainerEl = document.getElementById('friend-invite-toast-container');
 const accountPokedexCountEl = document.getElementById('account-pokedex-count');
 const accountPokedexSearchEl = document.getElementById('account-pokedex-search');
 const accountPokedexGridEl = document.getElementById('account-pokedex-grid');
@@ -517,6 +528,150 @@ async function fetchAndRenderProfileStats(account) {
   }
 }
 
+// ---------- Amis ----------
+function buildFriendRow(entry, actions) {
+  const row = document.createElement('div');
+  row.className = 'friend-row';
+
+  const avatar = document.createElement('img');
+  avatar.className = 'friend-row__avatar';
+  avatar.src = entry.avatar ? avatarUrl(entry.avatar) : '';
+  avatar.alt = '';
+  if (entry.frame) applyAvatarFrame(avatar, entry.frame);
+  row.appendChild(avatar);
+
+  const info = document.createElement('div');
+  info.className = 'friend-row__info';
+  const name = document.createElement('span');
+  name.textContent = entry.pseudo;
+  info.appendChild(name);
+  if (entry.online !== undefined) {
+    const status = document.createElement('span');
+    status.className = 'friend-row__status' + (entry.online ? ' friend-row__status--online' : '');
+    status.textContent = entry.online ? 'En ligne' : 'Hors ligne';
+    info.appendChild(status);
+  }
+  row.appendChild(info);
+
+  const actionsWrap = document.createElement('div');
+  actionsWrap.className = 'friend-row__actions';
+  actions.forEach(({ label, className, onClick }) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = className || 'btn btn--ghost';
+    btn.textContent = label;
+    btn.addEventListener('click', onClick);
+    actionsWrap.appendChild(btn);
+  });
+  row.appendChild(actionsWrap);
+  return row;
+}
+
+async function fetchAndRenderFriends(account) {
+  friendsListEl.innerHTML = '';
+  friendsIncomingListEl.innerHTML = '';
+  friendsOutgoingListEl.innerHTML = '';
+  try {
+    const res = await fetch('/api/friends/list', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ accessToken: account.accessToken })
+    });
+    const data = await res.json();
+    if (!res.ok) return;
+
+    friendsIncomingBlockEl.classList.toggle('screen--hidden', !(data.incoming || []).length);
+    (data.incoming || []).forEach(entry => {
+      friendsIncomingListEl.appendChild(buildFriendRow(entry, [
+        { label: 'Accepter', className: 'btn btn--haut', onClick: () => respondFriendRequest(account, entry.id, true) },
+        { label: 'Refuser', className: 'btn btn--ghost', onClick: () => respondFriendRequest(account, entry.id, false) }
+      ]));
+    });
+
+    friendsOutgoingBlockEl.classList.toggle('screen--hidden', !(data.outgoing || []).length);
+    (data.outgoing || []).forEach(entry => {
+      friendsOutgoingListEl.appendChild(buildFriendRow(entry, [
+        { label: 'Annuler', className: 'btn btn--ghost', onClick: () => removeFriend(account, entry.id) }
+      ]));
+    });
+
+    if ((data.friends || []).length === 0) {
+      const empty = document.createElement('p');
+      empty.className = 'account-history-empty';
+      empty.textContent = 'Aucun ami pour le moment.';
+      friendsListEl.appendChild(empty);
+    } else {
+      data.friends.forEach(entry => {
+        friendsListEl.appendChild(buildFriendRow(entry, [
+          { label: 'Retirer', className: 'btn btn--ghost', onClick: () => removeFriend(account, entry.id) }
+        ]));
+      });
+    }
+  } catch (err) {
+    const empty = document.createElement('p');
+    empty.className = 'account-history-empty';
+    empty.textContent = 'Liste d\'amis indisponible pour le moment.';
+    friendsListEl.appendChild(empty);
+  }
+}
+
+async function respondFriendRequest(account, requesterId, accept) {
+  await fetch('/api/friends/respond', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ accessToken: account.accessToken, requesterId, accept })
+  });
+  fetchAndRenderFriends(account);
+}
+
+async function removeFriend(account, friendId) {
+  await fetch('/api/friends/remove', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ accessToken: account.accessToken, friendId })
+  });
+  fetchAndRenderFriends(account);
+}
+
+const FRIEND_RELATION_LABEL = { pending_sent: 'Demande envoyée', pending_received: 'Demande reçue', friend: 'Déjà ami' };
+
+let friendsSearchDebounce = null;
+friendsSearchInputEl.addEventListener('input', () => {
+  clearTimeout(friendsSearchDebounce);
+  const query = friendsSearchInputEl.value.trim();
+  friendsSearchDebounce = setTimeout(async () => {
+    const account = getStoredAccount();
+    friendsSearchResultsEl.innerHTML = '';
+    if (!account || query.length < 2) return;
+    try {
+      const res = await fetch('/api/friends/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accessToken: account.accessToken, query })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.results) return;
+      data.results.forEach(entry => {
+        const actions = entry.relation === 'none'
+          ? [{ label: 'Ajouter', className: 'btn btn--haut', onClick: async () => {
+              await fetch('/api/friends/request', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ accessToken: account.accessToken, targetId: entry.id })
+              });
+              friendsSearchInputEl.dispatchEvent(new Event('input'));
+              fetchAndRenderFriends(account);
+            } }]
+          : [{ label: FRIEND_RELATION_LABEL[entry.relation] || '', className: 'btn btn--ghost', onClick: () => {} }];
+        if (entry.relation !== 'none') actions[0].onClick = () => {}; // statut informatif seulement
+        friendsSearchResultsEl.appendChild(buildFriendRow(entry, actions));
+      });
+    } catch (err) {
+      // recherche silencieusement indisponible (hors-ligne...) — pas bloquant
+    }
+  }, 350);
+});
+
 // Toast flottant (cf. #achievement-toast-container dans index.html), un par succès
 // débloqué, empilables si plusieurs arrivent d'un coup (ex: fin de partie qui déclenche
 // 2 succès à la fois). Se retire lui-même du DOM après son animation de sortie — jamais
@@ -649,6 +804,14 @@ function setStoredAccount(account) {
   else localStorage.removeItem('rdb_account');
 }
 
+// Signale au serveur qu'un compte est en ligne (cf. onlineAccounts côté serveur), pour
+// que ses amis puissent l'inviter directement. Sans effet si pas de compte stocké — ne
+// bloque jamais rien, juste invisible pour les amis dans ce cas.
+function identifyAccountIfLoggedIn() {
+  const account = getStoredAccount();
+  if (account) socket.emit('identify_account', { accessToken: account.accessToken });
+}
+
 function applyAccountUI(account) {
   if (account) {
     accountStatusGuestEl.classList.add('screen--hidden');
@@ -660,9 +823,12 @@ function applyAccountUI(account) {
     // compte doit systématiquement remplacer le pseudo affiché par celui du compte,
     // même si un autre pseudo traînait dans le champ (mode invité précédent, etc.).
     pseudoInput.value = account.pseudo;
+    identifyAccountIfLoggedIn();
+    btnInviteFriend.classList.remove('screen--hidden');
   } else {
     accountStatusGuestEl.classList.remove('screen--hidden');
     accountStatusLoggedEl.classList.add('screen--hidden');
+    btnInviteFriend.classList.add('screen--hidden');
   }
 }
 applyAccountUI(getStoredAccount());
@@ -767,6 +933,7 @@ function refreshAccountSettingsSection() {
     fetchAndRenderAccountAchievements(account);
     fetchAndRenderPokedex(account);
     fetchAndRenderProfileStats(account);
+    fetchAndRenderFriends(account);
     accountAvatarSearchEl.value = '';
     populateAvatarGrid(account, '');
   } else {
@@ -2266,6 +2433,92 @@ btnLeave.addEventListener('click', () => {
   showScreen(screenHome);
 });
 
+// Panneau "Inviter un ami" : ouvert/fermé au clic, rempli à chaque ouverture avec la
+// liste d'amis À JOUR (cf. fetchAndRenderFriends) pour ne jamais montrer un statut
+// en ligne périmé. Seuls les amis EN LIGNE ont un bouton actif — les autres sont juste
+// listés, griés (cf. CSS friend-row--offline).
+btnInviteFriend.addEventListener('click', async () => {
+  const account = getStoredAccount();
+  if (!account) return;
+  const opening = inviteFriendPanelEl.classList.contains('screen--hidden');
+  inviteFriendPanelEl.classList.toggle('screen--hidden', !opening);
+  if (!opening) return;
+
+  inviteFriendListEl.innerHTML = '';
+  try {
+    const res = await fetch('/api/friends/list', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ accessToken: account.accessToken })
+    });
+    const data = await res.json();
+    if (!res.ok || !(data.friends || []).length) {
+      const empty = document.createElement('p');
+      empty.className = 'account-history-empty';
+      empty.textContent = 'Aucun ami à inviter.';
+      inviteFriendListEl.appendChild(empty);
+      return;
+    }
+    data.friends.forEach(entry => {
+      const row = buildFriendRow(entry, entry.online ? [{
+        label: 'Inviter',
+        className: 'btn btn--haut',
+        onClick: () => {
+          socket.emit('invite_friend', { friendUserId: entry.id, fromPseudo: account.pseudo, fromAvatar: account.avatar });
+          inviteFriendPanelEl.classList.add('screen--hidden');
+        }
+      }] : []);
+      row.classList.toggle('friend-row--offline', !entry.online);
+      inviteFriendListEl.appendChild(row);
+    });
+  } catch (err) {
+    const empty = document.createElement('p');
+    empty.className = 'account-history-empty';
+    empty.textContent = 'Liste d\'amis indisponible pour le moment.';
+    inviteFriendListEl.appendChild(empty);
+  }
+});
+
+// Invitation reçue d'un ami en ligne (cf. socket.on('invite_friend') côté serveur) : un
+// toast avec un bouton direct pour rejoindre — jamais besoin de redemander le code.
+socket.on('friend_game_invite', ({ gameId, fromPseudo, fromAvatar }) => {
+  const toast = document.createElement('div');
+  toast.className = 'achievement-toast';
+
+  const icon = document.createElement('img');
+  icon.className = 'friend-invite-toast__avatar';
+  icon.src = fromAvatar ? avatarUrl(fromAvatar) : '';
+  icon.alt = '';
+
+  const body = document.createElement('div');
+  const eyebrow = document.createElement('p');
+  eyebrow.className = 'achievement-toast__eyebrow';
+  eyebrow.textContent = 'Invitation';
+  const label = document.createElement('p');
+  label.className = 'achievement-toast__label';
+  label.textContent = `${fromPseudo} t'invite à jouer !`;
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'btn btn--haut btn--block';
+  btn.textContent = 'Rejoindre';
+  btn.addEventListener('click', () => {
+    const account = getStoredAccount();
+    const name = (account && account.pseudo) || pseudoInput.value.trim();
+    if (!name) return;
+    socket.emit('join_game', { name, gameId, token: deviceToken, avatar: account?.avatar || null, accessToken: account?.accessToken || null });
+    toast.remove();
+  });
+  body.appendChild(eyebrow);
+  body.appendChild(label);
+  body.appendChild(btn);
+
+  toast.appendChild(icon);
+  toast.appendChild(body);
+  friendInviteToastContainerEl.appendChild(toast);
+
+  setTimeout(() => toast.remove(), 15000); // laisse plus de temps qu'un succès (décision à prendre, pas juste à lire)
+});
+
 // Un seul jeu de listeners pour les 4 boutons de difficulté, enregistrés une seule fois
 // au chargement (comme tous les autres listeners du fichier). Le serveur revalide de
 // toute façon que l'émetteur est bien l'hôte : ce garde-fou côté client n'est qu'un confort.
@@ -2409,6 +2662,7 @@ btnReplay.addEventListener('click', () => {
 // ---------- Événements serveur : lobby ----------
 socket.on('connect', () => {
   myId = socket.id;
+  identifyAccountIfLoggedIn(); // présence en ligne pour les amis, cf. socket.on('identify_account') côté serveur
   // Se déclenche à la toute première connexion ET après chaque reconnexion automatique
   // de socket.io (coupure réseau brève) : dans les deux cas, s'il existe une partie
   // enregistrée ET que la reconnexion automatique n'est pas désactivée (cf. Réglages >
