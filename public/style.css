@@ -1,4 +1,5 @@
 :root {
+  color-scheme: dark;
   --bg-base: #070a10;
   --bg-void: #04060a;
   --bg-panel: #141a24;
@@ -188,9 +189,10 @@ body {
    .settings-body en ligne (sidebar d'onglets à gauche, contenu scrollable à droite). */
 .event-modal.settings-modal {
   width: min(1080px, 96vw);
-  height: min(880px, 92vh);
+  height: auto;
+  max-height: min(860px, 92vh);
+  min-height: 480px;
   max-width: none;
-  max-height: none;
   padding: 0;
   display: flex;
   flex-direction: column;
@@ -4385,4 +4387,32 @@ button.friend-chip--online:active {
 
 .pokedex-cell--owned .pokedex-cell__name {
   color: var(--text-primary);
+}
+
+/* ---------- Scrollbars sombres globales ----------
+   Sans color-scheme + ces règles, Chrome/Brave/Edge affichent leur barre de
+   défilement native CLAIRE (piste ~blanche, pouce gris clair) même sur un fond
+   sombre — c'est ce qui « casse l'ambiance » sur toute zone scrollable (liste
+   historique, grille succès/Pokédex, panneau de réglages...). */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) var(--bg-panel-alt);
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 8px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
 }
