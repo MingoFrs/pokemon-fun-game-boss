@@ -186,7 +186,7 @@ body {
    défaut pour ce layout — n'affecte QUE cette modale, jamais les autres qui réutilisent
    .event-modal ailleurs). Prend quasi tout le viewport : en-tête fixe en haut, puis
    .settings-body en ligne (sidebar d'onglets à gauche, contenu scrollable à droite). */
-.settings-modal {
+.event-modal.settings-modal {
   width: min(1080px, 96vw);
   height: min(880px, 92vh);
   max-width: none;
@@ -310,7 +310,7 @@ body {
 }
 
 @media (max-width: 720px) {
-  .settings-modal {
+  .event-modal.settings-modal {
     width: 100vw;
     height: 100vh;
     border-radius: 0;
