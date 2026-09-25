@@ -1453,22 +1453,6 @@ input:focus {
   width: auto;
 }
 
-.invite-friend-panel {
-  position: absolute;
-  top: calc(100% + 8px);
-  right: 0;
-  z-index: 20;
-  width: 280px;
-  max-width: calc(100vw - 40px);
-  max-height: 320px;
-  overflow-y: auto;
-  padding: 14px;
-  background: var(--bg-panel);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-}
-
 .friend-invite-toast__avatar {
   width: 32px;
   height: 32px;
@@ -4125,4 +4109,231 @@ body[data-screen="spectate"] .chat-toggle {
   .auction-quick-bid-options {
     grid-template-columns: repeat(2, 1fr);
   }
+}
+/* ---------- Barre d'amis persistante (lobby) ---------- */
+.lobby-friends-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 18px;
+  padding: 10px 14px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.lobby-friends-bar__label {
+  flex-shrink: 0;
+  font-family: var(--font-display);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+
+.lobby-friends-bar__list {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow-x: auto;
+  flex: 1;
+  min-width: 0;
+  scrollbar-width: thin;
+}
+
+.lobby-friends-bar__loading {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.friend-chip {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  padding: 5px 10px 5px 5px;
+  background: var(--bg-panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-family: var(--font-body);
+  font-size: 12px;
+  color: var(--text-primary);
+  cursor: default;
+  transition: border-color 0.15s ease, transform 0.1s ease;
+}
+
+button.friend-chip--online {
+  cursor: pointer;
+}
+
+button.friend-chip--online:hover {
+  border-color: var(--accent-bas);
+  transform: translateY(-1px);
+}
+
+button.friend-chip--online:active {
+  transform: translateY(0) scale(0.97);
+}
+
+.friend-chip--offline {
+  opacity: 0.45;
+}
+
+.friend-chip--sent {
+  border-color: var(--accent-bas);
+  color: var(--accent-bas);
+}
+
+.friend-chip__avatar {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--bg-panel-raised);
+}
+
+.friend-chip__dot {
+  position: absolute;
+  left: 19px;
+  top: 19px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  border: 2px solid var(--bg-panel-alt);
+}
+
+.friend-chip--online .friend-chip__dot {
+  background: var(--accent-bas);
+}
+
+.friend-chip__name {
+  max-width: 90px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------- Pokédex par génération ---------- */
+.pokedex-gen-tabs {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  margin: 10px 0 14px;
+  scrollbar-width: thin;
+}
+
+.pokedex-gen-tab {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 7px 12px;
+  background: var(--bg-panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.pokedex-gen-tab__num {
+  font-family: var(--font-display);
+  font-size: 12px;
+  color: var(--text-primary);
+}
+
+.pokedex-gen-tab__count {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.pokedex-gen-tab--selected {
+  border-color: var(--accent-haut);
+  background: rgba(245, 166, 35, 0.08);
+}
+
+.pokedex-gen-tab--selected .pokedex-gen-tab__count {
+  color: var(--accent-haut);
+}
+
+.pokedex-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  gap: 8px;
+  max-height: 480px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.pokedex-cell {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 4px 6px;
+  border-radius: 10px;
+  background: var(--bg-panel-alt);
+  border: 1px solid var(--border);
+}
+
+.pokedex-cell--owned {
+  border-color: var(--border-soft);
+}
+
+.pokedex-cell--locked {
+  opacity: 0.55;
+}
+
+.pokedex-cell__num {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--text-muted);
+}
+
+.pokedex-cell__img {
+  position: relative;
+  width: 52px;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pokedex-cell__img img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.pokedex-cell__mark {
+  font-family: var(--font-display);
+  font-size: 22px;
+  color: var(--text-muted);
+}
+
+.pokedex-cell__shiny {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  font-size: 11px;
+}
+
+.pokedex-cell__name {
+  font-size: 9px;
+  color: var(--text-muted);
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.pokedex-cell--owned .pokedex-cell__name {
+  color: var(--text-primary);
 }

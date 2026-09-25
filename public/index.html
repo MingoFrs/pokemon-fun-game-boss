@@ -134,14 +134,16 @@
         <p id="copy-feedback" class="copy-feedback"></p>
       </div>
       <div class="lobby-header__actions">
-        <button id="btn-invite-friend" type="button" class="btn btn--ghost screen--hidden">Inviter un ami</button>
         <button id="btn-leave" class="btn btn--ghost">Quitter</button>
       </div>
     </div>
 
-    <div id="invite-friend-panel" class="invite-friend-panel screen--hidden">
-      <p class="settings-section__title">Inviter un ami en ligne</p>
-      <div id="invite-friend-list" class="friends-list"></div>
+    <!-- Barre d'amis persistante (visible seulement si connecté, cf. applyAccountUI) :
+         amis en ligne d'abord avec bouton "Inviter" direct, hors-ligne ensuite grisés.
+         Rafraîchie à chaque entrée dans le lobby (cf. refreshLobbyFriendsBar). -->
+    <div id="lobby-friends-bar" class="lobby-friends-bar screen--hidden">
+      <span class="lobby-friends-bar__label">Amis</span>
+      <div id="lobby-friends-bar-list" class="lobby-friends-bar__list"></div>
     </div>
 
     <div class="lobby-grid">
@@ -791,7 +793,8 @@
           <div class="account-subpage screen--hidden" data-account-subpage="pokedex">
             <p id="account-pokedex-count" class="account-history-hint">0 / 0 Pokémon obtenus</p>
             <input id="account-pokedex-search" type="text" class="account-avatar-search" placeholder="Rechercher un Pokémon...">
-            <div id="account-pokedex-grid" class="account-pokedex-grid"></div>
+            <div id="account-pokedex-gen-tabs" class="pokedex-gen-tabs"></div>
+            <div id="account-pokedex-grid" class="pokedex-grid"></div>
           </div>
 
           <div class="account-subpage screen--hidden" data-account-subpage="stats">

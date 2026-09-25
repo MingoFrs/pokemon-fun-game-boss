@@ -115,13 +115,13 @@ const friendsIncomingListEl = document.getElementById('friends-incoming-list');
 const friendsOutgoingBlockEl = document.getElementById('friends-outgoing-block');
 const friendsOutgoingListEl = document.getElementById('friends-outgoing-list');
 const friendsListEl = document.getElementById('friends-list');
-const btnInviteFriend = document.getElementById('btn-invite-friend');
-const inviteFriendPanelEl = document.getElementById('invite-friend-panel');
-const inviteFriendListEl = document.getElementById('invite-friend-list');
+const lobbyFriendsBarEl = document.getElementById('lobby-friends-bar');
+const lobbyFriendsBarListEl = document.getElementById('lobby-friends-bar-list');
 const friendInviteToastContainerEl = document.getElementById('friend-invite-toast-container');
 const accountPokedexCountEl = document.getElementById('account-pokedex-count');
 const accountPokedexSearchEl = document.getElementById('account-pokedex-search');
 const accountPokedexGridEl = document.getElementById('account-pokedex-grid');
+const accountPokedexGenTabsEl = document.getElementById('account-pokedex-gen-tabs');
 const accountStatsContentEl = document.getElementById('account-stats-content');
 const accountAvatarSearchEl = document.getElementById('account-avatar-search');
 const accountErrorEl = document.getElementById('account-error');
@@ -360,10 +360,111 @@ async function fetchAndRenderAccountAchievements(account) {
 // confondus) — PAS un dex complet avec silhouettes des non-obtenus (jamais demandé, et le
 // client n'a de toute façon pas la liste complète des ~1073 Pokémon/méga possibles).
 let pokedexSeenCache = [];
+let pokedexOwnedMap = new Map(); // id -> { id, name, sprite, shiny }
+let nationalDexCache = null; // { generations, dex } (cf. GET /api/pokedex/national)
+let currentPokedexGen = 1;
+
+function pokemonSpriteUrl(dexId) {
+  return `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/${dexId}.png`;
+}
+
+async function loadNationalDexIfNeeded() {
+  if (nationalDexCache) return nationalDexCache;
+  const res = await fetch('/api/pokedex/national');
+  nationalDexCache = await res.json();
+  return nationalDexCache;
+}
+
+// Onglets par génération (Gen 1 Kanto ... Gen 9 Paldea, cf. GENERATIONS côté serveur).
+// Le badge sous chaque onglet (ex. "42/151") est recalculé à chaque rendu depuis
+// pokedexOwnedMap, jamais stocké : toujours cohérent avec les Pokémon réellement obtenus.
+function renderPokedexGenTabs() {
+  accountPokedexGenTabsEl.innerHTML = '';
+  nationalDexCache.generations.forEach(gen => {
+    const owned = nationalDexCache.dex.filter(p => p.id >= gen.from && p.id <= gen.to && pokedexOwnedMap.has(p.id)).length;
+    const total = gen.to - gen.from + 1;
+    const tab = document.createElement('button');
+    tab.type = 'button';
+    tab.className = 'pokedex-gen-tab' + (gen.gen === currentPokedexGen ? ' pokedex-gen-tab--selected' : '');
+    tab.dataset.gen = gen.gen;
+    tab.innerHTML = `<span class="pokedex-gen-tab__num">Gen ${gen.gen}</span><span class="pokedex-gen-tab__count">${owned}/${total}</span>`;
+    tab.addEventListener('click', () => renderPokedexGen(gen.gen));
+    accountPokedexGenTabsEl.appendChild(tab);
+  });
+}
+
+function buildPokedexCell(entry) {
+  const owned = pokedexOwnedMap.get(entry.id);
+  const cell = document.createElement('div');
+  cell.className = 'pokedex-cell' + (owned ? ' pokedex-cell--owned' : ' pokedex-cell--locked');
+  cell.title = owned ? entry.name : 'Pokémon non obtenu';
+
+  const num = document.createElement('span');
+  num.className = 'pokedex-cell__num';
+  num.textContent = '#' + String(entry.id).padStart(4, '0');
+  cell.appendChild(num);
+
+  const imgWrap = document.createElement('div');
+  imgWrap.className = 'pokedex-cell__img';
+  if (owned) {
+    const img = document.createElement('img');
+    img.src = owned.sprite || pokemonSpriteUrl(entry.id);
+    img.alt = entry.name;
+    img.loading = 'lazy';
+    imgWrap.appendChild(img);
+    if (owned.shiny) {
+      const star = document.createElement('span');
+      star.className = 'pokedex-cell__shiny';
+      star.textContent = '✨';
+      imgWrap.appendChild(star);
+    }
+  } else {
+    const mark = document.createElement('span');
+    mark.className = 'pokedex-cell__mark';
+    mark.textContent = '?';
+    imgWrap.appendChild(mark);
+  }
+  cell.appendChild(imgWrap);
+
+  const name = document.createElement('span');
+  name.className = 'pokedex-cell__name';
+  name.textContent = owned ? entry.name : '???';
+  cell.appendChild(name);
+
+  return cell;
+}
+
+function renderPokedexGen(genNumber) {
+  currentPokedexGen = genNumber;
+  accountPokedexGenTabsEl.querySelectorAll('.pokedex-gen-tab').forEach(tab => {
+    tab.classList.toggle('pokedex-gen-tab--selected', Number(tab.dataset.gen) === genNumber);
+  });
+  const gen = nationalDexCache.generations.find(g => g.gen === genNumber);
+  if (!gen) return;
+
+  const query = accountPokedexSearchEl.value.trim().toLowerCase();
+  const entries = nationalDexCache.dex.filter(p => p.id >= gen.from && p.id <= gen.to);
+  const filtered = query ? entries.filter(p => p.name.toLowerCase().includes(query)) : entries;
+
+  accountPokedexGridEl.innerHTML = '';
+  if (!filtered.length) {
+    const empty = document.createElement('p');
+    empty.className = 'account-history-empty';
+    empty.textContent = 'Aucun Pokémon ne correspond.';
+    accountPokedexGridEl.appendChild(empty);
+  } else {
+    filtered.forEach(entry => accountPokedexGridEl.appendChild(buildPokedexCell(entry)));
+  }
+
+  const genOwned = entries.filter(p => pokedexOwnedMap.has(p.id)).length;
+  accountPokedexCountEl.textContent = `${pokedexOwnedMap.size} / ${nationalDexCache.dex.length} au total — ${gen.label} : ${genOwned}/${entries.length}`;
+}
+
 async function fetchAndRenderPokedex(account) {
   accountPokedexGridEl.innerHTML = '';
   accountPokedexCountEl.textContent = 'Chargement...';
   try {
+    await loadNationalDexIfNeeded();
     const res = await fetch('/api/profile/pokedex', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -375,49 +476,16 @@ async function fetchAndRenderPokedex(account) {
       return;
     }
     pokedexSeenCache = data.seen.sort((a, b) => a.id - b.id);
-    renderPokedexGrid(pokedexSeenCache);
+    pokedexOwnedMap = new Map(pokedexSeenCache.map(m => [m.id, m]));
+    renderPokedexGenTabs();
+    renderPokedexGen(currentPokedexGen);
   } catch (err) {
     accountPokedexCountEl.textContent = 'Pokédex indisponible pour le moment.';
   }
 }
 
-function renderPokedexGrid(list) {
-  accountPokedexGridEl.innerHTML = '';
-  accountPokedexCountEl.textContent = `${pokedexSeenCache.length} Pokémon obtenus`;
-  if (list.length === 0) {
-    const empty = document.createElement('p');
-    empty.className = 'account-history-empty';
-    empty.textContent = 'Aucun Pokémon obtenu pour le moment.';
-    accountPokedexGridEl.appendChild(empty);
-    return;
-  }
-  list.forEach(mon => {
-    const cell = document.createElement('div');
-    cell.className = 'account-pokedex-cell';
-    cell.title = mon.name;
-    const img = document.createElement('img');
-    img.src = mon.sprite;
-    img.alt = mon.name;
-    img.loading = 'lazy';
-    cell.appendChild(img);
-    if (mon.shiny) {
-      const star = document.createElement('span');
-      star.className = 'account-pokedex-cell__shiny';
-      star.textContent = '✨';
-      cell.appendChild(star);
-    }
-    const name = document.createElement('span');
-    name.className = 'account-pokedex-cell__name';
-    name.textContent = mon.name;
-    cell.appendChild(name);
-    accountPokedexGridEl.appendChild(cell);
-  });
-}
-
 accountPokedexSearchEl.addEventListener('input', () => {
-  const query = accountPokedexSearchEl.value.trim().toLowerCase();
-  const filtered = query ? pokedexSeenCache.filter(m => m.name.toLowerCase().includes(query)) : pokedexSeenCache;
-  renderPokedexGrid(filtered);
+  if (nationalDexCache) renderPokedexGen(currentPokedexGen);
 });
 
 // ---------- Stats de profil ----------
@@ -824,11 +892,11 @@ function applyAccountUI(account) {
     // même si un autre pseudo traînait dans le champ (mode invité précédent, etc.).
     pseudoInput.value = account.pseudo;
     identifyAccountIfLoggedIn();
-    btnInviteFriend.classList.remove('screen--hidden');
+    lobbyFriendsBarEl.classList.remove('screen--hidden');
   } else {
     accountStatusGuestEl.classList.remove('screen--hidden');
     accountStatusLoggedEl.classList.add('screen--hidden');
-    btnInviteFriend.classList.add('screen--hidden');
+    lobbyFriendsBarEl.classList.add('screen--hidden');
   }
 }
 applyAccountUI(getStoredAccount());
@@ -1314,6 +1382,7 @@ function showScreen(screen) {
   // dépend pour savoir si l'écran actif est l'accueil (hero éclaté) ou un écran de jeu
   // (grille resserrée), sans dupliquer la logique de visibilité elle-même.
   document.body.dataset.screen = screen.id.replace('screen-', '');
+  if (screen === screenLobby && getStoredAccount()) refreshLobbyFriendsBar();
 }
 
 function isHost() {
@@ -2433,18 +2502,15 @@ btnLeave.addEventListener('click', () => {
   showScreen(screenHome);
 });
 
-// Panneau "Inviter un ami" : ouvert/fermé au clic, rempli à chaque ouverture avec la
-// liste d'amis À JOUR (cf. fetchAndRenderFriends) pour ne jamais montrer un statut
-// en ligne périmé. Seuls les amis EN LIGNE ont un bouton actif — les autres sont juste
-// listés, griés (cf. CSS friend-row--offline).
-btnInviteFriend.addEventListener('click', async () => {
+// Barre d'amis persistante du lobby : toujours visible (si connecté), pas de clic pour
+// l'ouvrir — remplace l'ancien panneau "Inviter un ami" replié par défaut. Les amis EN
+// LIGNE apparaissent en premier avec un bouton "Inviter" direct sur leur avatar ; les
+// hors-ligne suivent, grisés, sans action. Rafraîchie à chaque entrée dans le lobby (cf.
+// showScreen) pour ne jamais montrer un statut périmé.
+async function refreshLobbyFriendsBar() {
   const account = getStoredAccount();
   if (!account) return;
-  const opening = inviteFriendPanelEl.classList.contains('screen--hidden');
-  inviteFriendPanelEl.classList.toggle('screen--hidden', !opening);
-  if (!opening) return;
-
-  inviteFriendListEl.innerHTML = '';
+  lobbyFriendsBarListEl.innerHTML = '<p class="lobby-friends-bar__loading">Chargement...</p>';
   try {
     const res = await fetch('/api/friends/list', {
       method: 'POST',
@@ -2452,32 +2518,52 @@ btnInviteFriend.addEventListener('click', async () => {
       body: JSON.stringify({ accessToken: account.accessToken })
     });
     const data = await res.json();
-    if (!res.ok || !(data.friends || []).length) {
+    lobbyFriendsBarListEl.innerHTML = '';
+    const friends = (data.friends || []).slice().sort((a, b) => (b.online ? 1 : 0) - (a.online ? 1 : 0));
+    if (!res.ok || !friends.length) {
       const empty = document.createElement('p');
-      empty.className = 'account-history-empty';
-      empty.textContent = 'Aucun ami à inviter.';
-      inviteFriendListEl.appendChild(empty);
+      empty.className = 'lobby-friends-bar__loading';
+      empty.textContent = 'Aucun ami pour le moment.';
+      lobbyFriendsBarListEl.appendChild(empty);
       return;
     }
-    data.friends.forEach(entry => {
-      const row = buildFriendRow(entry, entry.online ? [{
-        label: 'Inviter',
-        className: 'btn btn--haut',
-        onClick: () => {
+    friends.forEach(entry => {
+      const chip = document.createElement(entry.online ? 'button' : 'div');
+      chip.className = 'friend-chip' + (entry.online ? ' friend-chip--online' : ' friend-chip--offline');
+      if (entry.online) chip.type = 'button';
+      chip.title = entry.online ? `Inviter ${entry.pseudo}` : `${entry.pseudo} (hors ligne)`;
+
+      const avatar = document.createElement('img');
+      avatar.className = 'friend-chip__avatar';
+      avatar.src = entry.avatar ? avatarUrl(entry.avatar) : '';
+      avatar.alt = '';
+      chip.appendChild(avatar);
+
+      const dot = document.createElement('span');
+      dot.className = 'friend-chip__dot';
+      chip.appendChild(dot);
+
+      const name = document.createElement('span');
+      name.className = 'friend-chip__name';
+      name.textContent = entry.pseudo;
+      chip.appendChild(name);
+
+      if (entry.online) {
+        chip.addEventListener('click', () => {
           socket.emit('invite_friend', { friendUserId: entry.id, fromPseudo: account.pseudo, fromAvatar: account.avatar });
-          inviteFriendPanelEl.classList.add('screen--hidden');
-        }
-      }] : []);
-      row.classList.toggle('friend-row--offline', !entry.online);
-      inviteFriendListEl.appendChild(row);
+          chip.classList.add('friend-chip--sent');
+          chip.disabled = true;
+          name.textContent = 'Invité !';
+          setTimeout(() => { chip.disabled = false; name.textContent = entry.pseudo; chip.classList.remove('friend-chip--sent'); }, 2500);
+        });
+      }
+
+      lobbyFriendsBarListEl.appendChild(chip);
     });
   } catch (err) {
-    const empty = document.createElement('p');
-    empty.className = 'account-history-empty';
-    empty.textContent = 'Liste d\'amis indisponible pour le moment.';
-    inviteFriendListEl.appendChild(empty);
+    lobbyFriendsBarListEl.innerHTML = '<p class="lobby-friends-bar__loading">Amis indisponibles pour le moment.</p>';
   }
-});
+}
 
 // Invitation reçue d'un ami en ligne (cf. socket.on('invite_friend') côté serveur) : un
 // toast avec un bouton direct pour rejoindre — jamais besoin de redemander le code.
