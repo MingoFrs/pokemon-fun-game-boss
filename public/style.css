@@ -181,13 +181,16 @@ body {
   transform: rotate(45deg);
 }
 
-/* ---------- Réglages : en-tête fixe + onglets fixes + contenu scrollable ----------
+/* ---------- Réglages : plein écran, sidebar d'onglets + contenu ----------
    (.settings-modal étend .event-modal mais annule son padding/overflow/text-align par
-   défaut pour ce layout en 3 zones — n'affecte QUE cette modale, jamais les autres qui
-   réutilisent .event-modal ailleurs). */
+   défaut pour ce layout — n'affecte QUE cette modale, jamais les autres qui réutilisent
+   .event-modal ailleurs). Prend quasi tout le viewport : en-tête fixe en haut, puis
+   .settings-body en ligne (sidebar d'onglets à gauche, contenu scrollable à droite). */
 .settings-modal {
-  max-width: 460px;
-  max-height: 85vh;
+  width: min(1080px, 96vw);
+  height: min(880px, 92vh);
+  max-width: none;
+  max-height: none;
   padding: 0;
   display: flex;
   flex-direction: column;
@@ -199,14 +202,14 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 18px 20px 14px;
+  padding: 18px 24px 14px;
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
 
 .settings-header__title {
   font-family: var(--font-display);
-  font-size: 18px;
+  font-size: 20px;
   margin: 0;
 }
 
@@ -231,33 +234,43 @@ body {
   transform: rotate(90deg);
 }
 
+.settings-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
+
 .settings-tabs {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 6px;
-  padding: 10px 16px;
-  border-bottom: 1px solid var(--border);
   flex-shrink: 0;
+  width: 190px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px 12px;
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
 }
 
 .settings-tab {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
-  gap: 4px;
-  padding: 8px 4px;
+  gap: 10px;
+  padding: 11px 12px;
   background: transparent;
   border: 1px solid transparent;
   border-radius: 10px;
   font-family: var(--font-display);
-  font-size: 11px;
+  font-size: 13px;
   color: var(--text-muted);
   cursor: pointer;
+  text-align: left;
   transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
 }
 
 .settings-tab__icon {
-  font-size: 18px;
+  font-size: 17px;
   line-height: 1;
 }
 
@@ -273,9 +286,9 @@ body {
 
 .settings-content {
   flex: 1;
-  min-height: 0;
+  min-width: 0;
   overflow-y: auto;
-  padding: 18px 20px 22px;
+  padding: 22px 28px 28px;
 }
 
 .settings-block {
@@ -296,13 +309,49 @@ body {
   margin: 0 0 10px;
 }
 
-/* Sous-onglets DANS la page Compte connectée (Historique / Succès / Avatar) : même
-   composant visuel que .settings-tab, en plus discret (pas d'icône, 3 colonnes serrées). */
+@media (max-width: 720px) {
+  .settings-modal {
+    width: 100vw;
+    height: 100vh;
+    border-radius: 0;
+  }
+  .settings-body {
+    flex-direction: column;
+  }
+  .settings-tabs {
+    width: 100%;
+    flex-direction: row;
+    overflow-x: auto;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    padding: 10px 12px;
+  }
+  .settings-tab {
+    flex-direction: column;
+    flex-shrink: 0;
+    font-size: 11px;
+    padding: 8px 10px;
+  }
+  .settings-content {
+    padding: 16px 16px 22px;
+  }
+}
+
+/* Sous-onglets DANS la page Compte connectée (Historique / Succès / Pokédex / Stats /
+   Amis / Avatar) : même composant visuel que .settings-tab, en plus discret (pas
+   d'icône). Une seule ligne sur grand écran (place disponible avec le layout plein
+   écran), repasse en grille compacte sur mobile.
 .settings-subtabs {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(6, 1fr);
   gap: 6px;
   margin-bottom: 14px;
+}
+
+@media (max-width: 720px) {
+  .settings-subtabs {
+    grid-template-columns: repeat(3, 1fr);
+  }
 }
 
 .settings-subtab {

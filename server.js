@@ -200,7 +200,16 @@ const ACHIEVEMENTS = [
   { key: 'full_legendary_team', category: 'difficile', label: 'Équipe de légende', description: 'Termine avec 6 Pokémon légendaires ou pseudo-légendaires.', check: ctx => ctx.fullLegendaryTeam },
   { key: 'auction_full_team', category: 'difficile', label: 'Collectionneur', description: 'Termine un Draft/Enchères avec une équipe complète de 6.', check: ctx => ctx.auctionFullTeam },
   { key: 'three_modes_win', category: 'difficile', label: 'Polyvalent', description: 'Remporte au moins une partie en Route du Boss, Admin vs Joueur ET Devine le Pokémon.', check: ctx => ['normal', 'admin', 'guess'].every(m => ctx.winModes.has(m)) },
-  { key: 'win_streak_3', category: 'difficile', label: 'Sur une lancée', description: 'Enchaîne 3 victoires d\'affilée.', check: ctx => ctx.maxWinStreak >= 3 }
+  { key: 'win_streak_3', category: 'difficile', label: 'Sur une lancée', description: 'Enchaîne 3 victoires d\'affilée.', check: ctx => ctx.maxWinStreak >= 3 },
+  { key: 'first_mega', category: 'facile', label: 'Éveil de Méga-Pierre', description: 'Obtiens un Pokémon en méga-évolution dans ton équipe.', check: ctx => ctx.hasMega },
+  { key: 'auction_win', category: 'facile', label: 'Grand enchérisseur', description: 'Remporte une partie de Draft/Enchères.', check: ctx => ctx.winModes.has('auction') },
+  { key: 'games_25', category: 'facile', label: 'Habitué confirmé', description: 'Termine 25 parties.', check: ctx => ctx.gamesPlayed >= 25 },
+  { key: 'double_shiny', category: 'difficile', label: 'Duo chromatique', description: 'Termine une partie avec 2 Pokémon shiny ou plus dans la même équipe.', check: ctx => ctx.doubleShiny },
+  { key: 'rainbow_team', category: 'difficile', label: 'Équipe arc-en-ciel', description: 'Termine avec une équipe couvrant au moins 5 raretés différentes.', check: ctx => ctx.rainbowTeam },
+  { key: 'wins_25', category: 'difficile', label: 'Increvable', description: 'Remporte 25 parties.', check: ctx => ctx.wins >= 25 },
+  { key: 'win_streak_5', category: 'difficile', label: 'Série parfaite', description: 'Enchaîne 5 victoires d\'affilée.', check: ctx => ctx.maxWinStreak >= 5 },
+  { key: 'four_modes_win', category: 'difficile', label: 'Maître absolu', description: 'Remporte au moins une partie dans les 4 modes de jeu (Route du Boss, Admin vs Joueur, Devine le Pokémon, Draft/Enchères).', check: ctx => ['normal', 'admin', 'guess', 'auction'].every(m => ctx.winModes.has(m)) },
+  { key: 'score_10000', category: 'difficile', label: 'Score astronomique', description: 'Atteins un score de 10000 en une seule partie.', check: ctx => ctx.bestScore >= 10000 }
 ];
 
 // Agrège toutes les lignes d'historique d'un joueur (déjà chargées, triées du plus ancien
@@ -216,6 +225,9 @@ function buildAchievementContext(rows) {
     hasLegendary: false,
     hasEpic: false,
     hasShiny: false,
+    hasMega: false,
+    doubleShiny: false,
+    rainbowTeam: false,
     beatExtreme: false,
     fullLegendaryTeam: false,
     auctionFullTeam: false,
@@ -241,6 +253,9 @@ function buildAchievementContext(rows) {
       if (row.team.some(mon => mon.rarity === 'legendaire')) ctx.hasLegendary = true;
       if (row.team.some(mon => mon.rarity === 'epique')) ctx.hasEpic = true;
       if (row.team.some(mon => mon.shiny)) ctx.hasShiny = true;
+      if (row.team.some(mon => mon.rarity === 'mega')) ctx.hasMega = true;
+      if (row.team.filter(mon => mon.shiny).length >= 2) ctx.doubleShiny = true;
+      if (new Set(row.team.map(mon => mon.rarity)).size >= 5) ctx.rainbowTeam = true;
       if (row.game_mode === 'auction' && row.team.length >= 6) ctx.auctionFullTeam = true;
       if (
         (row.game_mode === 'normal' || row.game_mode === 'admin') &&
