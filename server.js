@@ -4031,11 +4031,12 @@ async function loadPersistedGames() {
 const GAME_MODES = ['normal', 'admin', 'guess', 'auction', 'coop'];
 
 // Multiplicateur appliqué à boss.requiredPoints pour obtenir l'objectif D'ÉQUIPE en mode
-// Coop (cf. finishGame) : même exigence par joueur qu'en solo, juste additionnée. game.boss
+// Coop (cf. finishGame) : CHAQUE joueur (le 1er inclus) ajoute son propre +50% de la vie
+// de base du boss. Pas de plafond de joueurs (2 minimum, illimité au-delà) — game.boss
 // est TOUJOURS cloné (jamais la référence partagée de BOSSES) avant d'y ajouter ce champ,
 // pour ne jamais muter les objets boss partagés entre parties (cf. start_game).
 function computeCoopTeamRequiredPoints(boss, playerCount) {
-  return boss.requiredPoints * playerCount;
+  return Math.round(boss.requiredPoints * 0.5 * playerCount);
 }
 
 // -----------------------------------------------------------------
@@ -4199,6 +4200,7 @@ function broadcastGameUpdated(game) {
   if (game.gameMode === 'coop' && game.boss) {
     payload.teamScore = game.players.reduce((sum, p) => sum + p.score, 0);
     payload.teamRequired = game.boss.teamRequiredPoints;
+    payload.bossAttackTargetId = game.bossAttackTargetId || null;
   }
   io.to(game.id).emit('game_updated', payload);
 }
@@ -4287,6 +4289,25 @@ function advanceTurn(game) {
     }
     if (p.eventCooldown > 0) p.eventCooldown -= 1;
   });
+  // Attaque du boss (Coop uniquement) : jamais au tour 1 (délai de grâce le temps que
+  // tout le monde prenne ses marques), ~40% de chance chaque tour suivant, jamais 2 fois
+  // de suite sur la même personne tant qu'un autre joueur connecté est disponible. La
+  // cible perd la moitié des points de CE tour (cf. player_choice), consommé dès qu'elle
+  // choisit — pas de cumul si elle traîne plusieurs tours sans jouer.
+  if (game.gameMode === 'coop') {
+    game.bossAttackTargetId = null;
+    if (game.turn > 1 && Math.random() < 0.4) {
+      const eligible = game.players.filter(p => !p.disconnected);
+      const pool = eligible.length > 1
+        ? eligible.filter(p => p.id !== game.lastBossAttackTargetId)
+        : eligible;
+      if (pool.length > 0) {
+        const target = pool[Math.floor(Math.random() * pool.length)];
+        game.bossAttackTargetId = target.id;
+        game.lastBossAttackTargetId = target.id;
+      }
+    }
+  }
   broadcastGameUpdated(game);
   startTurnForPlayers(game);
 }
@@ -5070,10 +5091,11 @@ io.on('connection', (socket) => {
         return;
       }
     }
-    // Mode Coop : strictement 3 ou 4 joueurs (score cumulé contre un boss commun, cf.
-    // finishGame) — aucun mécanisme de banc/spectateur ici, contrairement à admin/guess.
-    if (game.gameMode === 'coop' && (game.players.length < 3 || game.players.length > 4)) {
-      socket.emit('error_message', 'Le mode Coop nécessite 3 ou 4 joueurs.');
+    // Mode Coop : 2 joueurs minimum, AUCUN plafond (le boss scale avec l'effectif, cf.
+    // computeCoopTeamRequiredPoints) — aucun mécanisme de banc/spectateur ici, contrairement
+    // à admin/guess.
+    if (game.gameMode === 'coop' && game.players.length < 2) {
+      socket.emit('error_message', 'Le mode Coop nécessite au moins 2 joueurs.');
       return;
     }
 
@@ -5106,6 +5128,11 @@ io.on('connection', (socket) => {
     game.boss = { ...pickRandomBoss(game.selectedDifficulty || 'medium') };
     if (game.gameMode === 'coop') {
       game.boss.teamRequiredPoints = computeCoopTeamRequiredPoints(game.boss, game.players.length);
+      // Attaque du boss (mécanique exclusive au mode Coop, cf. advanceTurn) : jamais au
+      // tour 1 (délai de grâce), donc rien à initialiser tant que le premier tour n'a pas
+      // été résolu — juste les champs pour que advanceTurn les trouve définis.
+      game.bossAttackTargetId = null;
+      game.lastBossAttackTargetId = null;
     }
     game.players.forEach(p => {
       p.score = 0;
@@ -5763,7 +5790,13 @@ io.on('connection', (socket) => {
       player.pity = PITY_GOOD_RARITIES.includes(reward.rarity) ? 0 : (player.pity || 0) + 1;
     }
 
-    player.score += reward.finalPoints;
+    // Attaque du boss (Coop, cf. advanceTurn) : consommée ici, une seule fois, dès que la
+    // cible choisit — jamais réappliquée si elle traîne plusieurs tours sans jouer.
+    const bossAttackHit = game.gameMode === 'coop' && game.bossAttackTargetId === player.id;
+    const pointsGained = bossAttackHit ? Math.round(reward.finalPoints * 0.5) : reward.finalPoints;
+    if (bossAttackHit) game.bossAttackTargetId = null;
+
+    player.score += pointsGained;
     pushMonToTeam(player, teamMonFromReward(reward));
 
     socket.emit('choice_result', {
@@ -5771,7 +5804,8 @@ io.on('connection', (socket) => {
       rarity: reward.rarity,
       basePoints: reward.basePoints,
       effect: { name: reward.effectName, multiplier: reward.multiplier },
-      pointsGained: reward.finalPoints,
+      pointsGained,
+      bossAttackHit,
       score: player.score,
       team: player.team
     });

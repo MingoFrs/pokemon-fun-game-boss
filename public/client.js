@@ -1182,6 +1182,8 @@ const difficultyButtons = Array.from(document.querySelectorAll('.difficulty-btn'
 const gamemodeButtons = Array.from(document.querySelectorAll('.gamemode-btn'));
 const gamemodeHintEl = document.getElementById('gamemode-hint');
 const teamScoreLineEl = document.getElementById('team-score-line');
+const bossAttackBannerEl = document.getElementById('boss-attack-banner');
+const resultBossAttackEl = document.getElementById('result-boss-attack');
 const finishedTeamStatEl = document.getElementById('finished-team-stat');
 const finishedTeamScoreEl = document.getElementById('finished-team-score');
 const adminRolePanelEl = document.getElementById('admin-role-panel');
@@ -1436,9 +1438,9 @@ function renderGameMode(gameMode) {
   // acceptent >2 joueurs avec mise sur banc) — start_game bloque toujours si players.length
   // !== 2, même à 3+ dans le lobby. D'où un message qui ne parle jamais de spectateurs.
   const needsAuctionHint = currentGameMode === 'auction';
-  // "Coop" : aucun banc/spectateur (contrairement à guess/admin) — 3 ou 4 joueurs, ni
-  // plus ni moins, tous jouent. Score cumulé contre un boss commun (cf. computeCoop-
-  // TeamRequiredPoints côté serveur).
+  // "Coop" : aucun banc/spectateur (contrairement à guess/admin) — 2 joueurs minimum,
+  // AUCUN plafond, tous jouent. Score cumulé contre un boss commun qui scale avec
+  // l'effectif (cf. computeCoopTeamRequiredPoints côté serveur).
   const needsCoopHint = currentGameMode === 'coop';
   gamemodeHintEl.classList.toggle('screen--hidden', !needsGuessHint && !needsAuctionHint && !needsCoopHint);
   if (needsGuessHint) {
@@ -1451,9 +1453,9 @@ function renderGameMode(gameMode) {
       : 'Ce mode nécessite exactement 2 joueurs, ni plus ni moins.';
   } else if (needsCoopHint) {
     const n = lastLobbyPlayers.length;
-    gamemodeHintEl.textContent = (n >= 3 && n <= 4)
-      ? 'Mode coopératif : vos scores s\'additionnent contre un boss commun.'
-      : 'Ce mode nécessite 3 ou 4 joueurs.';
+    gamemodeHintEl.textContent = n >= 2
+      ? 'Mode coopératif : vos scores s\'additionnent contre un boss commun (+50% de vie par joueur en plus).'
+      : 'Ce mode nécessite au moins 2 joueurs.';
   }
   guessDurationPanelEl.classList.toggle('screen--hidden', currentGameMode !== 'guess');
   auctionTypePanelEl.classList.toggle('screen--hidden', currentGameMode !== 'auction');
@@ -2451,7 +2453,7 @@ function resetGameUI() {
   myScorePopupEl.classList.remove('my-score-popup--play', 'my-score-popup--negative');
 }
 
-function applyGameState({ status, turn, maxTurns, route, players }) {
+function applyGameState({ status, turn, maxTurns, route, players, bossAttackTargetId }) {
   flashTurnLabel(turn);
   turnCurrentEl.textContent = turn;
   turnMaxEl.textContent = maxTurns;
@@ -2470,6 +2472,17 @@ function applyGameState({ status, turn, maxTurns, route, players }) {
     teamScoreLineEl.classList.remove('screen--hidden');
   } else {
     teamScoreLineEl.classList.add('screen--hidden');
+  }
+
+  // Attaque du boss (Coop) : bannière visible de TOUTE l'équipe (cible incluse), pour que
+  // les autres sachent que ses gains ce tour seront réduits et compensent si besoin.
+  if (currentGameMode === 'coop' && bossAttackTargetId) {
+    const target = players.find(p => p.id === bossAttackTargetId);
+    const targetName = bossAttackTargetId === myId ? 'toi' : (target ? target.name : 'un coéquipier');
+    bossAttackBannerEl.textContent = `⚡ Le boss attaque ${targetName} ce tour !`;
+    bossAttackBannerEl.classList.remove('screen--hidden');
+  } else {
+    bossAttackBannerEl.classList.add('screen--hidden');
   }
 
   // Mode ADMIN VS JOUEUR : l'ADMIN n'a ni score ni équipe (cf. spec section 3) — le
@@ -3173,7 +3186,7 @@ socket.on('bonus_result', (data) => {
   updateMyScore(data.score, data.scoreDelta);
 });
 
-socket.on('choice_result', ({ pokemon, rarity, basePoints, effect, pointsGained, score, team }) => {
+socket.on('choice_result', ({ pokemon, rarity, basePoints, effect, pointsGained, bossAttackHit, score, team }) => {
   resultPanelEl.dataset.rarity = rarity || 'commun'; // rareté fournie par le serveur, jamais déterminée ici
   resultPanelEl.classList.toggle('result-panel--shiny', !!pokemon.shiny);
   resultRarityEl.textContent = RARITY_LABELS[rarity] || '';
@@ -3187,6 +3200,7 @@ socket.on('choice_result', ({ pokemon, rarity, basePoints, effect, pointsGained,
   resultEffectEl.classList.toggle('result-effect--bonus', effect.multiplier >= 1);
   resultEffectEl.classList.toggle('result-effect--malus', effect.multiplier < 1);
   resultPointsEl.textContent = pointsGained;
+  resultBossAttackEl.classList.toggle('screen--hidden', !bossAttackHit);
   resultPanelEl.classList.remove('result-panel--hidden');
   playRevealAnimation();
   playRevealSound();
@@ -3194,14 +3208,14 @@ socket.on('choice_result', ({ pokemon, rarity, basePoints, effect, pointsGained,
   updateMyScore(score, pointsGained);
 });
 
-socket.on('game_updated', ({ status, turn, maxTurns, route, players, hostId: hId, adminId }) => {
+socket.on('game_updated', ({ status, turn, maxTurns, route, players, hostId: hId, adminId, bossAttackTargetId }) => {
   if (hId) hostId = hId;
   if (adminId !== undefined) currentAdminId = adminId;
   if (isSpectating) {
     renderSpectateView({ status, turn, maxTurns, boss: spectateBoss, players });
     return;
   }
-  applyGameState({ status, turn, maxTurns, route, players });
+  applyGameState({ status, turn, maxTurns, route, players, bossAttackTargetId });
 });
 
 // Équipe finale détaillée du joueur : sprite + nom + trait (si non neutre) + évolution
