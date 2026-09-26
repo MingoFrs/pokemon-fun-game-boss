@@ -203,6 +203,7 @@ const ACHIEVEMENTS = [
   { key: 'win_streak_3', category: 'difficile', label: 'Sur une lancée', description: 'Enchaîne 3 victoires d\'affilée.', check: ctx => ctx.maxWinStreak >= 3 },
   { key: 'first_mega', category: 'facile', label: 'Éveil de Méga-Pierre', description: 'Obtiens un Pokémon en méga-évolution dans ton équipe.', check: ctx => ctx.hasMega },
   { key: 'auction_win', category: 'facile', label: 'Grand enchérisseur', description: 'Remporte une partie de Draft/Enchères.', check: ctx => ctx.winModes.has('auction') },
+  { key: 'coop_win', category: 'facile', label: 'Travail d\'équipe', description: 'Remporte une partie en mode Coop.', check: ctx => ctx.winModes.has('coop') },
   { key: 'games_25', category: 'facile', label: 'Habitué confirmé', description: 'Termine 25 parties.', check: ctx => ctx.gamesPlayed >= 25 },
   { key: 'double_shiny', category: 'difficile', label: 'Duo chromatique', description: 'Termine une partie avec 2 Pokémon shiny ou plus dans la même équipe.', check: ctx => ctx.doubleShiny },
   { key: 'rainbow_team', category: 'difficile', label: 'Équipe arc-en-ciel', description: 'Termine avec une équipe couvrant au moins 5 raretés différentes.', check: ctx => ctx.rainbowTeam },
@@ -4027,7 +4028,15 @@ async function loadPersistedGames() {
 // mode admin sera ajoutée aux étapes suivantes (génération des options, diffusion
 // différenciée admin/joueur, interfaces dédiées).
 // -----------------------------------------------------------------
-const GAME_MODES = ['normal', 'admin', 'guess', 'auction'];
+const GAME_MODES = ['normal', 'admin', 'guess', 'auction', 'coop'];
+
+// Multiplicateur appliqué à boss.requiredPoints pour obtenir l'objectif D'ÉQUIPE en mode
+// Coop (cf. finishGame) : même exigence par joueur qu'en solo, juste additionnée. game.boss
+// est TOUJOURS cloné (jamais la référence partagée de BOSSES) avant d'y ajouter ce champ,
+// pour ne jamais muter les objets boss partagés entre parties (cf. start_game).
+function computeCoopTeamRequiredPoints(boss, playerCount) {
+  return boss.requiredPoints * playerCount;
+}
 
 // -----------------------------------------------------------------
 // MODE "DRAFT / ENCHÈRES" (gameMode === 'auction') — strictement 2 joueurs, aucun
@@ -4175,7 +4184,7 @@ function broadcastPlayers(game) {
 }
 
 function broadcastGameUpdated(game) {
-  io.to(game.id).emit('game_updated', {
+  const payload = {
     status: game.status,
     turn: game.turn,
     maxTurns: game.maxTurns,
@@ -4184,7 +4193,14 @@ function broadcastGameUpdated(game) {
     hostId: game.hostId,
     adminId: game.adminId,
     spectatorCount: game.spectators ? game.spectators.length : 0
-  });
+  };
+  // Coop : score cumulé + objectif d'équipe, recalculés à chaque update (jamais stockés
+  // ailleurs que dans les scores individuels + game.boss.teamRequiredPoints).
+  if (game.gameMode === 'coop' && game.boss) {
+    payload.teamScore = game.players.reduce((sum, p) => sum + p.score, 0);
+    payload.teamRequired = game.boss.teamRequiredPoints;
+  }
+  io.to(game.id).emit('game_updated', payload);
 }
 
 // Génère et envoie individuellement à chaque joueur ses 2 choix (sprite + nom uniquement).
@@ -4279,6 +4295,40 @@ function finishGame(game) {
   game.status = 'finished';
   deletePersistedGame(game.id); // partie finie : plus jamais besoin de la restaurer après un redémarrage
   game.route[game.route.length - 1].status = 'done';
+
+  // Mode COOP : AUCUN résultat individuel — victoire/défaite = même verdict pour toute
+  // l'équipe, basé sur la SOMME des scores contre teamRequiredPoints (cf. computeCoop-
+  // TeamRequiredPoints). Branche isolée, retournée avant la logique normal/admin ci-dessous
+  // (result par-joueur n'a pas de sens ici).
+  if (game.gameMode === 'coop') {
+    const teamScore = game.players.reduce((sum, p) => sum + p.score, 0);
+    const teamWon = teamScore >= game.boss.teamRequiredPoints;
+    const coopResults = game.players.map(p => ({
+      id: p.id, name: p.name, avatar: p.avatar, score: p.score, team: p.team,
+      result: teamWon ? 'victory' : 'defeat'
+    }));
+    game.players.forEach(p => {
+      recordGameResult(p, XP_PARTICIPATION + (teamWon ? XP_VICTORY_BONUS : 0), {
+        gameMode: game.gameMode,
+        result: teamWon ? 'victory' : 'defeat',
+        score: p.score,
+        opponentName: null,
+        difficulty: game.selectedDifficulty || null,
+        team: p.team
+      });
+    });
+    io.to(game.id).emit('game_finished', {
+      boss: game.boss,
+      difficulty: game.selectedDifficulty,
+      gameMode: game.gameMode,
+      adminId: game.adminId,
+      route: game.route,
+      players: coopResults,
+      teamScore,
+      teamRequired: game.boss.teamRequiredPoints
+    });
+    return;
+  }
 
   // Mode ADMIN VS JOUEUR : un seul résultat réel (celui du JOUEUR, seul à avoir un score).
   // L'ADMIN n'a pas sa propre victoire/défaite : la sienne est l'INVERSE de celle du
@@ -5020,6 +5070,12 @@ io.on('connection', (socket) => {
         return;
       }
     }
+    // Mode Coop : strictement 3 ou 4 joueurs (score cumulé contre un boss commun, cf.
+    // finishGame) — aucun mécanisme de banc/spectateur ici, contrairement à admin/guess.
+    if (game.gameMode === 'coop' && (game.players.length < 3 || game.players.length > 4)) {
+      socket.emit('error_message', 'Le mode Coop nécessite 3 ou 4 joueurs.');
+      return;
+    }
 
     // Mise sur le banc AVANT toute génération d'état de partie : au-delà de 2 joueurs en
     // mode admin/guess, seuls les 2 actifs choisis par l'hôte jouent réellement.
@@ -5045,7 +5101,12 @@ io.on('connection', (socket) => {
 
     game.turn = 1;
     game.route = buildRoute();
-    game.boss = pickRandomBoss(game.selectedDifficulty || 'medium');
+    // Cloné (jamais la référence partagée de BOSSES) : en mode coop on ajoute un champ
+    // teamRequiredPoints propre à CETTE partie, jamais sur l'objet boss partagé.
+    game.boss = { ...pickRandomBoss(game.selectedDifficulty || 'medium') };
+    if (game.gameMode === 'coop') {
+      game.boss.teamRequiredPoints = computeCoopTeamRequiredPoints(game.boss, game.players.length);
+    }
     game.players.forEach(p => {
       p.score = 0;
       p.team = [];

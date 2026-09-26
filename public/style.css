@@ -1595,6 +1595,17 @@ input:focus {
   margin: 0 0 14px;
 }
 
+.team-score-line {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--accent-bas);
+  background: var(--accent-bas-dim);
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin: -6px 0 14px;
+}
+
 #players-count {
   color: var(--text-muted);
   font-weight: 400;
@@ -1758,7 +1769,7 @@ input:focus {
 
 .gamemode-options {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 8px;
 }
 

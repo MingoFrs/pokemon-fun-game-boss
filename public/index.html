@@ -172,6 +172,7 @@
             <button type="button" class="gamemode-btn" data-mode="admin">Admin vs Joueur</button>
             <button type="button" class="gamemode-btn" data-mode="guess">Devine le Pokémon</button>
             <button type="button" class="gamemode-btn" data-mode="auction">Draft/Enchères</button>
+            <button type="button" class="gamemode-btn" data-mode="coop">Coop</button>
           </div>
         </div>
 
@@ -382,6 +383,7 @@
 
     <div class="players-panel">
       <h2>Joueurs</h2>
+      <p id="team-score-line" class="team-score-line screen--hidden"></p>
       <ul id="game-players-list" class="players-list"></ul>
     </div>
 
@@ -405,6 +407,10 @@
           <div class="finished-stat">
             <p class="eyebrow">Objectif</p>
             <p id="finished-target" class="finished-stat__value finished-stat__value--muted">0 PTS</p>
+          </div>
+          <div id="finished-team-stat" class="finished-stat screen--hidden">
+            <p class="eyebrow">Score d'équipe</p>
+            <p id="finished-team-score" class="finished-stat__value">0 PTS</p>
           </div>
         </div>
       </div>

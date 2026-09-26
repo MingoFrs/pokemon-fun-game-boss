@@ -1181,6 +1181,9 @@ const copyFeedbackEl = document.getElementById('copy-feedback');
 const difficultyButtons = Array.from(document.querySelectorAll('.difficulty-btn'));
 const gamemodeButtons = Array.from(document.querySelectorAll('.gamemode-btn'));
 const gamemodeHintEl = document.getElementById('gamemode-hint');
+const teamScoreLineEl = document.getElementById('team-score-line');
+const finishedTeamStatEl = document.getElementById('finished-team-stat');
+const finishedTeamScoreEl = document.getElementById('finished-team-score');
 const adminRolePanelEl = document.getElementById('admin-role-panel');
 const adminRoleOptionsEl = document.getElementById('admin-role-options');
 const adminRoleStatusEl = document.getElementById('admin-role-status');
@@ -1318,6 +1321,7 @@ const eventBodyEl = document.getElementById('event-body');
 let myId = null;
 let hostId = null;
 let bossTarget = 2500;
+let coopTeamRequired = null; // mode Coop uniquement : boss.teamRequiredPoints de la partie en cours
 let hasChosenThisTurn = false;
 let lastTeamSize = 0;
 let lastRenderedTurn = 0;
@@ -1432,7 +1436,11 @@ function renderGameMode(gameMode) {
   // acceptent >2 joueurs avec mise sur banc) — start_game bloque toujours si players.length
   // !== 2, même à 3+ dans le lobby. D'où un message qui ne parle jamais de spectateurs.
   const needsAuctionHint = currentGameMode === 'auction';
-  gamemodeHintEl.classList.toggle('screen--hidden', !needsGuessHint && !needsAuctionHint);
+  // "Coop" : aucun banc/spectateur (contrairement à guess/admin) — 3 ou 4 joueurs, ni
+  // plus ni moins, tous jouent. Score cumulé contre un boss commun (cf. computeCoop-
+  // TeamRequiredPoints côté serveur).
+  const needsCoopHint = currentGameMode === 'coop';
+  gamemodeHintEl.classList.toggle('screen--hidden', !needsGuessHint && !needsAuctionHint && !needsCoopHint);
   if (needsGuessHint) {
     gamemodeHintEl.textContent = lastLobbyPlayers.length > 2
       ? 'Choisis les 2 joueurs qui vont jouer ci-dessous — les autres seront spectateurs.'
@@ -1441,6 +1449,11 @@ function renderGameMode(gameMode) {
     gamemodeHintEl.textContent = lastLobbyPlayers.length === 2
       ? 'Choisis le type de draft ci-dessous, puis lance la partie.'
       : 'Ce mode nécessite exactement 2 joueurs, ni plus ni moins.';
+  } else if (needsCoopHint) {
+    const n = lastLobbyPlayers.length;
+    gamemodeHintEl.textContent = (n >= 3 && n <= 4)
+      ? 'Mode coopératif : vos scores s\'additionnent contre un boss commun.'
+      : 'Ce mode nécessite 3 ou 4 joueurs.';
   }
   guessDurationPanelEl.classList.toggle('screen--hidden', currentGameMode !== 'guess');
   auctionTypePanelEl.classList.toggle('screen--hidden', currentGameMode !== 'auction');
@@ -2448,6 +2461,17 @@ function applyGameState({ status, turn, maxTurns, route, players }) {
   renderPlayers(gamePlayersListEl, players);
   renderMatchupBanner(gameMatchupRefs, players);
 
+  // Coop : recalculé à chaque update depuis les scores individuels déjà présents dans
+  // `players` (jamais stocké séparément) — visible juste au-dessus de la liste des
+  // joueurs, là où chacun voit déjà les scores de ses coéquipiers monter en direct.
+  if (currentGameMode === 'coop' && coopTeamRequired != null) {
+    const teamScore = players.reduce((sum, p) => sum + p.score, 0);
+    teamScoreLineEl.textContent = `Score d'équipe : ${teamScore} / ${coopTeamRequired} pts`;
+    teamScoreLineEl.classList.remove('screen--hidden');
+  } else {
+    teamScoreLineEl.classList.add('screen--hidden');
+  }
+
   // Mode ADMIN VS JOUEUR : l'ADMIN n'a ni score ni équipe (cf. spec section 3) — le
   // panneau "score" affiche celui du JOUEUR observé, jamais le sien (toujours à 0).
   const observed = isAdminNow() ? players.find(p => p.id !== currentAdminId) : players.find(p => p.id === myId);
@@ -3021,10 +3045,13 @@ function applyGameStarted({ status, turn, maxTurns, route, boss, players, gameMo
   currentGameMode = gameMode || 'normal';
   currentAdminId = adminId || null;
   myScoreLabelEl.textContent = isAdminNow() ? 'Score du joueur' : 'Ton score';
-  bossTarget = boss.requiredPoints;
+  coopTeamRequired = currentGameMode === 'coop' ? boss.teamRequiredPoints : null;
+  // Coop : l'objectif affiché est celui de L'ÉQUIPE (la vraie condition de victoire, cf.
+  // finishGame côté serveur) — le seuil individuel n'a pas de sens ici.
+  bossTarget = coopTeamRequired != null ? coopTeamRequired : boss.requiredPoints;
   bossSpriteEl.src = boss.sprite;
   bossNameEl.textContent = boss.name.toUpperCase();
-  bossTargetValueEl.textContent = boss.requiredPoints;
+  bossTargetValueEl.textContent = bossTarget;
   applyGameState({ status, turn, maxTurns, route, players });
   showScreen(screenGame);
 }
@@ -3247,7 +3274,7 @@ socket.on('metamorph_transformed', ({ score, scoreDelta, team, targetName, sprit
   showMetamorphResult({ targetName, sprite, scoreDelta });
 });
 
-function applyGameFinished({ boss, difficulty, gameMode, adminId, reason, players }) {
+function applyGameFinished({ boss, difficulty, gameMode, adminId, reason, players, teamScore, teamRequired }) {
   // Le rôle a pu changer entre le dernier game_started reçu (aucun risque en pratique
   // puisqu'il est verrouillé après start_game, mais on resynchronise par cohérence).
   currentGameMode = gameMode || currentGameMode;
@@ -3271,7 +3298,10 @@ function applyGameFinished({ boss, difficulty, gameMode, adminId, reason, player
   ['easy', 'medium', 'hard', 'extreme'].forEach(d => {
     finishedDifficultyEl.classList.toggle(`finished-difficulty-badge--${d}`, d === difficulty);
   });
-  finishedTargetEl.textContent = `${boss.requiredPoints} PTS`;
+  const isCoop = gameMode === 'coop' && teamRequired != null;
+  finishedTargetEl.textContent = `${isCoop ? teamRequired : boss.requiredPoints} PTS`;
+  finishedTeamStatEl.classList.toggle('screen--hidden', !isCoop);
+  if (isCoop) finishedTeamScoreEl.textContent = `${teamScore} PTS`;
   finishedMyScoreLabelEl.textContent = isAdminNow() ? 'Score du joueur' : 'Ton score';
   finishedMyTeamLabelEl.textContent = isAdminNow() ? 'Équipe du joueur' : 'Ton équipe';
   finishedMyScoreEl.textContent = `${observed ? observed.score : 0} PTS`;
@@ -4404,7 +4434,9 @@ function renderSpectateView({ status, turn, maxTurns, boss, players, gameMode, a
       spectateBossSpriteEl.src = boss.sprite;
       spectateBossSpriteEl.alt = boss.name;
       spectateBossNameEl.textContent = boss.name;
-      spectateBossTargetEl.textContent = boss.requiredPoints;
+      spectateBossTargetEl.textContent = (spectateGameMode === 'coop' && boss.teamRequiredPoints != null)
+        ? boss.teamRequiredPoints
+        : boss.requiredPoints;
     } else {
       // Partie relancée (Rejouer) : nouveau salon en attente, pas encore de boss tiré.
       spectateBossSpriteEl.src = '';
