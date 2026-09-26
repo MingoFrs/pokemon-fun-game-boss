@@ -85,6 +85,16 @@ html.reduce-motion *::after {
 
 * { box-sizing: border-box; }
 
+/* Reset des contrôles natifs : sans ça, certains navigateurs (mode sombre forcé,
+   contraste renforcé, etc.) peuvent afficher boutons/champs avec un fond clair natif
+   PAR-DESSUS le style de l'appli, quelle que soit la couleur qu'on leur donne. */
+button, input, select, textarea {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  font-family: inherit;
+}
+
 html, body {
   margin: 0;
   padding: 0;
@@ -342,12 +352,16 @@ body {
 /* Sous-onglets DANS la page Compte connectée (Historique / Succès / Pokédex / Stats /
    Amis / Avatar) : même composant visuel que .settings-tab, en plus discret (pas
    d'icône). Une seule ligne sur grand écran (place disponible avec le layout plein
-   écran), repasse en grille compacte sur mobile.
+   écran), repasse en grille compacte sur mobile. */
 .settings-subtabs {
   display: grid;
   grid-template-columns: repeat(6, 1fr);
-  gap: 6px;
-  margin-bottom: 14px;
+  gap: 4px;
+  margin: 14px 0 16px;
+  padding: 4px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
 }
 
 @media (max-width: 720px) {
@@ -357,20 +371,25 @@ body {
 }
 
 .settings-subtab {
-  background: var(--bg-panel-alt);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 8px 4px;
+  background: transparent;
+  border: none;
+  border-radius: 9px;
+  padding: 9px 6px;
   font-family: var(--font-display);
   font-size: 11px;
+  letter-spacing: 0.01em;
   color: var(--text-muted);
   cursor: pointer;
-  transition: border-color 0.15s ease, color 0.15s ease;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.settings-subtab:hover {
+  color: var(--text-primary);
 }
 
 .settings-subtab--selected {
+  background: var(--accent-bas-dim);
   color: var(--accent-bas);
-  border-color: var(--accent-bas);
 }
 
 /* ---------- Classement global (XP) ---------- */
@@ -1155,7 +1174,7 @@ input:focus {
 .account-history-hint {
   font-size: 11px;
   color: var(--text-muted);
-  margin: -4px 0 8px;
+  margin: 0 0 10px;
 }
 
 .account-history-item {
