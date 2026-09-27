@@ -2547,6 +2547,18 @@ function pickTwoBonuses(player) {
   return [first, second];
 }
 
+// Tire 2 bonus DIFFÉRENTS parmi les 3 possibles, SANS filtrage d'éligibilité (contrairement
+// à pickTwoBonuses ci-dessus) : utilisé pour le choix d'objet de DÉBUT DE PARTIE (avant tour
+// 1, cf. start_game), où l'équipe est encore vide — l'éligibilité (ex. Bonbon XP sans
+// Pokémon évoluable) est revérifiée plus tard, au moment de l'UTILISATION (cf. use_item).
+function pickTwoStartingItemKeys() {
+  const available = Object.keys(BONUS_WEIGHTS).map(key => ({ key, weight: BONUS_WEIGHTS[key] }));
+  const first = weightedPickKey(available);
+  const remaining = available.filter(e => e.key !== first);
+  const second = weightedPickKey(remaining);
+  return [first, second];
+}
+
 function randomFrom(list) {
   return list[Math.floor(Math.random() * list.length)];
 }
@@ -4304,7 +4316,10 @@ function broadcastGameUpdated(game) {
 // Le Charme Chroma (par joueur) n'améliore les probabilités qu'aux tours 5 et 6.
 function assignTurnOptions(game) {
   game.players.forEach(p => {
-    const useCharm = p.hasShinyCharm && game.turn >= 5;
+    // Plus de restriction de tour : depuis le passage à l'inventaire d'objets (choisi
+    // avant le tour 1, activable à tout moment via use_item), le Charme Chroma s'applique
+    // dès qu'il est activé, quel que soit le tour en cours.
+    const useCharm = !!p.hasShinyCharm;
     p.currentOptions = pickPlayerTurnOptions(useCharm, p.pity, p.rarityFloor || undefined, p.rarityBoost || undefined, game.gameMode);
     p.rarityFloor = null; // effet LUCKY_TURN consommé, à usage unique
     p.rarityBoost = null; // effet CROSSED_FATES consommé, à usage unique
@@ -4345,25 +4360,59 @@ function assignAdminModeOptions(game) {
   io.to(joueur.id).emit('player_turn_hidden', { turn: game.turn });
 }
 
-// Démarre un tour pour tous les joueurs. Au tour 4, phase spéciale : on ne révèle
-// rien tout de suite, chaque joueur doit d'abord choisir POKÉMON ou BONUS
-// (cf. socket.on('special_choice')). Tous les autres tours : flux normal inchangé.
+// Lance réellement le tour 1 (route/boss/scores), une fois que TOUS les joueurs ont
+// choisi leur objet de départ (cf. socket.on('starting_item_choice')). Émet 'game_started'
+// avec l'état complet — jusqu'ici, côté client, seul l'écran de choix d'objet était visible.
+function beginRouteGameplay(game, gameId) {
+  game.status = 'playing';
+  game.turn = 1;
+  game.route = buildRoute();
+  // Cloné (jamais la référence partagée de BOSSES) : en mode coop on ajoute un champ
+  // teamRequiredPoints propre à CETTE partie, jamais sur l'objet boss partagé.
+  game.boss = { ...pickRandomBoss(game.selectedDifficulty || 'medium') };
+  if (game.gameMode === 'coop') {
+    game.boss.teamRequiredPoints = computeCoopTeamRequiredPoints(game.boss, game.players.length);
+    // Attaque du boss (mécanique exclusive au mode Coop, cf. advanceTurn) : jamais au
+    // tour 1 (délai de grâce), donc rien à initialiser tant que le premier tour n'a pas
+    // été résolu — juste les champs pour que advanceTurn les trouve définis.
+    game.bossAttackTargetId = null;
+    game.lastBossAttackTargetId = null;
+  }
+
+  io.to(gameId).emit('game_started', {
+    gameId: game.id,
+    status: game.status,
+    turn: game.turn,
+    maxTurns: game.maxTurns,
+    route: game.route,
+    boss: game.boss,
+    difficulty: game.selectedDifficulty,
+    gameMode: game.gameMode,
+    adminId: game.adminId,
+    players: getPublicPlayers(game)
+  });
+  // État de l'objet : privé à chacun (jamais dans le payload ci-dessus, partagé par toute
+  // la room) — chaque joueur reçoit UNIQUEMENT le sien.
+  game.players.forEach(p => {
+    io.to(p.id).emit('your_item', { item: p.heldItem, used: p.heldItemUsed });
+  });
+
+  startTurnForPlayers(game);
+  persistGame(game);
+}
+
+// Démarre un tour pour tous les joueurs. Depuis le passage à l'inventaire d'objets
+// (choisis avant le tour 1, cf. start_game/starting_item_choice), il n'y a PLUS de
+// tour spécial : tous les tours, tour 4 inclus, suivent le même flux normal.
 //
-// Mode ADMIN VS JOUEUR : décision de gameplay volontaire — pas de tour 4 spécial
-// (Bonbon XP / Objet Mystère) dans ce mode. Les 6 tours y sont tous des manches
-// identiques (assignAdminModeOptions), y compris le tour 4.
+// Mode ADMIN VS JOUEUR : décision de gameplay volontaire — jamais d'objet dans ce mode
+// (assignAdminModeOptions gère ses 6 tours identiques lui-même).
 function startTurnForPlayers(game) {
   if (game.gameMode === 'admin') {
     assignAdminModeOptions(game);
     return;
   }
-  if (game.turn === 4) {
-    game.players.forEach(p => {
-      io.to(p.id).emit('advantage_options', {});
-    });
-  } else {
-    assignTurnOptions(game);
-  }
+  assignTurnOptions(game);
 }
 
 function advanceTurn(game) {
@@ -5216,26 +5265,17 @@ io.on('connection', (socket) => {
       return;
     }
 
-    game.turn = 1;
-    game.route = buildRoute();
-    // Cloné (jamais la référence partagée de BOSSES) : en mode coop on ajoute un champ
-    // teamRequiredPoints propre à CETTE partie, jamais sur l'objet boss partagé.
-    game.boss = { ...pickRandomBoss(game.selectedDifficulty || 'medium') };
-    if (game.gameMode === 'coop') {
-      game.boss.teamRequiredPoints = computeCoopTeamRequiredPoints(game.boss, game.players.length);
-      // Attaque du boss (mécanique exclusive au mode Coop, cf. advanceTurn) : jamais au
-      // tour 1 (délai de grâce), donc rien à initialiser tant que le premier tour n'a pas
-      // été résolu — juste les champs pour que advanceTurn les trouve définis.
-      game.bossAttackTargetId = null;
-      game.lastBossAttackTargetId = null;
-    }
+    benchExtraPlayersAsSpectators(game, gameId, benchedPlayers);
+
     game.players.forEach(p => {
       p.score = 0;
       p.team = [];
       p.currentChoice = null;
       p.currentOptions = null;
       p.hasShinyCharm = false;
-      p.currentBonusOptions = null;
+      p.heldItem = null;
+      p.heldItemUsed = false;
+      p.startItemOptions = null;
       p.pendingBonusKey = null;
       p.pity = 0; // compteur anti-RNG propre à chaque nouvelle partie
       p.activeEvent = null;
@@ -5246,22 +5286,18 @@ io.on('connection', (socket) => {
       p.secretPokemonIndex = null;
     });
 
-    benchExtraPlayersAsSpectators(game, gameId, benchedPlayers);
-
-    io.to(gameId).emit('game_started', {
-      gameId: game.id,
-      status: game.status,
-      turn: game.turn,
-      maxTurns: game.maxTurns,
-      route: game.route,
-      boss: game.boss,
-      difficulty: game.selectedDifficulty,
-      gameMode: game.gameMode,
-      adminId: game.adminId,
-      players: getPublicPlayers(game)
+    // Choix de l'objet de départ AVANT le tour 1 (remplace l'ancien choix spécial du
+    // tour 4, cf. socket.on('starting_item_choice')) : chaque joueur reçoit 2 options,
+    // le tour 1 ne démarre (beginRouteGameplay) qu'une fois TOUS les joueurs choisis.
+    game.status = 'item_select';
+    game.players.forEach(p => {
+      const [keyA, keyB] = pickTwoStartingItemKeys();
+      p.startItemOptions = [keyA, keyB];
+      io.to(p.id).emit('starting_item_options', {
+        bonuses: [keyA, keyB].map(key => ({ key, label: BONUS_LABELS[key] }))
+      });
     });
-
-    startTurnForPlayers(game);
+    io.to(gameId).emit('item_select_started', { gameMode: game.gameMode, players: getPublicPlayers(game) });
     persistGame(game);
   });
 
@@ -5908,9 +5944,11 @@ io.on('connection', (socket) => {
     finalizePlayerTurn(game, player);
   });
 
-  // Tour 4 uniquement : le joueur choisit POKÉMON (flux HAUT/BAS normal, révélé seulement
-  // maintenant) ou BONUS (il renonce à son Pokémon du tour, 2 bonus lui sont proposés).
-  socket.on('special_choice', ({ mode } = {}) => {
+  // Choix de l'objet de DÉBUT DE PARTIE (avant le tour 1, cf. start_game qui propose
+  // 2 options à chaque joueur et attend que TOUS aient choisi avant de lancer le tour 1).
+  // Remplace l'ancien choix spécial du tour 4 : l'objet est ensuite gardé en inventaire
+  // et activable À TOUT MOMENT pendant la partie (cf. use_item plus bas).
+  socket.on('starting_item_choice', ({ key } = {}) => {
     const gameId = socket.data.gameId;
     const game = games[gameId];
 
@@ -5918,53 +5956,39 @@ io.on('connection', (socket) => {
       socket.emit('error_message', 'Partie introuvable.');
       return;
     }
-    if (game.status !== 'playing') {
-      socket.emit('error_message', "La partie n'est pas en cours.");
+    if (game.status !== 'item_select') {
+      socket.emit('error_message', "Ce n'est pas le moment de choisir un objet.");
       return;
     }
-    if (game.turn !== 4) {
-      socket.emit('error_message', 'Le choix spécial est réservé au tour 4.');
-      return;
-    }
-    if (mode !== 'POKEMON' && mode !== 'BONUS') {
-      socket.emit('error_message', 'Mode invalide.');
-      return;
-    }
-
     const player = game.players.find(p => p.id === socket.id);
     if (!player) {
       socket.emit('error_message', 'Tu ne fais pas partie de cette partie.');
       return;
     }
-    if (player.currentChoice !== null || player.currentOptions || player.currentBonusOptions || player.pendingBonusKey) {
-      socket.emit('error_message', 'Choix déjà en cours pour ce tour.');
+    if (player.heldItem) {
+      socket.emit('error_message', 'Objet déjà choisi.');
+      return;
+    }
+    if (!player.startItemOptions || !player.startItemOptions.includes(key)) {
+      socket.emit("error_message", "Cet objet ne t'a pas été proposé.");
       return;
     }
 
-    if (mode === 'POKEMON') {
-      // Flux identique aux autres tours (charme jamais actif au tour 4, il ne commence qu'au tour 5).
-      player.currentOptions = pickPlayerTurnOptions(false, player.pity, player.rarityFloor || undefined, player.rarityBoost || undefined, game.gameMode);
-      player.rarityFloor = null; // effet LUCKY_TURN consommé, à usage unique
-      player.rarityBoost = null; // effet CROSSED_FATES consommé, à usage unique
-      socket.emit('turn_options', {
-        haut: { name: player.currentOptions.haut.name, sprite: player.currentOptions.haut.sprite },
-        bas: { name: player.currentOptions.bas.name, sprite: player.currentOptions.bas.sprite }
-      });
-      return;
-    }
+    player.heldItem = key;
+    player.heldItemUsed = false;
+    player.startItemOptions = null;
+    socket.emit('your_item', { item: player.heldItem, used: false });
 
-    // mode === 'BONUS'
-    const [keyA, keyB] = pickTwoBonuses(player);
-    player.currentBonusOptions = [keyA, keyB];
-    socket.emit('bonus_options', {
-      bonuses: [keyA, keyB].map(key => ({ key, label: BONUS_LABELS[key] }))
-    });
+    if (game.players.every(p => p.heldItem)) {
+      beginRouteGameplay(game, gameId);
+    }
   });
 
-  // Le joueur choisit l'un des deux bonus qui lui ont été proposés. Le serveur vérifie
-  // que ce bonus faisait bien partie des deux options tirées pour LUI (jamais de confiance
-  // aveugle envers une clé envoyée directement par le client).
-  socket.on('bonus_choice', ({ key } = {}) => {
+  // Utilisation de l'objet en inventaire, À TOUT MOMENT pendant la partie (clic sur son
+  // icône côté client) — jamais lié à un tour précis, contrairement à l'ancien système.
+  // Charme Chroma s'applique instantanément ; Bonbon XP / Objet Mystère ouvrent le même
+  // sélecteur d'équipe qu'avant (xp_candy_pending / mystery_item_pending, inchangés).
+  socket.on('use_item', () => {
     const gameId = socket.data.gameId;
     const game = games[gameId];
 
@@ -5981,29 +6005,31 @@ io.on('connection', (socket) => {
       socket.emit('error_message', 'Tu ne fais pas partie de cette partie.');
       return;
     }
-    if (!player.currentBonusOptions || !player.currentBonusOptions.includes(key)) {
-      socket.emit('error_message', "Ce bonus ne t'a pas été proposé.");
+    if (!player.heldItem || player.heldItemUsed) {
+      socket.emit('error_message', 'Aucun objet disponible.');
+      return;
+    }
+    if (player.pendingBonusKey) {
+      socket.emit('error_message', 'Choix déjà en cours.');
       return;
     }
 
-    if (key === 'shinyCharm') {
+    if (player.heldItem === 'shinyCharm') {
       player.hasShinyCharm = true;
-      player.currentBonusOptions = null;
-      player.currentChoice = 'BONUS';
-      socket.emit('bonus_result', {
-        type: 'shinyCharm',
-        score: player.score,
-        team: player.team
-      });
-      finalizePlayerTurn(game, player);
+      player.heldItemUsed = true;
+      socket.emit('bonus_result', { type: 'shinyCharm', score: player.score, team: player.team });
+      broadcastGameUpdated(game); // score d'équipe (coop) inchangé ici mais garde tout le monde synchro
       return;
     }
 
-    if (key === 'xpCandy') {
+    if (player.heldItem === 'xpCandy') {
       const eligible = player.team
         .map((mon, index) => ({ index, mon }))
         .filter(({ mon }) => EVOLUTION_MAP[mon.id]);
-      player.currentBonusOptions = null;
+      if (!eligible.length) {
+        socket.emit('error_message', 'Aucun Pokémon éligible pour le moment.');
+        return;
+      }
       player.pendingBonusKey = 'xpCandy';
       socket.emit('xp_candy_pending', {
         team: eligible.map(({ index, mon }) => ({ index, id: mon.id, name: mon.name, sprite: mon.sprite }))
@@ -6011,8 +6037,11 @@ io.on('connection', (socket) => {
       return;
     }
 
-    if (key === 'mysteryItem') {
-      player.currentBonusOptions = null;
+    if (player.heldItem === 'mysteryItem') {
+      if (!player.team.length) {
+        socket.emit('error_message', 'Aucun Pokémon éligible pour le moment.');
+        return;
+      }
       player.pendingBonusKey = 'mysteryItem';
       socket.emit('mystery_item_pending', {
         team: player.team.map((mon, index) => ({ index, id: mon.id, name: mon.name, sprite: mon.sprite }))
@@ -6054,8 +6083,7 @@ io.on('connection', (socket) => {
     const scoreDelta = applyMonMutation(player, mon, m => { fromName = evolveMon(m, evolution); });
 
     player.pendingBonusKey = null;
-    player.currentBonusOptions = null;
-    player.currentChoice = 'BONUS';
+    player.heldItemUsed = true;
 
     socket.emit('bonus_result', {
       type: 'xpCandy',
@@ -6067,7 +6095,7 @@ io.on('connection', (socket) => {
       team: player.team
     });
 
-    finalizePlayerTurn(game, player);
+    broadcastGameUpdated(game);
   });
 
   // Objet Mystère : le joueur choisit QUEL Pokémon reçoit un trait, le trait lui-même
@@ -6104,8 +6132,7 @@ io.on('connection', (socket) => {
     const scoreDelta = applyMonMutation(player, mon, m => assignEffect(m, newEffect));
 
     player.pendingBonusKey = null;
-    player.currentBonusOptions = null;
-    player.currentChoice = 'BONUS';
+    player.heldItemUsed = true;
 
     socket.emit('bonus_result', {
       type: 'mysteryItem',
@@ -6117,7 +6144,7 @@ io.on('connection', (socket) => {
       team: player.team
     });
 
-    finalizePlayerTurn(game, player);
+    broadcastGameUpdated(game);
   });
 
   // Point d'entrée UNIQUE pour répondre à un événement rare, quel qu'il soit (architecture
