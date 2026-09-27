@@ -1370,10 +1370,16 @@ const DIFFICULTY_LABELS = {
   extreme: 'EXTRÊME'
 };
 
+const BONUS_LABELS_CLIENT = {
+  xpCandy: 'Bonbon XP',
+  mysteryItem: 'Objet Mystère',
+  shinyCharm: 'Charme Chroma'
+};
+
 const BONUS_DESCRIPTIONS = {
   xpCandy: 'Fait évoluer un Pokémon de ton équipe jusqu\'à sa forme finale.',
   mysteryItem: 'Applique un trait aléatoire à un Pokémon — quitte ou double.',
-  shinyCharm: 'Améliore tes chances de Pokémon puissants aux tours 5 et 6.'
+  shinyCharm: 'Améliore tes chances de Pokémon puissants dès son activation.'
 };
 
 // ---------- Helpers UI ----------
@@ -2426,6 +2432,7 @@ function resetGameUI() {
   bonusTargetListEl.innerHTML = '';
   itemInventoryBarEl.classList.add('screen--hidden');
   btnUseItem.disabled = true;
+  itemSelectOverlayEl.classList.add('screen--hidden'); // filet de sécurité (your_item la masque déjà normalement)
 
   // Choix HAUT/BAS
   clearChoiceSelection();

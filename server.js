@@ -2530,26 +2530,8 @@ function weightedPickKey(entries) {
   return entries[entries.length - 1].key;
 }
 
-// Bonbon XP n'est proposable que si le joueur a au moins un Pokémon évoluable.
-function getAvailableBonusKeys(player) {
-  return Object.keys(BONUS_WEIGHTS).filter(key => {
-    if (key === 'xpCandy') return player.team.some(mon => EVOLUTION_MAP[mon.id]);
-    return true;
-  });
-}
-
-// Tire 2 bonus DIFFÉRENTS parmi ceux réellement disponibles pour ce joueur.
-function pickTwoBonuses(player) {
-  const available = getAvailableBonusKeys(player).map(key => ({ key, weight: BONUS_WEIGHTS[key] }));
-  const first = weightedPickKey(available);
-  const remaining = available.filter(e => e.key !== first);
-  const second = weightedPickKey(remaining);
-  return [first, second];
-}
-
-// Tire 2 bonus DIFFÉRENTS parmi les 3 possibles, SANS filtrage d'éligibilité (contrairement
-// à pickTwoBonuses ci-dessus) : utilisé pour le choix d'objet de DÉBUT DE PARTIE (avant tour
-// 1, cf. start_game), où l'équipe est encore vide — l'éligibilité (ex. Bonbon XP sans
+// Tire 2 objets DIFFÉRENTS parmi les 3 possibles, pour le choix de DÉBUT DE PARTIE (avant
+// tour 1, cf. start_game), où l'équipe est encore vide — l'éligibilité (ex. Bonbon XP sans
 // Pokémon évoluable) est revérifiée plus tard, au moment de l'UTILISATION (cf. use_item).
 function pickTwoStartingItemKeys() {
   const available = Object.keys(BONUS_WEIGHTS).map(key => ({ key, weight: BONUS_WEIGHTS[key] }));
@@ -3583,7 +3565,7 @@ function startShinyPokemon(game, player) {
 
 // ---- TOUR CHANCEUX : pose un plancher de rareté pour le PROCHAIN tirage du joueur.
 // Effet différé et à usage unique (cf. player.rarityFloor, consommé dans
-// assignTurnOptions / special_choice). Ne garantit jamais un légendaire : seule la
+// assignTurnOptions). Ne garantit jamais un légendaire : seule la
 // borne basse de la table change (cf. buildWeightedRarityTable), pas de tirage 100% fixe. ----
 const LUCKY_TURN_FLOOR_RARITY = 'epique'; // facilement modifiable
 
@@ -3973,9 +3955,11 @@ function buildRoute() {
 // player = {
 //   id, name, score, team, currentChoice,
 //   currentOptions: { haut, bas } (secret, jamais envoyé tel quel au client),
-//   hasShinyCharm: bool (Charme Chroma actif, propre au joueur, effet tours 5-6 uniquement),
-//   currentBonusOptions: [keyA, keyB] | null (2 bonus proposés au tour 4, secret intermédiaire),
-//   pendingBonusKey: 'xpCandy' | 'mysteryItem' | null (bonus choisi, en attente de la cible)
+//   hasShinyCharm: bool (Charme Chroma actif, propre au joueur, effet immédiat une fois activé),
+//   startItemOptions: [keyA, keyB] | null (2 objets proposés avant le tour 1, secret intermédiaire),
+//   heldItem: 'xpCandy' | 'mysteryItem' | 'shinyCharm' | null (objet retenu pour toute la partie),
+//   heldItemUsed: bool (objet déjà consommé ou non — utilisable une seule fois, à tout moment),
+//   pendingBonusKey: 'xpCandy' | 'mysteryItem' | null (objet en cours d'utilisation, attente de la cible)
 // }
 // ---------------------------------------------------------------
 const games = {};
@@ -4256,7 +4240,9 @@ function makePlayer(id, name, token, avatar, accessToken) {
     currentChoice: null,
     currentOptions: null,
     hasShinyCharm: false,
-    currentBonusOptions: null,
+    startItemOptions: null,
+    heldItem: null,
+    heldItemUsed: false,
     pendingBonusKey: null,
     pity: 0, // compteur anti-RNG individuel, jamais partagé entre joueurs
     activeEvent: null, // événement rare en cours pour CE joueur (jamais 2 à la fois)
@@ -4422,7 +4408,6 @@ function advanceTurn(game) {
   game.players.forEach(p => {
     p.currentChoice = null;
     p.currentOptions = null;
-    p.currentBonusOptions = null;
     p.pendingBonusKey = null;
     if (p.activeEvent) {
       // Un événement non résolu avant le tour suivant expire : le joueur DOIT en être
@@ -5285,6 +5270,13 @@ io.on('connection', (socket) => {
       p.crossedFatesPartner = null;
       p.secretPokemonIndex = null;
     });
+
+    // Mode ADMIN VS JOUEUR : décision de gameplay volontaire — jamais d'objet dans ce
+    // mode (déjà le cas avant, cf. startTurnForPlayers), inchangé : démarre directement.
+    if (game.gameMode === 'admin') {
+      beginRouteGameplay(game, gameId);
+      return;
+    }
 
     // Choix de l'objet de départ AVANT le tour 1 (remplace l'ancien choix spécial du
     // tour 4, cf. socket.on('starting_item_choice')) : chaque joueur reçoit 2 options,
