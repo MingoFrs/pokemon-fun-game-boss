@@ -312,38 +312,16 @@
             </div>
           </div>
 
-          <!-- Tour 4 uniquement : POKÉMON (chemin normal) ou BONUS (sacrifie le Pokémon du tour). -->
-          <div id="advantage-panel" class="choice-cards screen--hidden">
-            <button id="btn-advantage-pokemon" type="button" class="choice-card choice-card--haut">
-              <span class="choice-card__icon">🎴</span>
-              <p class="choice-card__name">POKÉMON</p>
-              <span class="choice-card__label">Chemin normal</span>
-            </button>
-            <button id="btn-advantage-bonus" type="button" class="choice-card choice-card--bas">
-              <span class="choice-card__icon">✨</span>
-              <p class="choice-card__name">BONUS</p>
-              <span class="choice-card__label">Sacrifie ce Pokémon</span>
-            </button>
-          </div>
-
-          <!-- Les 2 bonus tirés par le serveur (jamais choisis par le client). -->
-          <div id="bonus-panel" class="choice-cards screen--hidden">
-            <button id="bonus-card-a" type="button" class="choice-card choice-card--haut">
-              <span class="choice-card__icon">🎁</span>
-              <p id="bonus-card-a-label" class="choice-card__name">???</p>
-              <span id="bonus-card-a-desc" class="choice-card__label"></span>
-            </button>
-            <button id="bonus-card-b" type="button" class="choice-card choice-card--bas">
-              <span class="choice-card__icon">🎁</span>
-              <p id="bonus-card-b-label" class="choice-card__name">???</p>
-              <span id="bonus-card-b-desc" class="choice-card__label"></span>
-            </button>
-          </div>
-
-          <!-- Cible du bonus choisi : Pokémon évoluables (Bonbon XP) ou toute l'équipe (Objet Mystère). -->
-          <div id="bonus-target-panel" class="bonus-target-panel screen--hidden">
-            <p id="bonus-target-title" class="bonus-target-title"></p>
-            <div id="bonus-target-list" class="bonus-target-list"></div>
+          <!-- Cible de l'objet en cours d'utilisation (Bonbon XP / Objet Mystère), cf. mini-
+               inventaire plus bas : overlay indépendant du choix HAUT/BAS du tour (l'objet est
+               utilisable à tout moment, cf. #item-inventory-bar), jamais un remplacement de
+               #choice-cards contrairement à l'ancien flux du tour 4. -->
+          <div id="bonus-target-overlay" class="event-overlay screen--hidden">
+            <div class="event-modal">
+              <p id="bonus-target-title" class="bonus-target-title"></p>
+              <div id="bonus-target-list" class="bonus-target-list"></div>
+              <button id="btn-bonus-target-cancel" type="button" class="btn btn--ghost">Annuler</button>
+            </div>
           </div>
         </div>
 
@@ -387,6 +365,16 @@
       <h2>Joueurs</h2>
       <p id="team-score-line" class="team-score-line screen--hidden"></p>
       <ul id="game-players-list" class="players-list"></ul>
+    </div>
+
+    <!-- Mini-inventaire : l'objet choisi avant le tour 1 (cf. #item-select-overlay), utilisable
+         À TOUT MOMENT en cliquant son icône (cf. socket 'use_item'). Masqué tant qu'aucun objet
+         n'est en main (mode ADMIN VS JOUEUR, ou avant que 'your_item' arrive). -->
+    <div id="item-inventory-bar" class="item-inventory-bar screen--hidden">
+      <button id="btn-use-item" type="button" class="item-inventory-btn" disabled>
+        <span id="item-inventory-icon" class="item-inventory-btn__icon">🎁</span>
+        <span id="item-inventory-label" class="item-inventory-btn__label">—</span>
+      </button>
     </div>
 
     <button id="btn-leave-game" class="btn btn--ghost">Quitter</button>
@@ -703,6 +691,30 @@
      localStorage (rdb_settings_v1) et appliqué via le script anti-flash dans <head>.
      Structure en onglets (Compte / Préférences / Infos) : chaque page a son propre
      scroll interne, l'en-tête + la barre d'onglets restent fixes — cf. .settings-content. -->
+<!-- Choix de l'objet de départ, AVANT le tour 1 (remplace l'ancien choix spécial du tour 4).
+     Affiché par-dessus le lobby dès que tous les joueurs ont cliqué "Démarrer" ; disparaît de
+     lui-même au 'game_started' qui suit (une fois TOUS les joueurs choisis, cf. client.js). -->
+<div id="item-select-overlay" class="event-overlay screen--hidden">
+  <div class="event-modal">
+    <p class="event-modal__eyebrow">Avant de partir</p>
+    <h3 class="event-modal__title">Choisis ton objet de départ</h3>
+    <p class="item-select-hint">Il te suivra toute la partie — utilisable quand tu veux depuis ton inventaire.</p>
+    <div class="choice-cards">
+      <button id="start-item-card-a" type="button" class="choice-card choice-card--haut">
+        <span class="choice-card__icon">🎁</span>
+        <p id="start-item-card-a-label" class="choice-card__name">???</p>
+        <span id="start-item-card-a-desc" class="choice-card__label"></span>
+      </button>
+      <button id="start-item-card-b" type="button" class="choice-card choice-card--bas">
+        <span class="choice-card__icon">🎁</span>
+        <p id="start-item-card-b-label" class="choice-card__name">???</p>
+        <span id="start-item-card-b-desc" class="choice-card__label"></span>
+      </button>
+    </div>
+    <p id="item-select-status" class="item-select-status screen--hidden">Objet choisi — en attente des autres joueurs...</p>
+  </div>
+</div>
+
 <div id="settings-overlay" class="event-overlay screen--hidden" role="dialog" aria-modal="true">
   <div class="event-modal settings-modal">
 

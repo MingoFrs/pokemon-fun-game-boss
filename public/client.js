@@ -1278,17 +1278,21 @@ const btnLeaveGame = document.getElementById('btn-leave-game');
 
 // ---------- Tour 4 spécial : avantage / bonus ----------
 const choiceCardsEl = document.getElementById('choice-cards');
-const advantagePanelEl = document.getElementById('advantage-panel');
-const btnAdvantagePokemon = document.getElementById('btn-advantage-pokemon');
-const btnAdvantageBonus = document.getElementById('btn-advantage-bonus');
-const bonusPanelEl = document.getElementById('bonus-panel');
-const bonusCardA = document.getElementById('bonus-card-a');
-const bonusCardALabelEl = document.getElementById('bonus-card-a-label');
-const bonusCardADescEl = document.getElementById('bonus-card-a-desc');
-const bonusCardB = document.getElementById('bonus-card-b');
-const bonusCardBLabelEl = document.getElementById('bonus-card-b-label');
-const bonusCardBDescEl = document.getElementById('bonus-card-b-desc');
-const bonusTargetPanelEl = document.getElementById('bonus-target-panel');
+const bonusTargetOverlayEl = document.getElementById('bonus-target-overlay');
+const btnBonusTargetCancel = document.getElementById('btn-bonus-target-cancel');
+const itemSelectOverlayEl = document.getElementById('item-select-overlay');
+const startItemCardA = document.getElementById('start-item-card-a');
+const startItemCardALabelEl = document.getElementById('start-item-card-a-label');
+const startItemCardADescEl = document.getElementById('start-item-card-a-desc');
+const startItemCardB = document.getElementById('start-item-card-b');
+const startItemCardBLabelEl = document.getElementById('start-item-card-b-label');
+const startItemCardBDescEl = document.getElementById('start-item-card-b-desc');
+const itemSelectStatusEl = document.getElementById('item-select-status');
+const itemInventoryBarEl = document.getElementById('item-inventory-bar');
+const btnUseItem = document.getElementById('btn-use-item');
+const itemInventoryIconEl = document.getElementById('item-inventory-icon');
+const itemInventoryLabelEl = document.getElementById('item-inventory-label');
+const ITEM_ICONS = { xpCandy: '🍬', mysteryItem: '❓', shinyCharm: '✨' };
 const bonusTargetTitleEl = document.getElementById('bonus-target-title');
 const bonusTargetListEl = document.getElementById('bonus-target-list');
 const bonusResultPanelEl = document.getElementById('bonus-result-panel');
@@ -1788,15 +1792,15 @@ function updateBossProximity(turn, maxTurns) {
 // choix avantage (tour 4), choix entre 2 bonus, ou choix de la cible du bonus.
 function showTurnPhase(phase) {
   choiceCardsEl.classList.toggle('screen--hidden', phase !== 'choice');
-  advantagePanelEl.classList.toggle('screen--hidden', phase !== 'advantage');
-  bonusPanelEl.classList.toggle('screen--hidden', phase !== 'bonus-pick');
-  bonusTargetPanelEl.classList.toggle('screen--hidden', phase !== 'bonus-target');
   adminViewPanelEl.classList.toggle('screen--hidden', phase !== 'admin-view');
 }
 
-function setAdvantageButtonsEnabled(enabled) {
-  btnAdvantagePokemon.disabled = !enabled;
-  btnAdvantageBonus.disabled = !enabled;
+function showBonusTargetOverlay() {
+  bonusTargetOverlayEl.classList.remove('screen--hidden');
+}
+
+function hideBonusTargetOverlay() {
+  bonusTargetOverlayEl.classList.add('screen--hidden');
 }
 
 // ---------- Mode ADMIN VS JOUEUR ----------
@@ -2415,12 +2419,13 @@ function resetGameUI() {
   clearTimeout(metamorphResultTimer);
 
   // Phases du tour : rien de visible tant que le serveur n'en indique pas une
-  // (choice/advantage/bonus-pick/bonus-target sont mutuellement exclusifs).
+  // (choice/admin-view sont mutuellement exclusifs). L'overlay de cible d'objet et le
+  // mini-inventaire sont indépendants de ces phases (cf. showBonusTargetOverlay/hideBonusTargetOverlay).
   showTurnPhase('none');
-  setAdvantageButtonsEnabled(false);
-  bonusCardA.disabled = true;
-  bonusCardB.disabled = true;
+  hideBonusTargetOverlay();
   bonusTargetListEl.innerHTML = '';
+  itemInventoryBarEl.classList.add('screen--hidden');
+  btnUseItem.disabled = true;
 
   // Choix HAUT/BAS
   clearChoiceSelection();
@@ -2735,29 +2740,27 @@ btnBas.addEventListener('click', () => {
   socket.emit('player_choice', { choice: 'BAS' });
 });
 
-// ---------- Actions : tour 4 spécial ----------
-btnAdvantagePokemon.addEventListener('click', () => {
-  setAdvantageButtonsEnabled(false);
-  socket.emit('special_choice', { mode: 'POKEMON' });
+// ---------- Actions : objet de départ (avant tour 1) et inventaire (à tout moment) ----------
+startItemCardA.addEventListener('click', () => {
+  startItemCardA.disabled = true;
+  startItemCardB.disabled = true;
+  itemSelectStatusEl.classList.remove('screen--hidden');
+  socket.emit('starting_item_choice', { key: startItemCardA.dataset.key });
 });
 
-btnAdvantageBonus.addEventListener('click', () => {
-  setAdvantageButtonsEnabled(false);
-  socket.emit('special_choice', { mode: 'BONUS' });
+startItemCardB.addEventListener('click', () => {
+  startItemCardA.disabled = true;
+  startItemCardB.disabled = true;
+  itemSelectStatusEl.classList.remove('screen--hidden');
+  socket.emit('starting_item_choice', { key: startItemCardB.dataset.key });
 });
 
-bonusCardA.addEventListener('click', () => {
-  bonusCardA.disabled = true;
-  bonusCardB.disabled = true;
-  turnStatusEl.textContent = 'Choix enregistré !';
-  socket.emit('bonus_choice', { key: bonusCardA.dataset.key });
+btnUseItem.addEventListener('click', () => {
+  socket.emit('use_item');
 });
 
-bonusCardB.addEventListener('click', () => {
-  bonusCardA.disabled = true;
-  bonusCardB.disabled = true;
-  turnStatusEl.textContent = 'Choix enregistré !';
-  socket.emit('bonus_choice', { key: bonusCardB.dataset.key });
+btnBonusTargetCancel.addEventListener('click', () => {
+  hideBonusTargetOverlay();
 });
 
 btnSkip.addEventListener('click', () => {
@@ -3132,57 +3135,69 @@ socket.on('player_turn_hidden', () => {
   turnStatusEl.textContent = "Écoute les indications de l'ADMIN.";
 });
 
-// Tour 4 uniquement : "CHOISIS TON AVANTAGE" (POKÉMON ou BONUS).
-socket.on('advantage_options', () => {
-  resultPanelEl.classList.add('result-panel--hidden');
-  bonusResultPanelEl.classList.add('result-panel--hidden');
-  hasChosenThisTurn = false;
-  setAdvantageButtonsEnabled(true);
-  turnStatusEl.textContent = 'Choisis ton avantage';
-  showTurnPhase('advantage');
+// Objet de départ (avant tour 1, cf. start_game) : le lobby reste affiché dessous, cet
+// overlay prend toute la place tant que tout le monde n'a pas choisi.
+socket.on('item_select_started', () => {
+  startItemCardA.disabled = false;
+  startItemCardB.disabled = false;
+  itemSelectStatusEl.classList.add('screen--hidden');
+  itemSelectOverlayEl.classList.remove('screen--hidden');
 });
 
-// Les 2 bonus tirés par le serveur pour ce joueur (jamais choisis par le client).
-socket.on('bonus_options', ({ bonuses }) => {
-  bonusCardA.dataset.key = bonuses[0].key;
-  bonusCardALabelEl.textContent = bonuses[0].label;
-  bonusCardADescEl.textContent = BONUS_DESCRIPTIONS[bonuses[0].key] || '';
-  bonusCardA.disabled = false;
+// Les 2 objets tirés par le serveur pour CE joueur (jamais choisis par le client).
+socket.on('starting_item_options', ({ bonuses }) => {
+  startItemCardA.dataset.key = bonuses[0].key;
+  startItemCardALabelEl.textContent = bonuses[0].label;
+  startItemCardADescEl.textContent = BONUS_DESCRIPTIONS[bonuses[0].key] || '';
 
-  bonusCardB.dataset.key = bonuses[1].key;
-  bonusCardBLabelEl.textContent = bonuses[1].label;
-  bonusCardBDescEl.textContent = BONUS_DESCRIPTIONS[bonuses[1].key] || '';
-  bonusCardB.disabled = false;
+  startItemCardB.dataset.key = bonuses[1].key;
+  startItemCardBLabelEl.textContent = bonuses[1].label;
+  startItemCardBDescEl.textContent = BONUS_DESCRIPTIONS[bonuses[1].key] || '';
+});
 
-  turnStatusEl.textContent = 'Choisis ton bonus';
-  showTurnPhase('bonus-pick');
+// Confirmation de l'objet retenu pour cette partie (envoyé une fois au choix, puis re-
+// envoyé par le serveur juste avant game_started pour être sûr que le client soit synchro).
+socket.on('your_item', ({ item, used }) => {
+  itemSelectOverlayEl.classList.add('screen--hidden');
+  if (!item) {
+    itemInventoryBarEl.classList.add('screen--hidden');
+    return;
+  }
+  itemInventoryBarEl.classList.remove('screen--hidden');
+  itemInventoryIconEl.textContent = ITEM_ICONS[item] || '🎁';
+  itemInventoryLabelEl.textContent = BONUS_LABELS_CLIENT[item] || '';
+  btnUseItem.disabled = !!used;
+  btnUseItem.title = used ? 'Déjà utilisé' : `Utiliser : ${BONUS_LABELS_CLIENT[item] || ''}`;
 });
 
 // Bonbon XP : uniquement les Pokémon réellement évoluables (filtré côté serveur).
 socket.on('xp_candy_pending', ({ team }) => {
   bonusTargetTitleEl.textContent = 'Choisis un Pokémon à faire évoluer';
   renderBonusTargetList(team, (index) => {
+    hideBonusTargetOverlay();
     socket.emit('xp_candy_select', { index });
   });
-  turnStatusEl.textContent = 'Bonbon XP';
-  showTurnPhase('bonus-target');
+  showBonusTargetOverlay();
 });
 
 // Objet Mystère : toute l'équipe, le trait reste tiré par le serveur ensuite.
 socket.on('mystery_item_pending', ({ team }) => {
   bonusTargetTitleEl.textContent = 'Choisis un Pokémon';
   renderBonusTargetList(team, (index) => {
+    hideBonusTargetOverlay();
     socket.emit('mystery_item_select', { index });
   });
-  turnStatusEl.textContent = 'Objet Mystère';
-  showTurnPhase('bonus-target');
+  showBonusTargetOverlay();
 });
 
-// Résultat final du bonus choisi (quel que soit son type).
+// Résultat final de l'objet utilisé (quel que soit son type) : objet consommé, retiré
+// de l'inventaire (bouton désactivé) — jamais lié à un tour précis désormais.
 socket.on('bonus_result', (data) => {
-  showTurnPhase('none'); // tour 4 résolu : masque avantage/bonus/cible avant le tour 5
+  hideBonusTargetOverlay();
+  btnUseItem.disabled = true;
+  btnUseItem.title = 'Déjà utilisé';
   showBonusResult(data);
-  if (data.team) renderTeam(data.team, true); // toujours ta propre équipe (résultat de bonus tour 4)
+  if (data.team) renderTeam(data.team, true); // toujours ta propre équipe
   updateMyScore(data.score, data.scoreDelta);
 });
 
