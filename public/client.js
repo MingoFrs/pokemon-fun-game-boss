@@ -2080,27 +2080,6 @@ function renderDoubleOrNothingStart(payload) {
   eventBodyEl.appendChild(row);
 }
 
-function renderLotteryStart(payload) {
-  eventBodyEl.appendChild(buildEventText('Choisis une carte — son contenu est un mystère.', 'event-modal__hint'));
-  const row = document.createElement('div');
-  row.className = 'choice-cards';
-  for (let i = 0; i < payload.cardCount; i++) {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'choice-card';
-    const mark = document.createElement('span');
-    mark.className = 'choice-card__icon';
-    mark.textContent = '❓';
-    btn.appendChild(mark);
-    btn.addEventListener('click', () => {
-      Array.from(row.children).forEach(b => { b.disabled = true; });
-      sendEventAction({ index: i });
-    });
-    row.appendChild(btn);
-  }
-  eventBodyEl.appendChild(row);
-}
-
 function renderDuelStart(payload) {
   eventBodyEl.appendChild(buildEventText(
     `Face à ${payload.opponentName} — HAUT bat BAS, à choix égal c'est 50/50.`,
@@ -2136,7 +2115,6 @@ function renderEventStart(payload) {
       );
       break;
     case 'INSTANT_EVOLUTION': renderEventTeamPicker(payload, 'Choisis le Pokémon qui évolue.'); break;
-    case 'LOTTERY': renderLotteryStart(payload); break;
     case 'TIME_RIFT': renderTimeRiftStart(payload); break;
     case 'DUEL': renderDuelStart(payload); break;
     default: hideEventOverlay(); // type inconnu : ne jamais bloquer l'UI
@@ -2221,36 +2199,6 @@ function renderLuckyTurnResult(payload) {
   eventBodyEl.appendChild(buildEventCloseButton());
 }
 
-function renderLotteryResult(payload) {
-  const wrap = document.createElement('div');
-  wrap.className = 'event-result';
-  let text = '';
-  let delta = 0;
-
-  if (payload.kind === 'pokemon') {
-    wrap.appendChild(buildEventSprite(payload.pokemon.sprite, payload.pokemon.name));
-    text = `${payload.pokemon.name} rejoint ton équipe !`;
-    delta = payload.pointsGained;
-  } else if (payload.kind === 'points') {
-    text = 'Bonus de points !';
-    delta = payload.pointsGained;
-  } else if (payload.kind === 'trait') {
-    wrap.appendChild(buildEventSprite(payload.sprite, payload.pokemonName));
-    text = `${payload.pokemonName} reçoit : ${payload.effect.name} (×${payload.effect.multiplier})`;
-    delta = payload.scoreDelta;
-  } else if (payload.kind === 'evolution') {
-    wrap.appendChild(buildEventSprite(payload.sprite, payload.to));
-    text = `${payload.from} évolue en ${payload.to} !`;
-    delta = payload.scoreDelta;
-  }
-
-  wrap.appendChild(buildEventText(text));
-  wrap.appendChild(buildDeltaLine(delta));
-  eventBodyEl.appendChild(wrap);
-  eventBodyEl.appendChild(buildEventCloseButton());
-  updateMyScore(payload.score, delta);
-}
-
 function renderTimeRiftStart(payload) {
   eventModalEl.dataset.rarity = payload.pokemon.rarity;
   const wrap = document.createElement('div');
@@ -2281,19 +2229,6 @@ function renderTimeRiftResult(payload) {
   eventBodyEl.appendChild(wrap);
   eventBodyEl.appendChild(buildEventCloseButton());
   updateMyScore(payload.score, payload.scoreDelta);
-}
-
-// ---- MÉGA GEMME : instantané, ajoute directement un méga à l'équipe (jamais de choix) —
-// même forme que Destins croisés/Faille spatio-temporelle, juste un texte dédié.
-function renderMegaGemResult(payload) {
-  const wrap = document.createElement('div');
-  wrap.className = 'event-result';
-  wrap.appendChild(buildEventSprite(payload.pokemon.sprite, payload.pokemon.name));
-  wrap.appendChild(buildEventText(`Tu trouves une Méga Gemme : ${payload.pokemon.name} rejoint ton équipe !`));
-  wrap.appendChild(buildDeltaLine(payload.pointsGained));
-  eventBodyEl.appendChild(wrap);
-  eventBodyEl.appendChild(buildEventCloseButton());
-  updateMyScore(payload.score, payload.pointsGained);
 }
 
 function renderCrossedFatesResult(payload) {
@@ -2337,9 +2272,7 @@ function renderEventResult(payload) {
     case 'INSTANT_EVOLUTION': renderInstantEvolutionResult(payload); break;
     case 'SHINY_POKEMON': renderShinyResult(payload); break;
     case 'LUCKY_TURN': renderLuckyTurnResult(payload); break;
-    case 'LOTTERY': renderLotteryResult(payload); break;
     case 'TIME_RIFT': renderTimeRiftResult(payload); break;
-    case 'MEGA_GEM': renderMegaGemResult(payload); break;
     case 'CROSSED_FATES': renderCrossedFatesResult(payload); break;
     case 'DUEL': renderDuelResult(payload); break;
     default: eventBodyEl.appendChild(buildEventCloseButton());

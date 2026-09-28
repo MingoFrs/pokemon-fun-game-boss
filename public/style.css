@@ -1540,6 +1540,15 @@ input:focus {
   right: 16px;
 }
 
+/* Le conteneur des toasts de succès a pointer-events: none (purement informatif) : une
+   invitation, elle, contient un bouton "Rejoindre" — sans ça, il était impossible à
+   cliquer. Et elle ne doit pas s'effacer au bout de 5 s comme un succès (elle reste
+   15 s, cf. friend_game_invite côté client). */
+#friend-invite-toast-container .achievement-toast {
+  pointer-events: auto;
+  animation: achievement-toast-in 0.25s ease;
+}
+
 .game-code {
   font-family: var(--font-mono);
   font-size: 32px;
@@ -3253,13 +3262,6 @@ input:focus {
   animation: eventCardIn 0.4s ease both;
 }
 
-/* ---- LOTERIE (2%) : cartes mystère qui pulsent doucement avant le choix. ---- */
-.event-modal[data-event-type="LOTTERY"] { border-color: var(--accent-haut); }
-.event-modal[data-event-type="LOTTERY"] .choice-card__icon {
-  display: inline-block;
-  animation: eventLotteryPulse 1.6s ease-in-out infinite;
-}
-
 /* ---- FAILLE SPATIO-TEMPORELLE (1%, la plus rare) : traitement le plus spectaculaire. ---- */
 .event-modal[data-event-type="TIME_RIFT"] {
   border-color: var(--rarity-legendaire);
@@ -3269,13 +3271,6 @@ input:focus {
 .event-modal[data-event-type="TIME_RIFT"] .event-result__sprite {
   animation: revealPopLegendary 1.1s ease both, eventRiftSpin 3s linear 1.1s infinite;
   filter: drop-shadow(0 0 26px rgba(255, 213, 74, 0.9)) drop-shadow(0 0 14px rgba(185, 140, 242, 0.7));
-}
-
-/* ---- MÉGA GEMME (0.5%) : le plus rare des events "solo" — pulsation cyan continue,
-   rareté toujours "mega" donc le glow/bordure vient déjà de [data-rarity="mega"]
-   ci-dessus, ce bloc n'ajoute que la pulsation propre à cet event. ---- */
-.event-modal[data-event-type="MEGA_GEM"] {
-  animation: eventRiftPulse 2s ease-in-out infinite;
 }
 
 /* ---- DESTINS CROISÉS (2%) : pulsation à deux couleurs (les deux joueurs liés). ---- */
@@ -3311,11 +3306,6 @@ input:focus {
 @keyframes eventSpinIn {
   0% { opacity: 0; transform: scale(0.5) rotate(-140deg); }
   100% { opacity: 1; transform: scale(1) rotate(0); }
-}
-
-@keyframes eventLotteryPulse {
-  0%, 100% { transform: scale(1); opacity: 0.85; }
-  50% { transform: scale(1.15); opacity: 1; }
 }
 
 @keyframes eventRiftPulse {

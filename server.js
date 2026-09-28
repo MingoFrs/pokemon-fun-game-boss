@@ -2241,8 +2241,8 @@ const ALL_DEX_IDS = [...new Set(
 // (6 tours × 2 options) ait de bonnes chances de croiser au moins un Pokémon fort.
 // "méga" n'y figure PAS : elle ne participe au tirage classique qu'en mode admin vs
 // joueur (ajoutée dynamiquement, cf. MEGA_ADMIN_WEIGHT/buildWeightedRarityTable) — en
-// mode normal, le SEUL moyen d'obtenir un méga est l'event MEGA_GEM (très faible
-// probabilité dédiée, cf. EVENT_DEFINITIONS), jamais ce tirage-ci.
+// mode normal/coop, il n'y a AUCUN moyen d'obtenir un méga (l'ancien event Méga Gemme a
+// été retiré), jamais ce tirage-ci.
 const RARITY_TABLE = [
   { rarity: 'commun', weight: 0.39 },
   { rarity: 'peu_commun', weight: 0.26 },
@@ -2616,10 +2616,10 @@ function teamMonFromReward(reward) {
 // floorRarity est optionnel (LUCKY_TURN, TIME_RIFT) ; extraBoost aussi (CROSSED_FATES) :
 // undefined pour les deux = comportement inchangé. shiny est tiré ici, indépendamment de
 // la rareté/l'effet (cf. SHINY_CHANCE) : s'applique donc à TOUT ce qui appelle cette
-// fonction (tirage normal, DOUBLE_ENCOUNTER, TIME_RIFT, LOTTERY). gameMode détermine si
+// fonction (tirage normal, DOUBLE_ENCOUNTER, TIME_RIFT). gameMode détermine si
 // "méga" participe au tirage (admin vs joueur uniquement, cf. pickRarity) — un méga
 // obtenu ici a TOUJOURS son bonus ×1.5 (cf. MEGA_POINTS_MULTIPLIER), qu'il vienne de ce
-// tirage classique (admin) ou de l'event MEGA_GEM dédié (normal, cf. startMegaGem).
+// tirage classique (admin).
 function buildRewardOption(useCharm, pity, floorRarity, extraBoost, gameMode) {
   const rarity = pickRarity(useCharm, pity, floorRarity, extraBoost, gameMode);
   const pokemon = randomFrom(POKEMON_POOLS[rarity]);
@@ -3178,9 +3178,7 @@ const EVENT_TYPES = {
   DUEL: 'DUEL',
   CROSSED_FATES: 'CROSSED_FATES',
   LUCKY_TURN: 'LUCKY_TURN',
-  LOTTERY: 'LOTTERY',
-  TIME_RIFT: 'TIME_RIFT',
-  MEGA_GEM: 'MEGA_GEM'
+  TIME_RIFT: 'TIME_RIFT'
 };
 
 // scope 'solo' = ne concerne que le joueur qui vient de finir son tour.
@@ -3256,35 +3254,12 @@ const EVENT_DEFINITIONS = [
     condition: (game) => game.turn < game.maxTurns // sinon il n'y a plus de "prochain tirage" à booster
   },
   {
-    id: EVENT_TYPES.LOTTERY,
-    label: 'Loterie',
-    probability: 0.02,
-    scope: 'solo',
-    implemented: true,
-    condition: () => true
-  },
-  {
     id: EVENT_TYPES.TIME_RIFT,
     label: 'Faille spatio-temporelle',
     probability: 0.01,
     scope: 'solo',
     implemented: true,
     condition: (game, player) => player.team.length > 0 // remplace un Pokémon existant, ou skip
-  },
-  {
-    id: EVENT_TYPES.MEGA_GEM,
-    label: 'Méga Gemme',
-    // Volontairement très en dessous des autres events (0.5% contre 1-3%) : en mode
-    // normal, c'est le SEUL moyen d'obtenir un méga (jamais dans le tirage HAUT/BAS
-    // classique, cf. RARITY_TABLE/buildWeightedRarityTable — contrairement au mode admin
-    // vs joueur, où les méga font partie du tirage habituel à un poids dédié). Ne se
-    // déclenche d'ailleurs QUE pour ce mode : les events sont déjà désactivés en admin
-    // (cf. finalizePlayerTurn), et jamais tirés en guess/auction (flux de tour différents,
-    // n'appellent jamais maybeTriggerEvent).
-    probability: 0.005,
-    scope: 'solo',
-    implemented: true,
-    condition: (game, player) => player.team.length < 6 // ne grossit jamais l'équipe au-delà de 6
   }
 ];
 
@@ -3326,9 +3301,7 @@ function startEvent(game, player, def) {
     case EVENT_TYPES.INSTANT_EVOLUTION: return startInstantEvolution(game, player);
     case EVENT_TYPES.SHINY_POKEMON: return startShinyPokemon(game, player);
     case EVENT_TYPES.LUCKY_TURN: return startLuckyTurn(game, player);
-    case EVENT_TYPES.LOTTERY: return startLottery(game, player);
     case EVENT_TYPES.TIME_RIFT: return startTimeRift(game, player);
-    case EVENT_TYPES.MEGA_GEM: return startMegaGem(game, player);
     case EVENT_TYPES.DUEL: return startDuel(game, player);
     case EVENT_TYPES.CROSSED_FATES: return startCrossedFates(game, player);
     default: return null;
@@ -3338,7 +3311,7 @@ function startEvent(game, player, def) {
 // ---- DOUBLE RENCONTRE : 2 Pokémon générés, le joueur en garde un, l'autre disparaît. ----
 // N'affecte PAS le pity : c'est un tirage bonus hors flux principal, pas un tour normal.
 function startDoubleEncounter(game, player) {
-  const useCharm = player.hasShinyCharm && game.turn >= 5;
+  const useCharm = !!player.hasShinyCharm;
   const optionA = buildRewardOption(useCharm, player.pity, undefined, undefined, game.gameMode);
   let optionB = buildRewardOption(useCharm, player.pity, undefined, undefined, game.gameMode);
   let guard = 0;
@@ -3579,92 +3552,6 @@ function startLuckyTurn(game, player) {
   return null; // effet différé, rien à résoudre maintenant
 }
 
-// ---- LOTERIE : 3 cartes générées côté serveur (le client ne voit que leur nombre),
-// le joueur choisit un index, jamais le contenu. Récompenses variées en réutilisant
-// exactement les systèmes existants (Pokémon / points / trait / évolution). ----
-const LOTTERY_POINTS_MIN = 150;
-const LOTTERY_POINTS_MAX = 350;
-
-function buildLotteryCard(game, player) {
-  const kinds = ['pokemon', 'points'];
-  if (player.team.length > 0) kinds.push('trait');
-  if (player.team.some(mon => EVOLUTION_MAP[mon.id])) kinds.push('evolution');
-  const kind = randomFrom(kinds);
-
-  if (kind === 'points') {
-    const points = LOTTERY_POINTS_MIN + Math.floor(Math.random() * (LOTTERY_POINTS_MAX - LOTTERY_POINTS_MIN + 1));
-    return { kind, points };
-  }
-  if (kind === 'trait') {
-    const teamIndex = Math.floor(Math.random() * player.team.length);
-    const effect = randomFrom(EFFECTS.filter(e => e.name !== 'Neutre'));
-    return { kind, teamIndex, effect };
-  }
-  if (kind === 'evolution') {
-    const eligible = player.team.map((mon, index) => ({ index, mon })).filter(({ mon }) => EVOLUTION_MAP[mon.id]);
-    const pick = randomFrom(eligible);
-    return { kind, teamIndex: pick.index };
-  }
-  // kind === 'pokemon' (toujours disponible, défaut)
-  const useCharm = player.hasShinyCharm && game.turn >= 5;
-  return { kind: 'pokemon', pokemon: buildRewardOption(useCharm, player.pity, undefined, undefined, game.gameMode) };
-}
-
-function startLottery(game, player) {
-  const cards = [1, 2, 3].map(() => buildLotteryCard(game, player));
-  player.activeEvent = { type: EVENT_TYPES.LOTTERY, cards };
-  io.to(player.id).emit('rare_event_start', {
-    type: EVENT_TYPES.LOTTERY,
-    label: 'Loterie',
-    cardCount: cards.length // le client ne connaît QUE le nombre de cartes, jamais leur contenu
-  });
-  return player.activeEvent;
-}
-
-function resolveLottery(game, player, action) {
-  const cards = player.activeEvent.cards;
-  const index = action && Number.isInteger(action.index) && action.index >= 0 && action.index < cards.length
-    ? action.index
-    : null;
-  if (index === null) return { error: 'Choix invalide.' };
-
-  const card = cards[index];
-  const result = { type: EVENT_TYPES.LOTTERY, kind: card.kind };
-
-  if (card.kind === 'pokemon') {
-    player.score += card.pokemon.finalPoints;
-    pushMonToTeam(player, teamMonFromReward(card.pokemon));
-    result.pokemon = { name: card.pokemon.name, sprite: card.pokemon.sprite };
-    result.rarity = card.pokemon.rarity;
-    result.pointsGained = card.pokemon.finalPoints;
-  } else if (card.kind === 'points') {
-    player.score += card.points;
-    result.pointsGained = card.points;
-  } else if (card.kind === 'trait') {
-    const mon = player.team[card.teamIndex];
-    if (mon) {
-      result.scoreDelta = applyMonMutation(player, mon, m => assignEffect(m, card.effect));
-      result.pokemonName = mon.name;
-      result.sprite = mon.sprite;
-      result.effect = { name: card.effect.name, multiplier: card.effect.multiplier };
-    }
-  } else if (card.kind === 'evolution') {
-    const mon = player.team[card.teamIndex];
-    const evolution = mon && EVOLUTION_MAP[mon.id];
-    if (mon && evolution) {
-      let fromName;
-      result.scoreDelta = applyMonMutation(player, mon, m => { fromName = evolveMon(m, evolution); });
-      result.from = fromName;
-      result.to = mon.name;
-      result.sprite = mon.sprite;
-    }
-  }
-
-  result.score = player.score;
-  result.team = player.team;
-  return { result };
-}
-
 // ---- FAILLE SPATIO-TEMPORELLE : table spéciale (plancher pseudo-légendaire), reste un
 // tirage RNG normal via le même mécanisme poids+normalisation — jamais 100% légendaire.
 // Instantané, comme SHINY_POKEMON/LUCKY_TURN : aucun choix décrit pour cet événement. ----
@@ -3673,7 +3560,7 @@ const TIME_RIFT_FLOOR_RARITY = 'pseudo_legendaire'; // uniquement pseudo-légend
 // Ne grossit JAMAIS l'équipe au-delà de 6 : le tirage spécial est proposé, mais le
 // joueur doit choisir lequel de ses Pokémon actuels il remplace, ou skip (rien ne change).
 function startTimeRift(game, player) {
-  const useCharm = player.hasShinyCharm && game.turn >= 5;
+  const useCharm = !!player.hasShinyCharm;
   const reward = buildRewardOption(useCharm, player.pity, TIME_RIFT_FLOOR_RARITY, undefined, game.gameMode);
 
   player.activeEvent = { type: EVENT_TYPES.TIME_RIFT, reward };
@@ -3685,47 +3572,6 @@ function startTimeRift(game, player) {
     team: player.team.map((mon, index) => ({ index, id: mon.id, name: mon.name, sprite: mon.sprite }))
   });
   return player.activeEvent;
-}
-
-// ---- MÉGA GEMME : SEUL moyen d'obtenir un méga en mode normal (cf. EVENT_DEFINITIONS
-// pour la probabilité dédiée, très faible). Instantané comme SHINY_POKEMON/LUCKY_TURN :
-// ajoute directement un méga à l'équipe (jamais de choix à faire), bonus ×1.5 déjà inclus
-// (cf. MEGA_POINTS_MULTIPLIER). Pioche directement dans POKEMON_POOLS.mega plutôt que par
-// pickRarity : on veut TOUJOURS un méga ici, jamais "méga ou mieux".
-function startMegaGem(game, player) {
-  const pokemon = randomFrom(POKEMON_POOLS.mega);
-  const effect = pickEffect();
-  const shiny = rollShiny();
-  const finalPoints = Math.round(
-    pokemon.points * effect.multiplier * (shiny ? SHINY_POINTS_MULTIPLIER : 1) * MEGA_POINTS_MULTIPLIER
-  );
-  const reward = {
-    pokemonId: pokemon.id,
-    name: pokemon.name,
-    sprite: pokemon.sprite,
-    rarity: pokemon.rarity,
-    basePoints: pokemon.points,
-    effectName: effect.name,
-    multiplier: effect.multiplier,
-    shiny,
-    shinySprite: shiny ? shinySpriteUrl(pokemon.id) : null,
-    finalPoints
-  };
-
-  player.score += reward.finalPoints;
-  pushMonToTeam(player, teamMonFromReward(reward));
-
-  broadcastGameUpdated(game); // score/équipe changés hors du flux de tour déjà diffusé par finalizePlayerTurn
-  io.to(player.id).emit('rare_event_result', {
-    type: EVENT_TYPES.MEGA_GEM,
-    label: 'Méga Gemme',
-    pokemon: { name: reward.name, sprite: reward.sprite },
-    rarity: reward.rarity,
-    pointsGained: reward.finalPoints,
-    score: player.score,
-    team: player.team
-  });
-  return null; // instantané, rien à résoudre plus tard
 }
 
 function resolveTimeRift(game, player, action) {
@@ -3921,7 +3767,6 @@ function resolveEventAction(game, player, action) {
     case EVENT_TYPES.DOUBLE_OR_NOTHING: return resolveDoubleOrNothing(game, player, action);
     case EVENT_TYPES.HIDDEN_TALENT: return resolveHiddenTalent(game, player, action);
     case EVENT_TYPES.INSTANT_EVOLUTION: return resolveInstantEvolution(game, player, action);
-    case EVENT_TYPES.LOTTERY: return resolveLottery(game, player, action);
     case EVENT_TYPES.TIME_RIFT: return resolveTimeRift(game, player, action);
     case EVENT_TYPES.DUEL: return resolveDuel(game, player, action);
     default: return { error: "Type d'événement inconnu." };
@@ -4121,13 +3966,14 @@ async function loadPersistedGames() {
 // -----------------------------------------------------------------
 const GAME_MODES = ['normal', 'admin', 'guess', 'auction', 'coop'];
 
-// Multiplicateur appliqué à boss.requiredPoints pour obtenir l'objectif D'ÉQUIPE en mode
-// Coop (cf. finishGame) : CHAQUE joueur (le 1er inclus) ajoute son propre +50% de la vie
-// de base du boss. Pas de plafond de joueurs (2 minimum, illimité au-delà) — game.boss
-// est TOUJOURS cloné (jamais la référence partagée de BOSSES) avant d'y ajouter ce champ,
-// pour ne jamais muter les objets boss partagés entre parties (cf. start_game).
+// Objectif D'ÉQUIPE en mode Coop (cf. finishGame) : la vie de base du boss (100%, déjà
+// buffée dans BOSSES comme en mode normal) PLUS +50% de cette vie de base pour CHAQUE
+// joueur, le 1er inclus → 2 joueurs = ×2, 3 = ×2,5, 4 = ×3, etc. (pas de plafond de
+// joueurs, 2 minimum). game.boss est TOUJOURS cloné (jamais la référence partagée de
+// BOSSES) avant d'y ajouter ce champ, pour ne jamais muter les objets boss partagés
+// entre parties (cf. beginRouteGameplay).
 function computeCoopTeamRequiredPoints(boss, playerCount) {
-  return Math.round(boss.requiredPoints * 0.5 * playerCount);
+  return Math.round(boss.requiredPoints * (1 + 0.5 * playerCount));
 }
 
 // -----------------------------------------------------------------
