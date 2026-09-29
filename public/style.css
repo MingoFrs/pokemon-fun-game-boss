@@ -2555,8 +2555,17 @@ input:focus {
   position: fixed;
   left: 50%;
   bottom: 18px;
-  transform: translateX(-50%);
   z-index: 30;
+  opacity: 0;
+  transform: translate(-50%, 14px);
+  pointer-events: none;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.item-inventory-bar--visible {
+  opacity: 1;
+  transform: translate(-50%, 0);
+  pointer-events: auto;
 }
 
 .item-inventory-btn {

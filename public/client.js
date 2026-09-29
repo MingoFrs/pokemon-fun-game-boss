@@ -1586,75 +1586,124 @@ function updateReplayControls() {
     : "En attente que l'hôte relance une partie...";
 }
 
+// Cache de lignes par liste (lobby ET en jeu partagent cette fonction, cf. renderLobbyPlayers /
+// applyGameState) : réutilise le DOM existant d'un joueur au lieu de tout détruire/recréer à
+// CHAQUE mise à jour (un choix de n'importe quel joueur rediffuse la liste à tout le monde,
+// cf. finalizePlayerTurn) — sans ça, les avatars et mini-équipes clignotaient et le tout
+// devenait perceptiblement moins fluide à mesure que le nombre de joueurs grandissait
+// (mode Coop notamment, illimité). Indexé par élément de liste (WeakMap) pour ne jamais
+// mélanger le cache du lobby avec celui de l'écran de jeu.
+const playerRowCache = new WeakMap();
+
+function buildPlayerRow(p) {
+  const li = document.createElement('li');
+
+  const row = document.createElement('div');
+  row.className = 'player-item__row';
+
+  const identity = document.createElement('div');
+  identity.className = 'player-item__identity';
+
+  const avatarImg = document.createElement('img');
+  avatarImg.className = 'player-item__avatar';
+  avatarImg.alt = '';
+
+  const name = document.createElement('span');
+  const nameText = document.createTextNode('');
+  const hostTag = document.createElement('span');
+  hostTag.className = 'player-host';
+  hostTag.textContent = 'Hôte';
+  const offlineTag = document.createElement('span');
+  offlineTag.className = 'player-offline';
+  offlineTag.textContent = 'Hors ligne';
+  const check = document.createElement('span');
+  check.className = 'player-check';
+  check.textContent = '✓';
+  name.append(nameText, hostTag, offlineTag, check);
+
+  const score = document.createElement('span');
+  score.className = 'player-score';
+
+  identity.appendChild(name);
+  row.appendChild(identity);
+  row.appendChild(score);
+  li.appendChild(row);
+
+  const teamRow = document.createElement('div');
+  teamRow.className = 'player-item__team';
+
+  return { li, identity, avatarImg, nameText, hostTag, offlineTag, check, score, teamRow, teamCount: 0, avatarKey: null };
+}
+
+function updatePlayerRow(refs, p) {
+  refs.li.classList.toggle('player-item--disconnected', !!p.disconnected);
+
+  if (p.avatar) {
+    if (refs.avatarKey !== p.avatar) {
+      refs.avatarKey = p.avatar;
+      refs.avatarImg.src = avatarUrl(p.avatar); // seulement si l'avatar a réellement changé
+      if (!refs.avatarImg.isConnected) refs.identity.insertBefore(refs.avatarImg, refs.identity.firstChild);
+    }
+  } else if (refs.avatarImg.isConnected) {
+    refs.avatarImg.remove();
+    refs.avatarKey = null;
+  }
+
+  if (refs.nameText.data !== p.name) refs.nameText.data = p.name;
+  refs.hostTag.classList.toggle('screen--hidden', p.id !== hostId);
+  refs.offlineTag.classList.toggle('screen--hidden', !p.disconnected);
+  refs.check.classList.toggle('screen--hidden', !p.hasChosen);
+
+  const scoreText = `${p.score} pts`;
+  if (refs.score.textContent !== scoreText) refs.score.textContent = scoreText;
+
+  // Mini équipe (sprites en petit) : l'équipe ne fait que grandir pendant une partie (jamais
+  // réordonnée/raccourcie), donc ajouter les icônes manquantes suffit — jamais besoin de tout
+  // reconstruire. Volontairement en LECTURE SEULE, aucune donnée secrète (pas d'effet/rareté/
+  // points), juste ce que tout le monde verra de toute façon à l'écran de fin.
+  const team = p.team || [];
+  if (team.length !== refs.teamCount) {
+    if (team.length < refs.teamCount) refs.teamRow.innerHTML = ''; // équipe reset (nouvelle partie)
+    for (let i = refs.teamRow.children.length; i < team.length; i++) {
+      const icon = document.createElement('img');
+      icon.className = 'player-item__team-icon';
+      icon.src = pokemonSprite(team[i]);
+      icon.alt = team[i].name;
+      refs.teamRow.appendChild(icon);
+    }
+    refs.teamCount = team.length;
+    if (team.length > 0 && !refs.teamRow.isConnected) refs.li.appendChild(refs.teamRow);
+    if (team.length === 0 && refs.teamRow.isConnected) refs.teamRow.remove();
+  }
+}
+
 function renderPlayers(listEl, players) {
-  listEl.innerHTML = '';
-  players.forEach(p => {
-    const li = document.createElement('li');
-    li.classList.toggle('player-item--disconnected', !!p.disconnected);
+  let cache = playerRowCache.get(listEl);
+  if (!cache) {
+    cache = new Map();
+    playerRowCache.set(listEl, cache);
+  }
 
-    const row = document.createElement('div');
-    row.className = 'player-item__row';
-
-    const identity = document.createElement('div');
-    identity.className = 'player-item__identity';
-
-    if (p.avatar) {
-      const avatarImg = document.createElement('img');
-      avatarImg.className = 'player-item__avatar';
-      avatarImg.src = avatarUrl(p.avatar);
-      avatarImg.alt = '';
-      identity.appendChild(avatarImg);
+  const seen = new Set();
+  players.forEach((p, index) => {
+    seen.add(p.id);
+    let refs = cache.get(p.id);
+    if (!refs) {
+      refs = buildPlayerRow(p);
+      cache.set(p.id, refs);
     }
-
-    const name = document.createElement('span');
-    name.textContent = p.name;
-    if (p.id === hostId) {
-      const hostTag = document.createElement('span');
-      hostTag.className = 'player-host';
-      hostTag.textContent = 'Hôte';
-      name.appendChild(hostTag);
+    updatePlayerRow(refs, p);
+    if (listEl.children[index] !== refs.li) {
+      listEl.insertBefore(refs.li, listEl.children[index] || null);
     }
-    if (p.disconnected) {
-      const offlineTag = document.createElement('span');
-      offlineTag.className = 'player-offline';
-      offlineTag.textContent = 'Hors ligne';
-      name.appendChild(offlineTag);
-    }
-    if (p.hasChosen) {
-      const check = document.createElement('span');
-      check.className = 'player-check';
-      check.textContent = '✓';
-      name.appendChild(check);
-    }
-
-    const score = document.createElement('span');
-    score.className = 'player-score';
-    score.textContent = `${p.score} pts`;
-
-    identity.appendChild(name);
-    row.appendChild(identity);
-    row.appendChild(score);
-    li.appendChild(row);
-
-    // Mini équipe (sprites en petit) : uniquement une fois que le joueur a des Pokémon
-    // (lobby -> team toujours vide, rien ne s'affiche). Volontairement en LECTURE SEULE,
-    // aucune donnée secrète (pas d'effet/rareté/points), juste ce que tout le monde verra
-    // de toute façon à l'écran de fin.
-    if (p.team && p.team.length > 0) {
-      const teamRow = document.createElement('div');
-      teamRow.className = 'player-item__team';
-      p.team.forEach(mon => {
-        const icon = document.createElement('img');
-        icon.className = 'player-item__team-icon';
-        icon.src = pokemonSprite(mon);
-        icon.alt = mon.name;
-        teamRow.appendChild(icon);
-      });
-      li.appendChild(teamRow);
-    }
-
-    listEl.appendChild(li);
   });
+
+  for (const [id, refs] of cache) {
+    if (!seen.has(id)) {
+      refs.li.remove();
+      cache.delete(id);
+    }
+  }
 }
 
 function renderLobbyPlayers(players) {
@@ -2372,7 +2421,7 @@ function resetGameUI() {
   showTurnPhase('none');
   hideBonusTargetOverlay();
   bonusTargetListEl.innerHTML = '';
-  itemInventoryBarEl.classList.add('screen--hidden');
+  itemInventoryBarEl.classList.remove('item-inventory-bar--visible');
   btnUseItem.disabled = true;
   itemSelectOverlayEl.classList.add('screen--hidden'); // filet de sécurité (your_item la masque déjà normalement)
 
@@ -3104,10 +3153,10 @@ socket.on('starting_item_options', ({ bonuses }) => {
 socket.on('your_item', ({ item, used, passive }) => {
   itemSelectOverlayEl.classList.add('screen--hidden');
   if (!item) {
-    itemInventoryBarEl.classList.add('screen--hidden');
+    itemInventoryBarEl.classList.remove('item-inventory-bar--visible');
     return;
   }
-  itemInventoryBarEl.classList.remove('screen--hidden');
+  itemInventoryBarEl.classList.add('item-inventory-bar--visible');
   itemInventoryIconEl.textContent = ITEM_ICONS[item] || '🎁';
   const name = BONUS_LABELS_CLIENT[item] || '';
   // Objet passif (Charme Chroma) : simple rappel "actif", jamais cliquable.
