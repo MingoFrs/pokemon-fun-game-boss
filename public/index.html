@@ -695,20 +695,25 @@
      Affiché par-dessus le lobby dès que tous les joueurs ont cliqué "Démarrer" ; disparaît de
      lui-même au 'game_started' qui suit (une fois TOUS les joueurs choisis, cf. client.js). -->
 <div id="item-select-overlay" class="event-overlay screen--hidden">
-  <div class="event-modal">
+  <div class="event-modal item-select-modal">
     <p class="event-modal__eyebrow">Avant de partir</p>
     <h3 class="event-modal__title">Choisis ton objet de départ</h3>
-    <p class="item-select-hint">Il te suivra toute la partie — utilisable quand tu veux depuis ton inventaire.</p>
-    <div class="choice-cards">
+    <p class="item-select-hint">Il te suit toute la partie — à utiliser quand tu veux depuis ton inventaire (sauf le Charme Chroma, passif).</p>
+    <div class="choice-cards choice-cards--three">
       <button id="start-item-card-a" type="button" class="choice-card choice-card--haut">
-        <span class="choice-card__icon">🎁</span>
+        <span id="start-item-card-a-icon" class="choice-card__icon">🎁</span>
         <p id="start-item-card-a-label" class="choice-card__name">???</p>
         <span id="start-item-card-a-desc" class="choice-card__label"></span>
       </button>
       <button id="start-item-card-b" type="button" class="choice-card choice-card--bas">
-        <span class="choice-card__icon">🎁</span>
+        <span id="start-item-card-b-icon" class="choice-card__icon">🎁</span>
         <p id="start-item-card-b-label" class="choice-card__name">???</p>
         <span id="start-item-card-b-desc" class="choice-card__label"></span>
+      </button>
+      <button id="start-item-card-c" type="button" class="choice-card choice-card--haut">
+        <span id="start-item-card-c-icon" class="choice-card__icon">🎁</span>
+        <p id="start-item-card-c-label" class="choice-card__name">???</p>
+        <span id="start-item-card-c-desc" class="choice-card__label"></span>
       </button>
     </div>
     <p id="item-select-status" class="item-select-status screen--hidden">Objet choisi — en attente des autres joueurs...</p>

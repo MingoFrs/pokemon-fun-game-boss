@@ -2594,6 +2594,30 @@ input:focus {
 }
 
 /* ---------- Choix de l'objet de départ (pré-partie) ---------- */
+/* Choix d'objet de départ : 3 cartes côte à côte (modale plus large que les .event-modal
+   standard), empilées sur mobile. */
+.event-modal.item-select-modal {
+  max-width: 660px;
+}
+
+.choice-cards--three .choice-card {
+  min-width: 0;
+}
+
+@media (max-width: 640px) {
+  .choice-cards--three {
+    flex-direction: column;
+  }
+}
+
+/* Objet passif (Charme Chroma) : simple rappel "actif", pas un bouton — plein contraste,
+   aucun effet de survol, curseur par défaut. */
+.item-inventory-btn.item-inventory-btn--passive:disabled {
+  opacity: 1;
+  cursor: default;
+  border-color: var(--accent-bas);
+}
+
 .item-select-hint {
   font-size: 12px;
   color: var(--text-muted);

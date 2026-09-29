@@ -1002,8 +1002,9 @@ function shinySpriteUrl(dexId) {
 const SHINY_CHANCE = 0.02;
 const SHINY_POINTS_MULTIPLIER = 1.5;
 
-function rollShiny() {
-  return Math.random() < SHINY_CHANCE;
+// doubled = true pour un joueur qui a le Charme Chroma (passif) : chances de shiny ×2.
+function rollShiny(doubled) {
+  return Math.random() < SHINY_CHANCE * (doubled ? 2 : 1);
 }
 
 // -----------------------------------------------------------------
@@ -2506,19 +2507,27 @@ function pickRandomBoss(group) {
   return randomFrom(pool.length ? pool : BOSSES); // filet de sécurité si groupe invalide/vide
 }
 
-// Bonus du tour 4 spécial. Poids = probabilité d'être PROPOSÉ (parmi les 2 options),
-// pas une garantie d'obtention : le joueur choisit ensuite lequel des deux il prend.
+// Objets de départ (choisis avant le tour 1). Poids = probabilité d'être PROPOSÉ (parmi
+// les 3 options tirées), pas une garantie d'obtention : le joueur choisit ensuite lequel
+// des trois il prend. La Méga Gemme est proposée un peu moins souvent (très puissante).
 const BONUS_WEIGHTS = {
-  xpCandy: 35,
-  mysteryItem: 35,
-  shinyCharm: 30
+  xpCandy: 30,
+  mysteryItem: 30,
+  shinyCharm: 30,
+  megaGem: 20
 };
 
 const BONUS_LABELS = {
   xpCandy: 'Bonbon XP',
   mysteryItem: 'Objet Mystère',
-  shinyCharm: 'Charme Chroma'
+  shinyCharm: 'Charme Chroma',
+  megaGem: 'Méga Gemme'
 };
+
+// Objets PASSIFS : effet actif toute la partie dès le choix de départ, jamais cliquables
+// (pas de use_item) — cf. starting_item_choice. Tous les autres se déclenchent au clic.
+const PASSIVE_ITEMS = new Set(['shinyCharm']);
+const STARTING_ITEM_CHOICES = 3;
 
 function weightedPickKey(entries) {
   const total = entries.reduce((sum, e) => sum + e.weight, 0);
@@ -2530,15 +2539,19 @@ function weightedPickKey(entries) {
   return entries[entries.length - 1].key;
 }
 
-// Tire 2 objets DIFFÉRENTS parmi les 3 possibles, pour le choix de DÉBUT DE PARTIE (avant
-// tour 1, cf. start_game), où l'équipe est encore vide — l'éligibilité (ex. Bonbon XP sans
-// Pokémon évoluable) est revérifiée plus tard, au moment de l'UTILISATION (cf. use_item).
-function pickTwoStartingItemKeys() {
-  const available = Object.keys(BONUS_WEIGHTS).map(key => ({ key, weight: BONUS_WEIGHTS[key] }));
-  const first = weightedPickKey(available);
-  const remaining = available.filter(e => e.key !== first);
-  const second = weightedPickKey(remaining);
-  return [first, second];
+// Tire STARTING_ITEM_CHOICES objets DIFFÉRENTS (tirage pondéré sans remise) pour le choix
+// de DÉBUT DE PARTIE (avant tour 1, cf. start_game), où l'équipe est encore vide —
+// l'éligibilité (ex. Bonbon XP sans Pokémon évoluable) est revérifiée plus tard, au moment
+// de l'UTILISATION (cf. use_item).
+function pickStartingItemKeys() {
+  let remaining = Object.keys(BONUS_WEIGHTS).map(key => ({ key, weight: BONUS_WEIGHTS[key] }));
+  const picked = [];
+  while (picked.length < STARTING_ITEM_CHOICES && remaining.length) {
+    const key = weightedPickKey(remaining);
+    picked.push(key);
+    remaining = remaining.filter(e => e.key !== key);
+  }
+  return picked;
 }
 
 function randomFrom(list) {
@@ -2624,7 +2637,7 @@ function buildRewardOption(useCharm, pity, floorRarity, extraBoost, gameMode) {
   const rarity = pickRarity(useCharm, pity, floorRarity, extraBoost, gameMode);
   const pokemon = randomFrom(POKEMON_POOLS[rarity]);
   const effect = pickEffect();
-  const shiny = rollShiny();
+  const shiny = rollShiny(useCharm); // Charme Chroma : ×2 chances de shiny
   const finalPoints = Math.round(
     pokemon.points *
     effect.multiplier *
@@ -2632,6 +2645,29 @@ function buildRewardOption(useCharm, pity, floorRarity, extraBoost, gameMode) {
     (rarity === 'mega' ? MEGA_POINTS_MULTIPLIER : 1)
   );
 
+  return {
+    pokemonId: pokemon.id,
+    name: pokemon.name,
+    sprite: pokemon.sprite,
+    rarity: pokemon.rarity,
+    basePoints: pokemon.points,
+    effectName: effect.name,
+    multiplier: effect.multiplier,
+    shiny,
+    shinySprite: shiny ? shinySpriteUrl(pokemon.id) : null,
+    finalPoints
+  };
+}
+
+// Récompense de l'objet MÉGA GEMME (utilisé à la demande, cf. use_item) : TOUJOURS un méga
+// (jamais "méga ou mieux"), tiré directement dans POKEMON_POOLS.mega, bonus ×1.5 inclus.
+function buildMegaGemReward() {
+  const pokemon = randomFrom(POKEMON_POOLS.mega);
+  const effect = pickEffect();
+  const shiny = rollShiny();
+  const finalPoints = Math.round(
+    pokemon.points * effect.multiplier * (shiny ? SHINY_POINTS_MULTIPLIER : 1) * MEGA_POINTS_MULTIPLIER
+  );
   return {
     pokemonId: pokemon.id,
     name: pokemon.name,
@@ -3800,9 +3836,9 @@ function buildRoute() {
 // player = {
 //   id, name, score, team, currentChoice,
 //   currentOptions: { haut, bas } (secret, jamais envoyé tel quel au client),
-//   hasShinyCharm: bool (Charme Chroma actif, propre au joueur, effet immédiat une fois activé),
-//   startItemOptions: [keyA, keyB] | null (2 objets proposés avant le tour 1, secret intermédiaire),
-//   heldItem: 'xpCandy' | 'mysteryItem' | 'shinyCharm' | null (objet retenu pour toute la partie),
+//   hasShinyCharm: bool (Charme Chroma passif, actif toute la partie si choisi au départ),
+//   startItemOptions: [key, key, key] | null (3 objets proposés avant le tour 1, secret intermédiaire),
+//   heldItem: 'xpCandy' | 'mysteryItem' | 'shinyCharm' | 'megaGem' | null (objet retenu pour toute la partie),
 //   heldItemUsed: bool (objet déjà consommé ou non — utilisable une seule fois, à tout moment),
 //   pendingBonusKey: 'xpCandy' | 'mysteryItem' | null (objet en cours d'utilisation, attente de la cible)
 // }
@@ -4145,12 +4181,12 @@ function broadcastGameUpdated(game) {
 }
 
 // Génère et envoie individuellement à chaque joueur ses 2 choix (sprite + nom uniquement).
-// Le Charme Chroma (par joueur) n'améliore les probabilités qu'aux tours 5 et 6.
+// Le Charme Chroma (passif, choisi avant le tour 1) agit sur TOUS les tours : meilleures
+// raretés et chances de shiny ×2.
 function assignTurnOptions(game) {
   game.players.forEach(p => {
-    // Plus de restriction de tour : depuis le passage à l'inventaire d'objets (choisi
-    // avant le tour 1, activable à tout moment via use_item), le Charme Chroma s'applique
-    // dès qu'il est activé, quel que soit le tour en cours.
+    // Le Charme Chroma est un objet PASSIF (cf. PASSIVE_ITEMS) : actif dès le tour 1 si le
+    // joueur l'a choisi au départ, sans aucune restriction de tour.
     const useCharm = !!p.hasShinyCharm;
     p.currentOptions = pickPlayerTurnOptions(useCharm, p.pity, p.rarityFloor || undefined, p.rarityBoost || undefined, game.gameMode);
     p.rarityFloor = null; // effet LUCKY_TURN consommé, à usage unique
@@ -4226,7 +4262,7 @@ function beginRouteGameplay(game, gameId) {
   // État de l'objet : privé à chacun (jamais dans le payload ci-dessus, partagé par toute
   // la room) — chaque joueur reçoit UNIQUEMENT le sien.
   game.players.forEach(p => {
-    io.to(p.id).emit('your_item', { item: p.heldItem, used: p.heldItemUsed });
+    io.to(p.id).emit('your_item', { item: p.heldItem, used: p.heldItemUsed, passive: PASSIVE_ITEMS.has(p.heldItem) });
   });
 
   startTurnForPlayers(game);
@@ -4407,7 +4443,7 @@ function maybeScheduleTurnTransition(game) {
 }
 
 // Point de sortie commun à la fin d'un tour, que le joueur ait choisi POKÉMON (HAUT/BAS)
-// ou BONUS (Bonbon XP / Objet Mystère / Charme Chroma) — un seul chemin de code pour
+// ou BONUS (ancien flux du tour 4, supprimé) — un seul chemin de code pour
 // diffuser l'état et planifier la transition, évite toute divergence entre les deux flux.
 // C'est aussi le point d'accroche des événements rares : tirés pour CE joueur uniquement,
 // jamais pour les autres. Le tirage doit précéder la vérification de transition : un
@@ -5125,14 +5161,14 @@ io.on('connection', (socket) => {
     }
 
     // Choix de l'objet de départ AVANT le tour 1 (remplace l'ancien choix spécial du
-    // tour 4, cf. socket.on('starting_item_choice')) : chaque joueur reçoit 2 options,
+    // tour 4, cf. socket.on('starting_item_choice')) : chaque joueur reçoit 3 options,
     // le tour 1 ne démarre (beginRouteGameplay) qu'une fois TOUS les joueurs choisis.
     game.status = 'item_select';
     game.players.forEach(p => {
-      const [keyA, keyB] = pickTwoStartingItemKeys();
-      p.startItemOptions = [keyA, keyB];
+      const keys = pickStartingItemKeys();
+      p.startItemOptions = keys;
       io.to(p.id).emit('starting_item_options', {
-        bonuses: [keyA, keyB].map(key => ({ key, label: BONUS_LABELS[key] }))
+        bonuses: keys.map(key => ({ key, label: BONUS_LABELS[key] }))
       });
     });
     io.to(gameId).emit('item_select_started', { gameMode: game.gameMode, players: getPublicPlayers(game) });
@@ -5813,9 +5849,12 @@ io.on('connection', (socket) => {
     }
 
     player.heldItem = key;
-    player.heldItemUsed = false;
     player.startItemOptions = null;
-    socket.emit('your_item', { item: player.heldItem, used: false });
+    // Objet passif (Charme Chroma) : actif toute la partie dès maintenant, rien à cliquer.
+    const passive = PASSIVE_ITEMS.has(key);
+    if (key === 'shinyCharm') player.hasShinyCharm = true;
+    player.heldItemUsed = passive;
+    socket.emit('your_item', { item: player.heldItem, used: player.heldItemUsed, passive });
 
     if (game.players.every(p => p.heldItem)) {
       beginRouteGameplay(game, gameId);
@@ -5852,11 +5891,30 @@ io.on('connection', (socket) => {
       return;
     }
 
-    if (player.heldItem === 'shinyCharm') {
-      player.hasShinyCharm = true;
+    if (PASSIVE_ITEMS.has(player.heldItem)) {
+      socket.emit('error_message', 'Cet objet est passif : il est déjà actif toute la partie.');
+      return;
+    }
+
+    if (player.heldItem === 'megaGem') {
+      if (player.team.length >= MAX_TEAM_SIZE) {
+        socket.emit('error_message', 'Ton équipe est déjà pleine.');
+        return;
+      }
+      const reward = buildMegaGemReward();
+      player.score += reward.finalPoints;
+      pushMonToTeam(player, teamMonFromReward(reward));
       player.heldItemUsed = true;
-      socket.emit('bonus_result', { type: 'shinyCharm', score: player.score, team: player.team });
-      broadcastGameUpdated(game); // score d'équipe (coop) inchangé ici mais garde tout le monde synchro
+      socket.emit('bonus_result', {
+        type: 'megaGem',
+        pokemonName: reward.name,
+        sprite: reward.shiny && reward.shinySprite ? reward.shinySprite : reward.sprite,
+        shiny: reward.shiny,
+        scoreDelta: reward.finalPoints,
+        score: player.score,
+        team: player.team
+      });
+      broadcastGameUpdated(game); // score d'équipe (coop) à jour pour tout le monde
       return;
     }
 

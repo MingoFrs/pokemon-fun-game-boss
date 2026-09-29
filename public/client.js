@@ -1281,18 +1281,19 @@ const choiceCardsEl = document.getElementById('choice-cards');
 const bonusTargetOverlayEl = document.getElementById('bonus-target-overlay');
 const btnBonusTargetCancel = document.getElementById('btn-bonus-target-cancel');
 const itemSelectOverlayEl = document.getElementById('item-select-overlay');
-const startItemCardA = document.getElementById('start-item-card-a');
-const startItemCardALabelEl = document.getElementById('start-item-card-a-label');
-const startItemCardADescEl = document.getElementById('start-item-card-a-desc');
-const startItemCardB = document.getElementById('start-item-card-b');
-const startItemCardBLabelEl = document.getElementById('start-item-card-b-label');
-const startItemCardBDescEl = document.getElementById('start-item-card-b-desc');
+// 3 cartes de choix d'objet de départ : { bouton, icône, nom, description } par carte.
+const startItemCards = ['a', 'b', 'c'].map(k => ({
+  btn: document.getElementById(`start-item-card-${k}`),
+  icon: document.getElementById(`start-item-card-${k}-icon`),
+  label: document.getElementById(`start-item-card-${k}-label`),
+  desc: document.getElementById(`start-item-card-${k}-desc`)
+}));
 const itemSelectStatusEl = document.getElementById('item-select-status');
 const itemInventoryBarEl = document.getElementById('item-inventory-bar');
 const btnUseItem = document.getElementById('btn-use-item');
 const itemInventoryIconEl = document.getElementById('item-inventory-icon');
 const itemInventoryLabelEl = document.getElementById('item-inventory-label');
-const ITEM_ICONS = { xpCandy: '🍬', mysteryItem: '❓', shinyCharm: '✨' };
+const ITEM_ICONS = { xpCandy: '🍬', mysteryItem: '❓', shinyCharm: '✨', megaGem: '💎' };
 const bonusTargetTitleEl = document.getElementById('bonus-target-title');
 const bonusTargetListEl = document.getElementById('bonus-target-list');
 const bonusResultPanelEl = document.getElementById('bonus-result-panel');
@@ -1373,13 +1374,15 @@ const DIFFICULTY_LABELS = {
 const BONUS_LABELS_CLIENT = {
   xpCandy: 'Bonbon XP',
   mysteryItem: 'Objet Mystère',
-  shinyCharm: 'Charme Chroma'
+  shinyCharm: 'Charme Chroma',
+  megaGem: 'Méga Gemme'
 };
 
 const BONUS_DESCRIPTIONS = {
   xpCandy: 'Fait évoluer un Pokémon de ton équipe jusqu\'à sa forme finale.',
   mysteryItem: 'Applique un trait aléatoire à un Pokémon — quitte ou double.',
-  shinyCharm: 'Améliore tes chances de Pokémon puissants dès son activation.'
+  shinyCharm: 'Passif, tous les tours : meilleurs Pokémon et ×2 de chances de shiny.',
+  megaGem: 'Ajoute un Pokémon méga (×1.5 pts) à ton équipe, quand tu veux.'
 };
 
 // ---------- Helpers UI ----------
@@ -2288,14 +2291,20 @@ function showBonusResult(data) {
   const titles = {
     xpCandy: 'Bonbon XP',
     mysteryItem: 'Objet Mystère',
-    shinyCharm: 'Charme Chroma'
+    shinyCharm: 'Charme Chroma',
+    megaGem: 'Méga Gemme'
   };
   bonusResultTitleEl.textContent = titles[data.type] || '';
 
   if (data.type === 'shinyCharm') {
     bonusResultSpriteEl.classList.add('screen--hidden');
-    bonusResultDetailEl.textContent = 'Activé pour les tours 5 et 6 !';
+    bonusResultDetailEl.textContent = 'Actif toute la partie !';
     bonusResultFinalEl.textContent = '';
+  } else if (data.type === 'megaGem') {
+    bonusResultSpriteEl.classList.remove('screen--hidden');
+    bonusResultSpriteEl.src = data.sprite;
+    bonusResultDetailEl.textContent = `${data.shiny ? '✨ ' : ''}${data.pokemonName} rejoint ton équipe !`;
+    bonusResultFinalEl.textContent = `+${data.scoreDelta} PTS`;
   } else if (data.type === 'xpCandy') {
     bonusResultSpriteEl.classList.remove('screen--hidden');
     bonusResultSpriteEl.src = data.sprite;
@@ -2681,18 +2690,12 @@ btnBas.addEventListener('click', () => {
 });
 
 // ---------- Actions : objet de départ (avant tour 1) et inventaire (à tout moment) ----------
-startItemCardA.addEventListener('click', () => {
-  startItemCardA.disabled = true;
-  startItemCardB.disabled = true;
-  itemSelectStatusEl.classList.remove('screen--hidden');
-  socket.emit('starting_item_choice', { key: startItemCardA.dataset.key });
-});
-
-startItemCardB.addEventListener('click', () => {
-  startItemCardA.disabled = true;
-  startItemCardB.disabled = true;
-  itemSelectStatusEl.classList.remove('screen--hidden');
-  socket.emit('starting_item_choice', { key: startItemCardB.dataset.key });
+startItemCards.forEach(card => {
+  card.btn.addEventListener('click', () => {
+    startItemCards.forEach(c => { c.btn.disabled = true; });
+    itemSelectStatusEl.classList.remove('screen--hidden');
+    socket.emit('starting_item_choice', { key: card.btn.dataset.key });
+  });
 });
 
 btnUseItem.addEventListener('click', () => {
@@ -3078,26 +3081,27 @@ socket.on('player_turn_hidden', () => {
 // Objet de départ (avant tour 1, cf. start_game) : le lobby reste affiché dessous, cet
 // overlay prend toute la place tant que tout le monde n'a pas choisi.
 socket.on('item_select_started', () => {
-  startItemCardA.disabled = false;
-  startItemCardB.disabled = false;
+  startItemCards.forEach(c => { c.btn.disabled = false; });
   itemSelectStatusEl.classList.add('screen--hidden');
   itemSelectOverlayEl.classList.remove('screen--hidden');
 });
 
 // Les 2 objets tirés par le serveur pour CE joueur (jamais choisis par le client).
 socket.on('starting_item_options', ({ bonuses }) => {
-  startItemCardA.dataset.key = bonuses[0].key;
-  startItemCardALabelEl.textContent = bonuses[0].label;
-  startItemCardADescEl.textContent = BONUS_DESCRIPTIONS[bonuses[0].key] || '';
-
-  startItemCardB.dataset.key = bonuses[1].key;
-  startItemCardBLabelEl.textContent = bonuses[1].label;
-  startItemCardBDescEl.textContent = BONUS_DESCRIPTIONS[bonuses[1].key] || '';
+  startItemCards.forEach((card, i) => {
+    const bonus = bonuses[i];
+    card.btn.classList.toggle('screen--hidden', !bonus);
+    if (!bonus) return;
+    card.btn.dataset.key = bonus.key;
+    card.icon.textContent = ITEM_ICONS[bonus.key] || '🎁';
+    card.label.textContent = bonus.label;
+    card.desc.textContent = BONUS_DESCRIPTIONS[bonus.key] || '';
+  });
 });
 
 // Confirmation de l'objet retenu pour cette partie (envoyé une fois au choix, puis re-
 // envoyé par le serveur juste avant game_started pour être sûr que le client soit synchro).
-socket.on('your_item', ({ item, used }) => {
+socket.on('your_item', ({ item, used, passive }) => {
   itemSelectOverlayEl.classList.add('screen--hidden');
   if (!item) {
     itemInventoryBarEl.classList.add('screen--hidden');
@@ -3105,9 +3109,14 @@ socket.on('your_item', ({ item, used }) => {
   }
   itemInventoryBarEl.classList.remove('screen--hidden');
   itemInventoryIconEl.textContent = ITEM_ICONS[item] || '🎁';
-  itemInventoryLabelEl.textContent = BONUS_LABELS_CLIENT[item] || '';
+  const name = BONUS_LABELS_CLIENT[item] || '';
+  // Objet passif (Charme Chroma) : simple rappel "actif", jamais cliquable.
+  btnUseItem.classList.toggle('item-inventory-btn--passive', !!passive);
+  itemInventoryLabelEl.textContent = passive ? `${name} · actif` : name;
   btnUseItem.disabled = !!used;
-  btnUseItem.title = used ? 'Déjà utilisé' : `Utiliser : ${BONUS_LABELS_CLIENT[item] || ''}`;
+  btnUseItem.title = passive
+    ? 'Effet passif : actif toute la partie'
+    : (used ? 'Déjà utilisé' : `Utiliser : ${name}`);
 });
 
 // Bonbon XP : uniquement les Pokémon réellement évoluables (filtré côté serveur).
