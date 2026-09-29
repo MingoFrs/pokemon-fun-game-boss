@@ -2700,27 +2700,61 @@ function buildRewardOption(useCharm, pity, floorRarity, extraBoost, gameMode) {
   };
 }
 
-// Récompense de l'objet MÉGA GEMME (utilisé à la demande, cf. use_item) : TOUJOURS un méga
-// (jamais "méga ou mieux"), tiré directement dans POKEMON_POOLS.mega, bonus ×1.5 inclus.
-function buildMegaGemReward() {
-  const pokemon = randomFrom(POKEMON_POOLS.mega);
-  const effect = pickEffect();
-  const shiny = rollShiny();
-  const finalPoints = Math.round(
-    pokemon.points * effect.multiplier * (shiny ? SHINY_POINTS_MULTIPLIER : 1) * MEGA_POINTS_MULTIPLIER
-  );
-  return {
-    pokemonId: pokemon.id,
-    name: pokemon.name,
-    sprite: pokemon.sprite,
-    rarity: pokemon.rarity,
-    basePoints: pokemon.points,
-    effectName: effect.name,
-    multiplier: effect.multiplier,
-    shiny,
-    shinySprite: shiny ? shinySpriteUrl(pokemon.id) : null,
-    finalPoints
-  };
+// ---- MÉGA GEMME : fait Méga-Évoluer un Pokémon DÉJÀ présent dans l'équipe (aucun ajout). ----
+// Table dex id de l'espèce de base -> id(s) de sa/ses forme(s) Méga présentes dans les pools
+// du jeu (MEGA_RAW + Méga légendaires). Tirée de PokeAPI (pokemon.csv : species_id des ids
+// >= 10000). Nom et points de chaque Méga viennent de POKEMON_POOLS, comme pour EVOLUTION_MAP.
+// Un Pokémon absent de la table n'a pas de Méga-Évolution : il n'est jamais proposé.
+const MEGA_FORMS = {
+  3: [10033], 6: [10034, 10035], 9: [10036], 15: [10090], 18: [10073], 65: [10037],
+  80: [10071], 94: [10038], 115: [10039], 127: [10040], 130: [10041], 142: [10042],
+  150: [10043, 10044], 181: [10045], 208: [10072], 212: [10046], 214: [10047], 229: [10048],
+  248: [10049], 254: [10065], 257: [10050], 260: [10064], 282: [10051], 302: [10066],
+  303: [10052], 306: [10053], 308: [10054], 310: [10055], 319: [10070], 323: [10087],
+  334: [10067], 354: [10056], 359: [10057], 362: [10074], 373: [10089], 376: [10076],
+  380: [10062], 381: [10063], 384: [10079], 428: [10088], 445: [10058], 448: [10059],
+  460: [10060], 475: [10068], 531: [10069], 719: [10075]
+};
+
+function buildMegaMap() {
+  const byId = {};
+  Object.values(POKEMON_POOLS).flat().forEach(p => { byId[p.id] = p; });
+  const map = {};
+  for (const [baseId, megaIds] of Object.entries(MEGA_FORMS)) {
+    const forms = megaIds.filter(id => byId[id]).map(id => ({ id, name: byId[id].name, points: byId[id].points }));
+    if (forms.length) map[baseId] = forms;
+  }
+  return map;
+}
+const MEGA_MAP = buildMegaMap();
+
+// Formes Méga possibles d'un Pokémon d'équipe ([] si aucune ; un Pokémon déjà Méga, id >= 10000,
+// n'est jamais dans la table).
+function getMegaForms(mon) {
+  return (mon && MEGA_MAP[mon.id]) || [];
+}
+
+// Transforme EN PLACE un Pokémon d'équipe en sa forme Méga. Conserve tout le reste (trait
+// effectName/multiplier, shiny). Comme un Méga tiré normalement : rarity 'mega' (succès
+// "Éveil de Méga-Pierre") et bonus ×1.5 (MEGA_POINTS_MULTIPLIER). Le score est ajusté de la
+// différence entre la valeur du Méga (base × trait × shiny × 1.5, même formule que
+// buildRewardOption) et celle du Pokémon d'origine (base × trait × shiny). Retourne
+// { fromName, scoreDelta }.
+function megaEvolveMon(player, mon, form) {
+  const shinyFactor = mon.shiny ? SHINY_POINTS_MULTIPLIER : 1;
+  const before = Math.round(mon.basePoints * mon.multiplier * shinyFactor);
+  const after = Math.round(form.points * mon.multiplier * shinyFactor * MEGA_POINTS_MULTIPLIER);
+  const fromName = mon.name;
+  mon.id = form.id;
+  mon.name = form.name;
+  mon.sprite = spriteUrl(form.id);
+  if (mon.shiny) mon.shinySprite = shinySpriteUrl(form.id);
+  mon.basePoints = form.points;
+  mon.rarity = 'mega';
+  mon.megaFrom = fromName;
+  const scoreDelta = after - before;
+  player.score += scoreDelta;
+  return { fromName, scoreDelta };
 }
 
 // Génère les 2 options HAUT/BAS d'un joueur pour un tour (toujours 2 Pokémon distincts).
@@ -3881,7 +3915,7 @@ function buildRoute() {
 //   startItemOptions: [key, key, key] | null (3 objets proposés avant le tour 1, secret intermédiaire),
 //   heldItem: 'xpCandy' | 'mysteryItem' | 'shinyCharm' | 'megaGem' | null (objet retenu pour toute la partie),
 //   heldItemUsed: bool (objet déjà consommé ou non — utilisable une seule fois, à tout moment),
-//   pendingBonusKey: 'xpCandy' | 'mysteryItem' | null (objet en cours d'utilisation, attente de la cible)
+//   pendingBonusKey: 'xpCandy' | 'mysteryItem' | 'megaGem' | null (objet en cours d'utilisation, attente de la cible)
 // }
 // ---------------------------------------------------------------
 const games = {};
@@ -5938,24 +5972,19 @@ io.on('connection', (socket) => {
     }
 
     if (player.heldItem === 'megaGem') {
-      if (player.team.length >= MAX_TEAM_SIZE) {
-        socket.emit('error_message', 'Ton équipe est déjà pleine.');
+      // Ne consomme RIEN ici : liste uniquement les Pokémon de l'équipe qui ont une Méga-Évolution.
+      // L'objet n'est consommé qu'à la sélection valide (cf. 'mega_gem_select').
+      const eligible = player.team
+        .map((mon, index) => ({ index, mon }))
+        .filter(({ mon }) => getMegaForms(mon).length > 0);
+      if (!eligible.length) {
+        socket.emit('error_message', "Aucun Pokémon de ton équipe ne peut Méga-Évoluer : Méga Gemme conservée.");
         return;
       }
-      const reward = buildMegaGemReward();
-      player.score += reward.finalPoints;
-      pushMonToTeam(player, teamMonFromReward(reward));
-      player.heldItemUsed = true;
-      socket.emit('bonus_result', {
-        type: 'megaGem',
-        pokemonName: reward.name,
-        sprite: reward.shiny && reward.shinySprite ? reward.shinySprite : reward.sprite,
-        shiny: reward.shiny,
-        scoreDelta: reward.finalPoints,
-        score: player.score,
-        team: player.team
+      player.pendingBonusKey = 'megaGem';
+      socket.emit('mega_gem_pending', {
+        team: eligible.map(({ index, mon }) => ({ index, id: mon.id, name: mon.name, sprite: mon.sprite }))
       });
-      broadcastGameUpdated(game); // score d'équipe (coop) à jour pour tout le monde
       return;
     }
 
@@ -5984,6 +6013,70 @@ io.on('connection', (socket) => {
         team: player.team.map((mon, index) => ({ index, id: mon.id, name: mon.name, sprite: mon.sprite }))
       });
     }
+  });
+
+  // Méga Gemme : le joueur choisit QUEL Pokémon de son équipe Méga-Évolue. C'est le Pokémon à
+  // l'index reçu, relu ICI dans player.team côté serveur (jamais un objet fourni par le client),
+  // qui est réellement modifié. L'équipe ne grossit jamais ; l'objet n'est consommé qu'au succès.
+  socket.on('mega_gem_select', ({ index } = {}) => {
+    const gameId = socket.data.gameId;
+    const game = games[gameId];
+
+    if (!game) {
+      socket.emit('error_message', 'Partie introuvable.');
+      return;
+    }
+    if (game.status !== 'playing') {
+      socket.emit('error_message', "La partie n'est pas en cours.");
+      return;
+    }
+    const player = game.players.find(p => p.id === socket.id);
+    if (!player) {
+      socket.emit('error_message', 'Tu ne fais pas partie de cette partie.');
+      return;
+    }
+    if (player.pendingBonusKey !== 'megaGem' || player.heldItem !== 'megaGem' || player.heldItemUsed) {
+      socket.emit('error_message', 'Aucune Méga Gemme en attente.');
+      return;
+    }
+
+    const mon = Number.isInteger(index) ? player.team[index] : null;
+    const forms = getMegaForms(mon);
+    if (!mon || !forms.length) {
+      // Choix invalide : rien n'est modifié ni consommé, le sélecteur reste ouvert côté serveur.
+      socket.emit('error_message', 'Ce Pokémon ne peut pas Méga-Évoluer.');
+      return;
+    }
+
+    const teamSizeBefore = player.team.length;
+    const { fromName, scoreDelta } = megaEvolveMon(player, mon, randomFrom(forms));
+
+    player.pendingBonusKey = null;
+    player.heldItemUsed = true;
+
+    socket.emit('bonus_result', {
+      type: 'megaGem',
+      from: fromName,
+      to: mon.name,
+      pokemonName: mon.name,
+      sprite: mon.shiny && mon.shinySprite ? mon.shinySprite : mon.sprite,
+      shiny: !!mon.shiny,
+      scoreDelta,
+      score: player.score,
+      team: player.team
+    });
+
+    if (player.team.length !== teamSizeBefore) console.error('[megaGem] taille d\'équipe modifiée (bug)');
+    broadcastGameUpdated(game); // score d'équipe (coop) à jour pour tout le monde
+  });
+
+  // Annulation du sélecteur d'objet (bouton Annuler) : l'objet n'est PAS consommé et reste
+  // réutilisable ; sans ça, pendingBonusKey restait bloqué jusqu'au tour suivant ("Choix déjà
+  // en cours").
+  socket.on('item_cancel', () => {
+    const game = games[socket.data.gameId];
+    const player = game && game.players.find(p => p.id === socket.id);
+    if (player && player.pendingBonusKey) player.pendingBonusKey = null;
   });
 
   // Bonbon XP : le joueur choisit QUEL Pokémon de son équipe évolue jusqu'à sa forme finale.

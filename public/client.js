@@ -1382,7 +1382,7 @@ const BONUS_DESCRIPTIONS = {
   xpCandy: 'Fait évoluer un Pokémon de ton équipe jusqu\'à sa forme finale.',
   mysteryItem: 'Applique un trait aléatoire à un Pokémon — quitte ou double.',
   shinyCharm: 'Passif, tous les tours : meilleurs Pokémon et ×2 de chances de shiny.',
-  megaGem: 'Ajoute un Pokémon méga (×1.5 pts) à ton équipe, quand tu veux.'
+  megaGem: 'Fait Méga-Évoluer un Pokémon de ton équipe (×1.5 pts), quand tu veux.'
 };
 
 // ---------- Helpers UI ----------
@@ -2352,7 +2352,7 @@ function showBonusResult(data) {
   } else if (data.type === 'megaGem') {
     bonusResultSpriteEl.classList.remove('screen--hidden');
     bonusResultSpriteEl.src = data.sprite;
-    bonusResultDetailEl.textContent = `${data.shiny ? '✨ ' : ''}${data.pokemonName} rejoint ton équipe !`;
+    bonusResultDetailEl.textContent = `${data.shiny ? '✨ ' : ''}${data.from} → ${data.to}`;
     bonusResultFinalEl.textContent = `+${data.scoreDelta} PTS`;
   } else if (data.type === 'xpCandy') {
     bonusResultSpriteEl.classList.remove('screen--hidden');
@@ -2753,6 +2753,7 @@ btnUseItem.addEventListener('click', () => {
 
 btnBonusTargetCancel.addEventListener('click', () => {
   hideBonusTargetOverlay();
+  socket.emit('item_cancel'); // libère le choix en attente côté serveur : l'objet n'est pas consommé
 });
 
 btnSkip.addEventListener('click', () => {
@@ -3178,6 +3179,17 @@ socket.on('xp_candy_pending', ({ team }) => {
   showBonusTargetOverlay();
 });
 
+// Méga Gemme : uniquement les Pokémon de TON équipe qui ont une Méga-Évolution (filtré côté
+// serveur, qui modifie ensuite ce Pokémon précis — aucun Pokémon n'est ajouté).
+socket.on('mega_gem_pending', ({ team }) => {
+  bonusTargetTitleEl.textContent = 'Choisis un Pokémon à Méga-Évoluer';
+  renderBonusTargetList(team, (index) => {
+    hideBonusTargetOverlay();
+    socket.emit('mega_gem_select', { index });
+  });
+  showBonusTargetOverlay();
+});
+
 // Objet Mystère : toute l'équipe, le trait reste tiré par le serveur ensuite.
 socket.on('mystery_item_pending', ({ team }) => {
   bonusTargetTitleEl.textContent = 'Choisis un Pokémon';
@@ -3255,10 +3267,12 @@ function renderFinishedTeam(team) {
       label.textContent = mon.name;
       slot.appendChild(label);
 
-      if (mon.evolvedFrom) {
+      if (mon.evolvedFrom || mon.megaFrom) {
         const evoTag = document.createElement('p');
         evoTag.className = 'finished-team-slot__evo';
-        evoTag.textContent = `${mon.evolvedFrom} → ${mon.name} (Bonbon XP)`;
+        evoTag.textContent = mon.megaFrom
+          ? `${mon.megaFrom} → ${mon.name} (Méga Gemme)`
+          : `${mon.evolvedFrom} → ${mon.name} (Bonbon XP)`;
         slot.appendChild(evoTag);
       }
 
