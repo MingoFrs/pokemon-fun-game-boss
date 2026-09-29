@@ -4190,6 +4190,17 @@ function renderAuctionFinished({ reason, players, history }) {
 // API indisponible, etc.) — c'est à l'appelant de décider du repli affiché.
 async function fetchEnglishPokemonName(dexId) {
   try {
+    // Formes (Méga, id >= 10000) : pas de /pokemon-species/{id} (404) -> /pokemon/{id}, dont
+    // le nom ("venusaur-mega", "charizard-mega-x") est converti au format Showdown
+    // ("Venusaur-Mega", "Charizard-Mega-X").
+    if (dexId >= 10000) {
+      const res = await fetch(`https://pokeapi.co/api/v2/pokemon/${dexId}/`);
+      if (!res.ok) throw new Error('Réponse PokeAPI invalide');
+      const data = await res.json();
+      return data.name
+        ? data.name.split('-').map(part => part.charAt(0).toUpperCase() + part.slice(1)).join('-')
+        : null;
+    }
     const res = await fetch(`https://pokeapi.co/api/v2/pokemon-species/${dexId}/`);
     if (!res.ok) throw new Error('Réponse PokeAPI invalide');
     const data = await res.json();
@@ -4200,46 +4211,40 @@ async function fetchEnglishPokemonName(dexId) {
   }
 }
 
-// Descend la chaîne d'évolution PokeAPI d'un Pokémon jusqu'à sa forme FINALE, peu importe
-// la méthode d'évolution (niveau, objet, échange, bonheur...). Seule une VRAIE branche
-// (plusieurs évolutions possibles depuis un même stade, ex: Évoli) arrête la descente :
-// impossible de deviner laquelle choisir, donc on s'arrête là plutôt que d'en inventer
-// une. Repli sur dexId lui-même si l'appel échoue.
-async function fetchFinalEvolutionId(dexId) {
-  try {
-    const speciesRes = await fetch(`https://pokeapi.co/api/v2/pokemon-species/${dexId}/`);
-    if (!speciesRes.ok) throw new Error('Réponse PokeAPI invalide');
-    const species = await speciesRes.json();
-    const chainUrl = species.evolution_chain && species.evolution_chain.url;
-    if (!chainUrl) return dexId;
-
-    const chainRes = await fetch(chainUrl);
-    if (!chainRes.ok) throw new Error('Chaîne d\u2019évolution indisponible');
-    const { chain } = await chainRes.json();
-
-    let node = chain;
-    while (node.evolves_to && node.evolves_to.length === 1) {
-      node = node.evolves_to[0];
-    }
-    const match = node.species.url.match(/\/pokemon-species\/(\d+)\//);
-    return match ? Number(match[1]) : dexId;
-  } catch (err) {
-    return dexId;
+// Formes finales d'évolution : MÊME source que le Bonbon XP (EVOLUTION_MAP côté serveur, cf.
+// GET /api/evolution-finals) — plus aucune logique d'évolution propre au client. Réponse
+// { dexId: { id, name } } (absent = déjà forme finale), chargée une seule fois. Si l'appel
+// échoue, {} : aucun Pokémon évolué (rien d'inventé), et on retente au prochain export.
+let evolutionFinalsPromise = null;
+function loadEvolutionFinals() {
+  if (!evolutionFinalsPromise) {
+    evolutionFinalsPromise = fetch('/api/evolution-finals')
+      .then(res => {
+        if (!res.ok) throw new Error('Formes finales indisponibles');
+        return res.json();
+      })
+      .catch(() => {
+        evolutionFinalsPromise = null;
+        return {};
+      });
   }
+  return evolutionFinalsPromise;
 }
 
 // Format d'import minimal (juste le nom de chaque Pokémon, séparé par une ligne vide) —
 // compatible avec un import Smogon/Showdown basique. Ni l'talent ni l'objet/les
 // capacités/EVs ne sont jamais suivis par le jeu, donc jamais inclus ici (rien à
 // inventer). Chaque Pokémon est exporté sous sa forme ÉVOLUÉE AU MAXIMUM (cf.
-// fetchFinalEvolutionId), pas celle réellement obtenue pendant le draft, puis traduit en
-// anglais (cf. fetchEnglishPokemonName) — jamais l'inverse (traduire d'abord puis
-// évoluer), pour n'interroger PokeAPI qu'avec des dexId, seule donnée fiable qu'on ait.
+// loadEvolutionFinals : même table que le Bonbon XP), pas celle réellement obtenue pendant
+// le draft, puis traduit en anglais (cf. fetchEnglishPokemonName) — jamais l'inverse
+// (traduire d'abord puis évoluer), pour ne travailler qu'avec des dexId, seule donnée fiable
+// qu'on ait. Repli si PokeAPI ne répond pas : nom français de la forme finale.
 async function buildSmogonExport(team) {
+  const finals = await loadEvolutionFinals();
   const names = await Promise.all((team || []).map(async mon => {
-    const finalId = await fetchFinalEvolutionId(mon.id);
-    const enName = await fetchEnglishPokemonName(finalId);
-    return enName || mon.name; // repli sur le nom (français, stade obtenu) si PokeAPI n'a pas répondu
+    const final = finals[mon.id];
+    const enName = await fetchEnglishPokemonName(final ? final.id : mon.id);
+    return enName || (final ? final.name : mon.name);
   }));
   return names.join('\n\n');
 }

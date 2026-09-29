@@ -321,6 +321,15 @@ app.get('/api/sprite-ids', (req, res) => {
   res.json(ids);
 });
 
+// Formes finales d'évolution (même source que le Bonbon XP : EVOLUTION_MAP). Sert à l'export
+// du Draft côté client pour rester cohérent avec le jeu. { dexId: { id, name } } — uniquement
+// les Pokémon évoluables ; absent = déjà forme finale.
+app.get('/api/evolution-finals', (req, res) => {
+  const finals = {};
+  for (const [dexId, evo] of Object.entries(EVOLUTION_MAP)) finals[dexId] = { id: evo.id, name: evo.name };
+  res.json(finals);
+});
+
 // Dex national complet (1-1025, gen 1 à 9) : id + nom pour CHAQUE Pokémon, pas
 // seulement ceux tirables en partie. Sert au Pokédex profil (onglet Compte >
 // Pokédex) pour afficher la liste complète divisée par génération, avec les
@@ -2148,71 +2157,6 @@ function buildPool(rarity, entries) {
   return entries.map(p => ({ ...p, rarity, sprite: spriteUrl(p.id) }));
 }
 
-// -----------------------------------------------------------------
-// Évolutions réelles (forme finale) pour le Bonbon XP. Couvre tous les
-// Pokémon commun/peu commun/rare de base ou intermédiaires qui ont une
-// évolution standard simple (pas d'évolution par échange/objet, pas de
-// branches multiples comme Évoli). Les entrées déjà "finales" (Persian,
-// Dracaufeu, Grolem, etc.) ne sont volontairement pas dans cette table :
-// elles ne sont pas évoluables. Réutilise les points déjà définis dans
-// les pools existants quand la forme finale y figure déjà (cohérence).
-// -----------------------------------------------------------------
-const EVOLUTION_MAP = {
-  1: { id: 3, name: 'Florizarre', points: 470 },
-  4: { id: 6, name: 'Dracaufeu', points: 478 },
-  7: { id: 9, name: 'Tortank', points: 474 },
-  10: { id: 12, name: 'Papilusion', points: 374 },
-  13: { id: 15, name: 'Dardargnan', points: 367 },
-  16: { id: 18, name: 'Roucarnage', points: 430 },
-  17: { id: 18, name: 'Roucarnage', points: 430 },
-  19: { id: 20, name: 'Rattatac', points: 387 },
-  23: { id: 24, name: 'Arbok', points: 264 },
-  27: { id: 28, name: 'Sablaireau', points: 414 },
-  29: { id: 31, name: 'Nidoqueen', points: 448 },
-  30: { id: 31, name: 'Nidoqueen', points: 448 },
-  32: { id: 34, name: 'Nidoking', points: 450 },
-  33: { id: 34, name: 'Nidoking', points: 450 },
-  35: { id: 36, name: 'Mélodelfe', points: 431 },
-  37: { id: 38, name: 'Feunard', points: 588 },
-  39: { id: 40, name: 'Grodoudou', points: 396 },
-  41: { id: 169, name: 'Nostenfer', points: 640 },
-  42: { id: 169, name: 'Nostenfer', points: 640 },
-  43: { id: 45, name: 'Rafflesia', points: 437 },
-  44: { id: 45, name: 'Rafflesia', points: 437 },
-  46: { id: 47, name: 'Parasect', points: 252 },
-  48: { id: 49, name: 'Aéromite', points: 414 },
-  50: { id: 51, name: 'Triopikeur', points: 251 },
-  52: { id: 53, name: 'Persian', points: 266 },
-  54: { id: 55, name: 'Akwakwak', points: 453 },
-  56: { id: 57, name: 'Colossinge', points: 418 },
-  58: { id: 59, name: 'Arcanin', points: 674 },
-  60: { id: 62, name: 'Tartard', points: 580 },
-  63: { id: 65, name: 'Alakazam', points: 580 },
-  66: { id: 68, name: 'Mackogneur', points: 590 },
-  67: { id: 68, name: 'Mackogneur', points: 590 },
-  69: { id: 71, name: 'Empiflor', points: 437 },
-  70: { id: 71, name: 'Empiflor', points: 437 },
-  72: { id: 73, name: 'Tentacruel', points: 463 },
-  74: { id: 76, name: 'Grolem', points: 557 },
-  75: { id: 76, name: 'Grolem', points: 557 },
-  77: { id: 78, name: 'Galopa', points: 451 },
-  79: { id: 80, name: 'Flagadoss', points: 445 },
-  81: { id: 82, name: 'Magnéton', points: 427 },
-  84: { id: 85, name: 'Dodrio', points: 272 },
-  88: { id: 89, name: 'Grotadmorv', points: 580 },
-  92: { id: 94, name: 'Ectoplasma', points: 581 },
-  98: { id: 99, name: 'Krabboss', points: 278 },
-  100: { id: 101, name: 'Électrode', points: 281 },
-  104: { id: 105, name: 'Ossatueur', points: 396 },
-  109: { id: 110, name: 'Smogogo', points: 563 },
-  111: { id: 112, name: 'Rhinoféros', points: 554 },
-  116: { id: 230, name: 'Hyporoi', points: 648 },
-  120: { id: 121, name: 'Staross', points: 296 },
-  129: { id: 130, name: 'Léviator', points: 482 },
-  140: { id: 141, name: 'Kabutops', points: 572 },
-  147: { id: 149, name: 'Dracolosse', points: 801 }
-};
-
 const POKEMON_POOLS = {
   commun: buildPool('commun', COMMON_RAW),
   peu_commun: buildPool('peu_commun', UNCOMMON_RAW),
@@ -2222,6 +2166,103 @@ const POKEMON_POOLS = {
   mega: buildPool('mega', MEGA_RAW),
   legendaire: buildPool('legendaire', LEGENDARY_RAW)
 };
+
+// -----------------------------------------------------------------
+// ÉVOLUTIONS — SOURCE DE VÉRITÉ UNIQUE (Bonbon XP, Évolution instantanée ET export du
+// Draft, cf. GET /api/evolution-finals). Table brute id -> id du stade précédent, tirée de
+// PokeAPI (pokemon_species.evolves_from_species_id, dex national 1-1025, toutes générations,
+// toutes méthodes d'évolution). Une seule donnée saisie ; tout le reste (évolvable ?, forme
+// finale, points) en est DÉDUIT, plus aucune liste parallèle à maintenir à la main.
+// Règle de descente (identique à l'ancienne table pour les branches existantes : Ortide,
+// Ptitard, Ramoloss, Miaouss...) : on part du Pokémon lui-même, et à chaque embranchement on
+// prend l'évolution au dex id le plus bas. Un Pokémon sans évolution (forme finale) n'est
+// jamais évoluable ; les formes méga (id >= 10000) ne sont pas dans le graphe.
+// -----------------------------------------------------------------
+const EVOLVES_FROM = {
+  2: 1, 3: 2, 5: 4, 6: 5, 8: 7, 9: 8, 11: 10, 12: 11, 14: 13, 15: 14, 17: 16, 18: 17, 20: 19,
+  22: 21, 24: 23, 25: 172, 26: 25, 28: 27, 30: 29, 31: 30, 33: 32, 34: 33, 35: 173, 36: 35,
+  38: 37, 39: 174, 40: 39, 42: 41, 44: 43, 45: 44, 47: 46, 49: 48, 51: 50, 53: 52, 55: 54,
+  57: 56, 59: 58, 61: 60, 62: 61, 64: 63, 65: 64, 67: 66, 68: 67, 70: 69, 71: 70, 73: 72,
+  75: 74, 76: 75, 78: 77, 80: 79, 82: 81, 85: 84, 87: 86, 89: 88, 91: 90, 93: 92, 94: 93,
+  97: 96, 99: 98, 101: 100, 103: 102, 105: 104, 106: 236, 107: 236, 110: 109, 112: 111,
+  113: 440, 117: 116, 119: 118, 121: 120, 122: 439, 124: 238, 125: 239, 126: 240, 130: 129,
+  134: 133, 135: 133, 136: 133, 139: 138, 141: 140, 143: 446, 148: 147, 149: 148, 153: 152,
+  154: 153, 156: 155, 157: 156, 159: 158, 160: 159, 162: 161, 164: 163, 166: 165, 168: 167,
+  169: 42, 171: 170, 176: 175, 178: 177, 180: 179, 181: 180, 182: 44, 183: 298, 184: 183,
+  185: 438, 186: 61, 188: 187, 189: 188, 192: 191, 195: 194, 196: 133, 197: 133, 199: 79,
+  202: 360, 205: 204, 208: 95, 210: 209, 212: 123, 217: 216, 219: 218, 221: 220, 224: 223,
+  226: 458, 229: 228, 230: 117, 232: 231, 233: 137, 237: 236, 242: 113, 247: 246, 248: 247,
+  253: 252, 254: 253, 256: 255, 257: 256, 259: 258, 260: 259, 262: 261, 264: 263, 266: 265,
+  267: 266, 268: 265, 269: 268, 271: 270, 272: 271, 274: 273, 275: 274, 277: 276, 279: 278,
+  281: 280, 282: 281, 284: 283, 286: 285, 288: 287, 289: 288, 291: 290, 292: 290, 294: 293,
+  295: 294, 297: 296, 301: 300, 305: 304, 306: 305, 308: 307, 310: 309, 315: 406, 317: 316,
+  319: 318, 321: 320, 323: 322, 326: 325, 329: 328, 330: 329, 332: 331, 334: 333, 340: 339,
+  342: 341, 344: 343, 346: 345, 348: 347, 350: 349, 354: 353, 356: 355, 358: 433, 362: 361,
+  364: 363, 365: 364, 367: 366, 368: 366, 372: 371, 373: 372, 375: 374, 376: 375, 388: 387,
+  389: 388, 391: 390, 392: 391, 394: 393, 395: 394, 397: 396, 398: 397, 400: 399, 402: 401,
+  404: 403, 405: 404, 407: 315, 409: 408, 411: 410, 413: 412, 414: 412, 416: 415, 419: 418,
+  421: 420, 423: 422, 424: 190, 426: 425, 428: 427, 429: 200, 430: 198, 432: 431, 435: 434,
+  437: 436, 444: 443, 445: 444, 448: 447, 450: 449, 452: 451, 454: 453, 457: 456, 460: 459,
+  461: 215, 462: 82, 463: 108, 464: 112, 465: 114, 466: 125, 467: 126, 468: 176, 469: 193,
+  470: 133, 471: 133, 472: 207, 473: 221, 474: 233, 475: 281, 476: 299, 477: 356, 478: 361,
+  496: 495, 497: 496, 499: 498, 500: 499, 502: 501, 503: 502, 505: 504, 507: 506, 508: 507,
+  510: 509, 512: 511, 514: 513, 516: 515, 518: 517, 520: 519, 521: 520, 523: 522, 525: 524,
+  526: 525, 528: 527, 530: 529, 533: 532, 534: 533, 536: 535, 537: 536, 541: 540, 542: 541,
+  544: 543, 545: 544, 547: 546, 549: 548, 552: 551, 553: 552, 555: 554, 558: 557, 560: 559,
+  563: 562, 565: 564, 567: 566, 569: 568, 571: 570, 573: 572, 575: 574, 576: 575, 578: 577,
+  579: 578, 581: 580, 583: 582, 584: 583, 586: 585, 589: 588, 591: 590, 593: 592, 596: 595,
+  598: 597, 600: 599, 601: 600, 603: 602, 604: 603, 606: 605, 608: 607, 609: 608, 611: 610,
+  612: 611, 614: 613, 617: 616, 620: 619, 623: 622, 625: 624, 628: 627, 630: 629, 634: 633,
+  635: 634, 637: 636, 651: 650, 652: 651, 654: 653, 655: 654, 657: 656, 658: 657, 660: 659,
+  662: 661, 663: 662, 665: 664, 666: 665, 668: 667, 670: 669, 671: 670, 673: 672, 675: 674,
+  678: 677, 680: 679, 681: 680, 683: 682, 685: 684, 687: 686, 689: 688, 691: 690, 693: 692,
+  695: 694, 697: 696, 699: 698, 700: 133, 705: 704, 706: 705, 709: 708, 711: 710, 713: 712,
+  715: 714, 723: 722, 724: 723, 726: 725, 727: 726, 729: 728, 730: 729, 732: 731, 733: 732,
+  735: 734, 737: 736, 738: 737, 740: 739, 743: 742, 745: 744, 748: 747, 750: 749, 752: 751,
+  754: 753, 756: 755, 758: 757, 760: 759, 762: 761, 763: 762, 768: 767, 770: 769, 773: 772,
+  783: 782, 784: 783, 790: 789, 791: 790, 792: 790, 804: 803, 809: 808, 811: 810, 812: 811,
+  814: 813, 815: 814, 817: 816, 818: 817, 820: 819, 822: 821, 823: 822, 825: 824, 826: 825,
+  828: 827, 830: 829, 832: 831, 834: 833, 836: 835, 838: 837, 839: 838, 841: 840, 842: 840,
+  844: 843, 847: 846, 849: 848, 851: 850, 853: 852, 855: 854, 857: 856, 858: 857, 860: 859,
+  861: 860, 862: 264, 863: 52, 864: 222, 865: 83, 866: 122, 867: 562, 869: 868, 873: 872,
+  879: 878, 886: 885, 887: 886, 892: 891, 899: 234, 900: 123, 901: 217, 902: 550, 903: 215,
+  904: 211, 907: 906, 908: 907, 910: 909, 911: 910, 913: 912, 914: 913, 916: 915, 918: 917,
+  920: 919, 922: 921, 923: 922, 925: 924, 927: 926, 929: 928, 930: 929, 933: 932, 934: 933,
+  936: 935, 937: 935, 939: 938, 941: 940, 943: 942, 945: 944, 947: 946, 949: 948, 952: 951,
+  954: 953, 956: 955, 958: 957, 959: 958, 961: 960, 964: 963, 966: 965, 970: 969, 972: 971,
+  975: 974, 979: 57, 980: 194, 981: 203, 982: 206, 983: 625, 997: 996, 998: 997, 1000: 999,
+  1011: 840, 1013: 1012, 1018: 884, 1019: 1011
+};
+
+const EVOLUTION_CHILDREN = {};
+for (const [child, parent] of Object.entries(EVOLVES_FROM)) {
+  (EVOLUTION_CHILDREN[parent] = EVOLUTION_CHILDREN[parent] || []).push(Number(child));
+}
+Object.values(EVOLUTION_CHILDREN).forEach(list => list.sort((a, b) => a - b));
+
+// Forme finale d'un dex id (lui-même s'il n'évolue pas). Garde-fou anti-boucle : aucune
+// chaîne réelle ne dépasse 3 stades.
+function getFinalEvolutionId(dexId) {
+  let id = dexId;
+  for (let guard = 0; guard < 10 && EVOLUTION_CHILDREN[id]; guard++) id = EVOLUTION_CHILDREN[id][0];
+  return id;
+}
+
+// id -> { id, name, points } de la forme finale, pour chaque Pokémon réellement évoluable.
+// Nom/points de la forme finale = ceux de son entrée dans POKEMON_POOLS (mêmes valeurs que
+// l'ancienne table saisie à la main, cohérence des points conservée). Même forme et même
+// format qu'avant : tous les appelants (EVOLUTION_MAP[mon.id]) restent inchangés.
+function buildEvolutionMap() {
+  const byId = {};
+  Object.values(POKEMON_POOLS).flat().forEach(p => { byId[p.id] = p; });
+  const map = {};
+  for (const dexId of Object.keys(EVOLUTION_CHILDREN)) {
+    const final = byId[getFinalEvolutionId(Number(dexId))];
+    if (byId[dexId] && final) map[dexId] = { id: final.id, name: final.name, points: final.points };
+  }
+  return map;
+}
+const EVOLUTION_MAP = buildEvolutionMap();
 
 // Liste à plat de tous les dex id uniques du pool (tous paliers confondus), calculée une
 // seule fois au démarrage. Sert uniquement au préchargement client des sprites (cf.
