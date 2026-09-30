@@ -1207,16 +1207,17 @@ const RARITY_TABLE = [
   { rarity: 'commun', weight: 0.39 },
   { rarity: 'peu_commun', weight: 0.26 },
   { rarity: 'rare', weight: 0.17 },
-  { rarity: 'epique', weight: 0.09 },
-  { rarity: 'pseudo_legendaire', weight: 0.06 },
-  // 0.03 au total pour le groupe légendaire (légendaire/fabuleux/ultra-chimère), réparti au prorata des pools.
-  ...splitLegendaryGroupWeight(0.03)
+  { rarity: 'epique', weight: 0.11 },
+  // Semi-légendaire : plus fréquent que chaque catégorie du groupe légendaire.
+  { rarity: 'pseudo_legendaire', weight: 0.04 },
+  // Légendaire / Fabuleux / Ultra-Chimère : MÊME taux chacune (0.01), quelle que soit la taille de leur liste.
+  ...LEGENDARY_GROUP.map(rarity => ({ rarity, weight: 0.01 }))
 ];
 
 // Poids de "méga" quand elle rejoint le tirage classique (mode admin vs joueur
-// uniquement) : entre pseudo-légendaire (0.06) et légendaire (0.03), comme demandé —
-// plus dur à obtenir qu'un pseudo-légendaire, plus facile qu'un légendaire.
-const MEGA_ADMIN_WEIGHT = 0.045;
+// uniquement) : entre semi-légendaire (0.04) et chaque catégorie légendaire (0.01) —
+// plus dur à obtenir qu'un semi-légendaire, plus facile qu'un légendaire.
+const MEGA_ADMIN_WEIGHT = 0.025;
 
 // Le bonus ×1.5 des Méga-Évolutions n'existe plus ici : c'est le multiplicateur de la catégorie
 // 'mega' (stats-config.js), déjà inclus dans basePoints. Ne JAMAIS le réappliquer ailleurs.
