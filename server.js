@@ -2428,6 +2428,9 @@ function resolveDoubleEncounter(game, player, action) {
 }
 
 // ---- DOUBLE OU RIEN : risque le dernier Pokémon obtenu ce tour (×2 ou ×0). ----
+// Probabilité de SUCCÈS (×2) quand le joueur risque : 0.6 = 60 % de réussite / 40 % d'échec.
+// (0.5 = pile ou face ; 0.4 = 40 % de réussite / 60 % d'échec.)
+const DOUBLE_OR_NOTHING_SUCCESS_CHANCE = 0.6;
 function startDoubleOrNothing(game, player) {
   const teamIndex = player.team.length - 1;
   const mon = player.team[teamIndex];
@@ -2473,7 +2476,7 @@ function resolveDoubleOrNothing(game, player, action) {
     };
   }
 
-  const success = Math.random() < 0.5; // 50/50 côté serveur, jamais le client
+  const success = Math.random() < DOUBLE_OR_NOTHING_SUCCESS_CHANCE; // tiré côté serveur, jamais le client
   const scoreDelta = applyMonMutation(player, mon, m => { m.multiplier = success ? m.multiplier * 2 : 0; });
 
   return {
