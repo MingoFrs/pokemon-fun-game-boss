@@ -1343,13 +1343,15 @@ let spectateGameMode = null; // idem : certains broadcasts (game_updated) ne por
 let spectateGuessPlayers = []; // idem : guess_turn_started n'inclut pas `players`, on garde le dernier reçu (guess_game_started/guess_players_updated)
 
 const RARITY_LABELS = {
-  commun: 'Commun',
+  commun: 'Normal',
   peu_commun: 'Peu commun',
   rare: 'Rare',
   epique: 'Épique',
-  pseudo_legendaire: 'Pseudo-légendaire',
-  mega: 'Méga',
-  legendaire: 'Légendaire'
+  pseudo_legendaire: 'Semi-légendaire',
+  mega: 'Méga-Évolution',
+  legendaire: 'Légendaire',
+  fabuleux: 'Fabuleux',
+  ultra_chimere: 'Ultra-Chimère'
 };
 
 // Purement cosmétique (texte affiché) : la valeur qui compte réellement est calculée

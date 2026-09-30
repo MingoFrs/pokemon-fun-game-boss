@@ -4558,3 +4558,49 @@ button.friend-chip--online:active {
 *::-webkit-scrollbar-thumb:hover {
   background: var(--text-muted);
 }
+
+/* === Nouvelles catégories : Fabuleux / Ultra-Chimère (même mise en forme que Légendaire, couleurs propres) === */
+:root {
+  --rarity-fabuleux: #ff8ad8;
+  --rarity-ultra-chimere: #ff8a3d;
+}
+
+/* fabuleux */
+.admin-view-card__rarity[data-rarity="fabuleux"] { color: var(--rarity-fabuleux); }
+.result-panel[data-rarity="fabuleux"] { border-color: var(--rarity-fabuleux); box-shadow: 0 0 32px rgba(255, 138, 216, 0.3); }
+.result-panel[data-rarity="fabuleux"] .result-rarity { color: var(--rarity-fabuleux); }
+.result-panel[data-rarity="fabuleux"] .result-sprite { filter: drop-shadow(0 0 30px rgba(255, 138, 216, 0.95)); }
+.result-panel--animate[data-rarity="fabuleux"] .result-sprite { animation: revealPopLegendary 1.1s ease both; }
+.result-panel--animate[data-rarity="fabuleux"] { animation: revealPanelGlowStrong 1.1s ease both; }
+.result-panel--animate[data-rarity="fabuleux"] .result-rarity { animation: revealFadeUp 0.3s ease both, rarityFlash 1.4s ease-in-out 0.4s infinite; }
+.event-card[data-rarity="fabuleux"] .event-card__rarity { color: var(--rarity-fabuleux); }
+.event-card[data-rarity="fabuleux"] .choice-card__sprite {
+  filter: drop-shadow(0 0 28px rgba(255, 138, 216, 0.9));
+  animation: eventCardIn 0.35s ease both, teamSlotGlow 1.4s ease-in-out 0.4s infinite;
+}
+.event-card[data-rarity="fabuleux"] { border-color: var(--rarity-fabuleux); }
+.event-modal[data-rarity="fabuleux"] .event-result__sprite {
+  filter: drop-shadow(0 0 30px rgba(255, 138, 216, 0.95));
+  animation: revealPopLegendary 1.1s ease both;
+}
+.event-modal[data-rarity="fabuleux"] { border-color: var(--rarity-fabuleux); box-shadow: 0 0 40px rgba(255, 138, 216, 0.35); }
+
+/* ultra_chimere */
+.admin-view-card__rarity[data-rarity="ultra_chimere"] { color: var(--rarity-ultra-chimere); }
+.result-panel[data-rarity="ultra_chimere"] { border-color: var(--rarity-ultra-chimere); box-shadow: 0 0 32px rgba(255, 138, 61, 0.3); }
+.result-panel[data-rarity="ultra_chimere"] .result-rarity { color: var(--rarity-ultra-chimere); }
+.result-panel[data-rarity="ultra_chimere"] .result-sprite { filter: drop-shadow(0 0 30px rgba(255, 138, 61, 0.95)); }
+.result-panel--animate[data-rarity="ultra_chimere"] .result-sprite { animation: revealPopLegendary 1.1s ease both; }
+.result-panel--animate[data-rarity="ultra_chimere"] { animation: revealPanelGlowStrong 1.1s ease both; }
+.result-panel--animate[data-rarity="ultra_chimere"] .result-rarity { animation: revealFadeUp 0.3s ease both, rarityFlash 1.4s ease-in-out 0.4s infinite; }
+.event-card[data-rarity="ultra_chimere"] .event-card__rarity { color: var(--rarity-ultra-chimere); }
+.event-card[data-rarity="ultra_chimere"] .choice-card__sprite {
+  filter: drop-shadow(0 0 28px rgba(255, 138, 61, 0.9));
+  animation: eventCardIn 0.35s ease both, teamSlotGlow 1.4s ease-in-out 0.4s infinite;
+}
+.event-card[data-rarity="ultra_chimere"] { border-color: var(--rarity-ultra-chimere); }
+.event-modal[data-rarity="ultra_chimere"] .event-result__sprite {
+  filter: drop-shadow(0 0 30px rgba(255, 138, 61, 0.95));
+  animation: revealPopLegendary 1.1s ease both;
+}
+.event-modal[data-rarity="ultra_chimere"] { border-color: var(--rarity-ultra-chimere); box-shadow: 0 0 40px rgba(255, 138, 61, 0.35); }
