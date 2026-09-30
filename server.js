@@ -1078,13 +1078,6 @@ function getTierPool(tier) {
   return tier === 'legendaire' ? LEGENDARY_GROUP.flatMap(r => POKEMON_POOLS[r]) : POKEMON_POOLS[tier];
 }
 
-// Répartit un poids total du groupe légendaire entre ses catégories proportionnellement à la
-// taille de leur pool : chaque Pokémon de l'ancien palier garde exactement la même probabilité.
-function splitLegendaryGroupWeight(total) {
-  const size = LEGENDARY_GROUP.reduce((sum, r) => sum + POKEMON_POOLS[r].length, 0);
-  return LEGENDARY_GROUP.map(rarity => ({ rarity, weight: total * POKEMON_POOLS[rarity].length / size }));
-}
-
 // -----------------------------------------------------------------
 // ÉVOLUTIONS — SOURCE DE VÉRITÉ UNIQUE (Bonbon XP, Évolution instantanée ET export du
 // Draft, cf. GET /api/evolution-finals). Table brute id -> id du stade précédent, tirée de
@@ -1732,7 +1725,8 @@ const ADMIN_MODE_RARITY_TABLE = [
   { rarity: 'rare', weight: 0.20 },
   { rarity: 'epique', weight: 0.20 },
   { rarity: 'pseudo_legendaire', weight: 0.16 },
-  ...splitLegendaryGroupWeight(0.12) // groupe légendaire (légendaire/fabuleux/ultra-chimère)
+  // Légendaire / Fabuleux / Ultra-Chimère : MÊME taux chacune (0.04, soit 0.12 au total), quelle que soit la taille de leur liste.
+  ...LEGENDARY_GROUP.map(rarity => ({ rarity, weight: 0.04 }))
 ];
 
 function pickAdminModeRarity() {

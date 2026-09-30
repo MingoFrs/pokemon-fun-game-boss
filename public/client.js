@@ -1342,6 +1342,17 @@ let spectateBoss = null; // boss caché en local (jamais renvoyé par game_updat
 let spectateGameMode = null; // idem : certains broadcasts (game_updated) ne portent pas gameMode, on retombe sur ce cache
 let spectateGuessPlayers = []; // idem : guess_turn_started n'inclut pas `players`, on garde le dernier reçu (guess_game_started/guess_players_updated)
 
+// AFFICHAGE UNIQUEMENT (le gameplay et les points utilisent toujours la valeur exacte).
+// Arrondit le multiplicateur affiché au pas le plus proche : 0.05 garde exactes toutes les valeurs
+// de traits (×1.15, ×0.75, ×0.6...) et ne ramène que les combinaisons "bruitées" à une valeur
+// lisible (1.7249999999999999 -> 1.75, 1.2000000000000002 -> 1.2, 3.45 -> 3.45).
+const MULTIPLIER_DISPLAY_STEP = 0.05;
+function formatMultiplier(value) {
+  // + 1e-9 : un milieu exact (ex. 1.725) s'arrondit toujours vers le haut malgré le bruit flottant.
+  const rounded = Math.round(Number(value) / MULTIPLIER_DISPLAY_STEP + 1e-9) * MULTIPLIER_DISPLAY_STEP;
+  return String(parseFloat(rounded.toFixed(2)));
+}
+
 const RARITY_LABELS = {
   commun: 'Normal',
   peu_commun: 'Peu commun',
@@ -1889,8 +1900,8 @@ function renderAdminViewOptions({ playerName, playerScore, haut, bas }) {
     c.rarityEl.dataset.rarity = c.data.rarity;
     c.points.textContent = `${c.data.finalPoints} PTS (base ${c.data.basePoints})`;
     c.effect.textContent = c.data.shiny
-      ? `${c.data.effectName} ×${c.data.multiplier} · Shiny ×${SHINY_POINTS_MULTIPLIER}`
-      : `${c.data.effectName} ×${c.data.multiplier}`;
+      ? `${c.data.effectName} ×${formatMultiplier(c.data.multiplier)} · Shiny ×${SHINY_POINTS_MULTIPLIER}`
+      : `${c.data.effectName} ×${formatMultiplier(c.data.multiplier)}`;
     c.sprite.closest('.admin-view-card').classList.toggle('admin-view-card--shiny', !!c.data.shiny);
   });
 }
@@ -2216,7 +2227,7 @@ function renderHiddenTalentResult(payload) {
   const wrap = document.createElement('div');
   wrap.className = 'event-result';
   wrap.appendChild(buildEventSprite(payload.sprite, payload.pokemonName));
-  wrap.appendChild(buildEventText(`${payload.pokemonName} reçoit : ${payload.effect.name} (×${payload.effect.multiplier})`));
+  wrap.appendChild(buildEventText(`${payload.pokemonName} reçoit : ${payload.effect.name} (×${formatMultiplier(payload.effect.multiplier)})`));
   wrap.appendChild(buildDeltaLine(payload.scoreDelta));
   eventBodyEl.appendChild(wrap);
   eventBodyEl.appendChild(buildEventCloseButton());
@@ -2364,7 +2375,7 @@ function showBonusResult(data) {
   } else if (data.type === 'mysteryItem') {
     bonusResultSpriteEl.classList.remove('screen--hidden');
     bonusResultSpriteEl.src = data.sprite;
-    bonusResultDetailEl.textContent = `${data.pokemonName} — ${data.effect.name} ×${data.effect.multiplier}`;
+    bonusResultDetailEl.textContent = `${data.pokemonName} — ${data.effect.name} ×${formatMultiplier(data.effect.multiplier)}`;
     bonusResultFinalEl.textContent = `${data.scoreDelta >= 0 ? '+' : ''}${data.scoreDelta} PTS`;
   }
 
@@ -3222,8 +3233,8 @@ socket.on('choice_result', ({ pokemon, rarity, basePoints, effect, pointsGained,
   resultNameEl.textContent = pokemon.shiny ? `✨ ${pokemon.name.toUpperCase()}` : pokemon.name.toUpperCase();
   resultBaseEl.textContent = basePoints;
   resultEffectEl.textContent = pokemon.shiny
-    ? `${effect.name} ×${effect.multiplier} · Shiny ×${SHINY_POINTS_MULTIPLIER}`
-    : `${effect.name} ×${effect.multiplier}`;
+    ? `${effect.name} ×${formatMultiplier(effect.multiplier)} · Shiny ×${SHINY_POINTS_MULTIPLIER}`
+    : `${effect.name} ×${formatMultiplier(effect.multiplier)}`;
   resultEffectEl.classList.toggle('result-effect--bonus', effect.multiplier >= 1);
   resultEffectEl.classList.toggle('result-effect--malus', effect.multiplier < 1);
   resultPointsEl.textContent = pointsGained;
@@ -3281,7 +3292,7 @@ function renderFinishedTeam(team) {
       if (mon.effectName && mon.effectName !== 'Neutre') {
         const traitTag = document.createElement('p');
         traitTag.className = `finished-team-slot__trait ${mon.multiplier >= 1 ? 'finished-team-slot__trait--bonus' : 'finished-team-slot__trait--malus'}`;
-        traitTag.textContent = `${mon.effectName} ×${mon.multiplier}`;
+        traitTag.textContent = `${mon.effectName} ×${formatMultiplier(mon.multiplier)}`;
         slot.appendChild(traitTag);
       }
     }
