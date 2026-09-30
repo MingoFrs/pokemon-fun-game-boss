@@ -1344,6 +1344,27 @@ const DIFFICULTY_TO_GROUP = {
 // nettement relevés par rapport à l'ancienne liste (17 boss, 1650-3200 pts) car avec le
 // dex complet, le score moyen en fin de partie a bien augmenté — le mode normal était
 // devenu trop facile à battre.
+// ---- NERF DES BOSS : facteur par difficulté ----
+// Avec le nouveau système (points = BST × multiplicateur), le score moyen d'une équipe a monté
+// d'environ ×1,4 à ×1,5 (estimation) alors que les objectifs des boss n'ont pas bougé.
+// Chaque facteur multiplie les requiredPoints de sa difficulté (mode normal ET coop, qui en dérive).
+// 1 = ancien réglage. Extrême à 1.33 => objectif moyen ~5500 pts.
+// Variable d'environnement BOSS_POINTS_SCALE (ex. sur Render) : si définie, remplace TOUS les
+// facteurs ci-dessous par cette valeur unique.
+const BOSS_POINTS_SCALE_BY_DIFFICULTY = {
+  facile: 1.5,
+  moyen: 1.5,
+  difficile: 1.5,
+  'extrême': 1.33
+};
+const BOSS_POINTS_SCALE_OVERRIDE = (() => {
+  const v = Number(process.env.BOSS_POINTS_SCALE);
+  return Number.isFinite(v) && v > 0 ? v : null;
+})();
+function getBossPointsScale(difficulty) {
+  return BOSS_POINTS_SCALE_OVERRIDE ?? BOSS_POINTS_SCALE_BY_DIFFICULTY[difficulty] ?? 1;
+}
+
 const BOSSES = [
   // --- facile (easy) ---
   { id: 144, name: 'Artikodin', requiredPoints: 2020, difficulty: 'facile' },
@@ -1453,7 +1474,13 @@ const BOSSES = [
   { id: 1008, name: 'Miraidon', requiredPoints: 4070, difficulty: 'extrême' },
   { id: 1021, name: 'Ire-Foudre', requiredPoints: 3950, difficulty: 'extrême' },
   { id: 1024, name: 'Terapagos', requiredPoints: 4160, difficulty: 'extrême' },
-].map(b => ({ ...b, group: DIFFICULTY_TO_GROUP[b.difficulty], sprite: spriteUrl(b.id) }));
+].map(b => ({
+  ...b,
+  // Nerf : requiredPoints (mode normal ET coop, qui en dérive) × facteur de la difficulté, arrondi à 10.
+  requiredPoints: Math.round(b.requiredPoints * getBossPointsScale(b.difficulty) / 10) * 10,
+  group: DIFFICULTY_TO_GROUP[b.difficulty],
+  sprite: spriteUrl(b.id)
+}));
 
 // 4 groupes de difficulté sélectionnables dans le lobby (feature difficulté du boss).
 // "difficile" et "très difficile" sont fusionnés dans le groupe "hard" : aucun boss
