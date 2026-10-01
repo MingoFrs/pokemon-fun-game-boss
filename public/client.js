@@ -1185,6 +1185,7 @@ const teamScoreLineEl = document.getElementById('team-score-line');
 const bossAttackBannerEl = document.getElementById('boss-attack-banner');
 const resultBossAttackEl = document.getElementById('result-boss-attack');
 const resultTypeBonusEl = document.getElementById('result-type-bonus');
+const resultTypesEl = document.getElementById('result-types');
 const bossTypesEl = document.getElementById('boss-types');
 const bossWeakEl = document.getElementById('boss-weak');
 const typeBonusPanelEl = document.getElementById('type-bonus-panel');
@@ -1398,24 +1399,31 @@ function renderBossTypeInfo(boss) {
 }
 
 // Bonus de type courant du joueur observé (détail envoyé par le serveur : weakness, affinity, total).
+// Affichage COMPACT (2 lignes max) : palier suivant et bonus actif ; le détail complet est en infobulle.
 function renderTypeBonusPanel(detail) {
   const rules = currentBossInfo && currentBossInfo.typeRules;
   if (!rules || !currentBossInfo.counterType) { typeBonusPanelEl.classList.add('screen--hidden'); return; }
   const aff = detail && detail.affinity;
-  const counter = typeLabel(currentBossInfo.counterType);
-  const tiers = rules.affinity.tiers.slice().sort((a, b) => a.min - b.min);
-  const tiersText = tiers.map(t => `${t.min}${t === tiers[tiers.length - 1] ? '+' : ''} → +${Math.round(t.rate * 100)} %`).join(' · ');
+  const pct = rate => `+${Math.round(rate * 100)} %`;
   const lines = [];
   if (rules.affinity.enabled) {
+    const tiers = rules.affinity.tiers.slice().sort((x, y) => x.min - y.min);
     const count = aff ? aff.count : 0;
-    lines.push(`Affinité ${counter} : ${count} Pokémon (${tiersText})`
-      + (aff && aff.rate > 0 ? ` — actif : +${Math.round(aff.rate * 100)} % (+${aff.bonus} pts)` : ''));
+    const next = aff ? aff.nextTier : tiers[0];
+    const label = `Affinité ${typeLabel(currentBossInfo.counterType)} : `;
+    if (aff && aff.rate > 0) {
+      lines.push(next ? `${label}${count}/${next.min} · ${pct(aff.rate)} actif` : `${label}${count} · ${pct(aff.rate)} (max)`);
+    } else {
+      lines.push(next ? `${label}${count}/${next.min} (${pct(next.rate)})` : `${label}${count}`);
+    }
   }
-  if (detail && detail.total) {
-    lines.push(`Bonus de type : +${detail.total} pts (faiblesses +${detail.weakness}${rules.affinity.enabled ? `, affinité +${aff ? aff.bonus : 0}` : ''})`);
-  }
+  if (detail && detail.total) lines.push(`Bonus de type : +${detail.total} pts`);
   typeBonusPanelEl.innerHTML = '';
   lines.forEach(l => { const p = document.createElement('p'); p.textContent = l; typeBonusPanelEl.appendChild(p); });
+  typeBonusPanelEl.title = detail && detail.total
+    ? `Faiblesses +${detail.weakness}${rules.affinity.enabled ? ` · Affinité +${aff ? aff.bonus : 0}` : ''}`
+      + (rules.affinity.enabled ? ` — paliers : ${rules.affinity.tiers.slice().sort((x, y) => x.min - y.min).map(t => `${t.min}${t.min === Math.max(...rules.affinity.tiers.map(z => z.min)) ? '+' : ''} → ${pct(t.rate)}`).join(', ')}` : '')
+    : '';
   typeBonusPanelEl.classList.toggle('screen--hidden', !lines.length);
 }
 
@@ -3315,6 +3323,7 @@ socket.on('choice_result', ({ pokemon, rarity, basePoints, effect, pointsGained,
   resultSpriteEl.src = pokemonSprite(pokemon);
   resultSpriteEl.onerror = pokemon.shiny ? () => { resultSpriteEl.src = pokemon.sprite; } : null;
   resultNameEl.textContent = pokemon.shiny ? `✨ ${pokemon.name.toUpperCase()}` : pokemon.name.toUpperCase();
+  renderTypeBadges(resultTypesEl, pokemon.types); // types fournis par le serveur
   resultBaseEl.textContent = basePoints;
   resultEffectEl.textContent = pokemon.shiny
     ? `${effect.name} ×${formatMultiplier(effect.multiplier)} · Shiny ×${SHINY_POINTS_MULTIPLIER}`

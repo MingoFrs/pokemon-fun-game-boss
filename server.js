@@ -4887,7 +4887,7 @@ io.on('connection', (socket) => {
     const typeBonusDelta = syncTypeBonus(player, game); // bonus de faiblesse + affinité, recalculés depuis l'équipe
 
     socket.emit('choice_result', {
-      pokemon: { name: reward.name, sprite: reward.sprite, shiny: reward.shiny, shinySprite: reward.shinySprite },
+      pokemon: { name: reward.name, sprite: reward.sprite, shiny: reward.shiny, shinySprite: reward.shinySprite, types: BOSS_MECHANICS.getTypes(reward.pokemonId) },
       rarity: reward.rarity,
       basePoints: reward.basePoints,
       effect: { name: reward.effectName, multiplier: reward.multiplier },
