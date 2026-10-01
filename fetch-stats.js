@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 'use strict';
 // =====================================================================
-// Récupère les Base Stats officielles depuis PokéAPI -> data/pokemon-stats.json
+// Récupère les Base Stats officielles ET les types depuis PokéAPI -> data/pokemon-stats.json
+// (une seule requête pokemon/{id} par Pokémon : stats + types). Une entrée sans `types`
+// valides est considérée incomplète et est retéléchargée automatiquement.
 //   node fetch-stats.js                  # récupère ce qui manque (relançable à volonté)
 //   node fetch-stats.js --force          # retélécharge tout
 //   node fetch-stats.js --only=445,10058 # seulement ces ids
@@ -40,9 +42,16 @@ const FORCE = Boolean(args.force);
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
+function hasValidTypes(e) {
+  return Array.isArray(e.types) && e.types.length >= 1 && e.types.length <= 2 &&
+    e.types.every(t => typeof t === 'string' && /^[a-z]+$/.test(t)) &&
+    new Set(e.types).size === e.types.length;
+}
+
 function isValidEntry(e) {
   return e && Object.values(STAT_MAP).every(k => Number.isInteger(e[k]) && e[k] > 0) &&
-    e.bst === Object.values(STAT_MAP).reduce((s, k) => s + e[k], 0);
+    e.bst === Object.values(STAT_MAP).reduce((s, k) => s + e[k], 0) &&
+    hasValidTypes(e);
 }
 
 // Écriture atomique : le fichier existant n'est jamais laissé à moitié écrit.
@@ -85,7 +94,10 @@ function parsePokemon(rosterEntry, json) {
     if (key) entry[key] = s.base_stat;
   }
   entry.bst = Object.values(STAT_MAP).reduce((sum, k) => sum + entry[k], 0);
-  if (!isValidEntry(entry)) throw new Error('stats incomplètes dans la réponse');
+  // Types dans l'ordre des slots PokéAPI (slot 1 = type principal). Pour une forme Méga
+  // (id >= 10000) ce sont les types de la forme Méga, pokemon/{id} étant interrogé directement.
+  entry.types = (json.types || []).slice().sort((a, b) => a.slot - b.slot).map(t => t.type.name);
+  if (!isValidEntry(entry)) throw new Error('stats ou types incomplets dans la réponse');
   return entry;
 }
 
@@ -118,8 +130,8 @@ async function main() {
       const r = todo[cursor++];
       try {
         const entry = parsePokemon(r, await fetchJson(`${API}/${r.id}`));
-        if (r.id >= MEGA_MIN_ID && !/mega/.test(entry.apiName)) warnings.push(`${r.id} ${r.name} -> "${entry.apiName}" n'a pas l'air d'une forme Méga`);
-        if (r.id < MEGA_MIN_ID && /mega/.test(entry.apiName)) warnings.push(`${r.id} ${r.name} -> "${entry.apiName}" inattendu`);
+        if (r.id >= MEGA_MIN_ID && !/-mega/.test(entry.apiName)) warnings.push(`${r.id} ${r.name} -> "${entry.apiName}" n'a pas l'air d'une forme Méga`);
+        if (r.id < MEGA_MIN_ID && /-mega/.test(entry.apiName)) warnings.push(`${r.id} ${r.name} -> "${entry.apiName}" inattendu`);
         data[r.id] = entry;
       } catch (err) {
         failed.push({ id: r.id, name: r.name, error: err.message });

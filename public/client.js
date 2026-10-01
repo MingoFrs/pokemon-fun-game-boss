@@ -1184,6 +1184,12 @@ const gamemodeHintEl = document.getElementById('gamemode-hint');
 const teamScoreLineEl = document.getElementById('team-score-line');
 const bossAttackBannerEl = document.getElementById('boss-attack-banner');
 const resultBossAttackEl = document.getElementById('result-boss-attack');
+const resultTypeBonusEl = document.getElementById('result-type-bonus');
+const bossTypesEl = document.getElementById('boss-types');
+const bossWeakEl = document.getElementById('boss-weak');
+const typeBonusPanelEl = document.getElementById('type-bonus-panel');
+const finishedBossTypesEl = document.getElementById('finished-boss-types');
+const finishedTypeBonusEl = document.getElementById('finished-type-bonus');
 const finishedTeamStatEl = document.getElementById('finished-team-stat');
 const finishedTeamScoreEl = document.getElementById('finished-team-score');
 const adminRolePanelEl = document.getElementById('admin-role-panel');
@@ -1347,6 +1353,72 @@ let spectateGuessPlayers = []; // idem : guess_turn_started n'inclut pas `player
 // de traits (×1.15, ×0.75, ×0.6...) et ne ramène que les combinaisons "bruitées" à une valeur
 // lisible (1.7249999999999999 -> 1.75, 1.2000000000000002 -> 1.2, 3.45 -> 3.45).
 const MULTIPLIER_DISPLAY_STEP = 0.05;
+// ---------- Mécaniques de TYPE des boss : AFFICHAGE UNIQUEMENT ----------
+// Tout (types du boss, faiblesses, multiplicateurs, bonus par Pokémon, bonus d'affinité, paliers)
+// est calculé par le serveur et envoyé tel quel ; le client ne fait que le montrer.
+const TYPE_LABELS = {
+  normal: 'Normal', fire: 'Feu', water: 'Eau', electric: 'Électrik', grass: 'Plante', ice: 'Glace',
+  fighting: 'Combat', poison: 'Poison', ground: 'Sol', flying: 'Vol', psychic: 'Psy', bug: 'Insecte',
+  rock: 'Roche', ghost: 'Spectre', dark: 'Ténèbres', dragon: 'Dragon', steel: 'Acier', fairy: 'Fée'
+};
+let currentBossInfo = null; // boss de la partie en cours (types, faiblesses, règles), tel que reçu du serveur
+
+function typeLabel(type) { return TYPE_LABELS[type] || type; }
+
+function renderTypeBadges(container, types) {
+  container.innerHTML = '';
+  (types || []).forEach(type => {
+    const badge = document.createElement('span');
+    badge.className = 'type-badge';
+    badge.dataset.type = type;
+    badge.textContent = typeLabel(type);
+    container.appendChild(badge);
+  });
+  container.classList.toggle('screen--hidden', !(types && types.length));
+}
+
+function renderBossTypeInfo(boss) {
+  currentBossInfo = boss || null;
+  renderTypeBadges(bossTypesEl, boss && boss.types);
+  const rules = boss && boss.typeRules;
+  if (!boss || !boss.types || !rules || !boss.weaknesses || !boss.weaknesses.length) {
+    bossWeakEl.classList.add('screen--hidden');
+    typeBonusPanelEl.classList.add('screen--hidden');
+    return;
+  }
+  const weak = boss.weaknesses.map(w => `${typeLabel(w.type)}${w.multiplier >= 4 ? ' ×4' : ''}`).join(', ');
+  let text = `Faible contre : ${weak}`;
+  if (rules.weakness.enabled) {
+    text += ` — tes Pokémon de ces types : ×${formatMultiplier(rules.weakness.multiplierX2)}`
+      + ` (×${formatMultiplier(rules.weakness.multiplierX4)} pour ×4)`;
+  }
+  bossWeakEl.textContent = text;
+  bossWeakEl.classList.remove('screen--hidden');
+  renderTypeBonusPanel(null);
+}
+
+// Bonus de type courant du joueur observé (détail envoyé par le serveur : weakness, affinity, total).
+function renderTypeBonusPanel(detail) {
+  const rules = currentBossInfo && currentBossInfo.typeRules;
+  if (!rules || !currentBossInfo.counterType) { typeBonusPanelEl.classList.add('screen--hidden'); return; }
+  const aff = detail && detail.affinity;
+  const counter = typeLabel(currentBossInfo.counterType);
+  const tiers = rules.affinity.tiers.slice().sort((a, b) => a.min - b.min);
+  const tiersText = tiers.map(t => `${t.min}${t === tiers[tiers.length - 1] ? '+' : ''} → +${Math.round(t.rate * 100)} %`).join(' · ');
+  const lines = [];
+  if (rules.affinity.enabled) {
+    const count = aff ? aff.count : 0;
+    lines.push(`Affinité ${counter} : ${count} Pokémon (${tiersText})`
+      + (aff && aff.rate > 0 ? ` — actif : +${Math.round(aff.rate * 100)} % (+${aff.bonus} pts)` : ''));
+  }
+  if (detail && detail.total) {
+    lines.push(`Bonus de type : +${detail.total} pts (faiblesses +${detail.weakness}${rules.affinity.enabled ? `, affinité +${aff ? aff.bonus : 0}` : ''})`);
+  }
+  typeBonusPanelEl.innerHTML = '';
+  lines.forEach(l => { const p = document.createElement('p'); p.textContent = l; typeBonusPanelEl.appendChild(p); });
+  typeBonusPanelEl.classList.toggle('screen--hidden', !lines.length);
+}
+
 function formatMultiplier(value) {
   // + 1e-9 : un milieu exact (ex. 1.725) s'arrondit toujours vers le haut malgré le bruit flottant.
   const rounded = Math.round(Number(value) / MULTIPLIER_DISPLAY_STEP + 1e-9) * MULTIPLIER_DISPLAY_STEP;
@@ -1784,6 +1856,16 @@ function renderTeam(team, interactive) {
         slot.classList.add('team-slot--shiny');
       }
       slot.appendChild(img);
+      if (pokemon.types && pokemon.typeMult && pokemon.typeMult !== 1) {
+        const tag = document.createElement('span');
+        tag.className = `team-slot__type ${pokemon.typeMult > 1 ? 'team-slot__type--bonus' : 'team-slot__type--malus'}`;
+        tag.textContent = `×${formatMultiplier(pokemon.typeMult)}`;
+        slot.appendChild(tag);
+      }
+      if (pokemon.types) {
+        slot.title = `${pokemon.name} — ${pokemon.types.map(typeLabel).join(' / ')}`
+          + (pokemon.typeBonus ? ` — bonus de type ${pokemon.typeBonus > 0 ? '+' : ''}${pokemon.typeBonus} pts` : '');
+      }
       if (i === team.length - 1 && team.length > lastTeamSize) {
         slot.classList.add('team-slot--new');
       }
@@ -2506,6 +2588,7 @@ function applyGameState({ status, turn, maxTurns, route, players, bossAttackTarg
   const observed = isAdminNow() ? players.find(p => p.id !== currentAdminId) : players.find(p => p.id === myId);
   if (observed) {
     renderTeam(observed.team, !isAdminNow()); // ADMIN observe en lecture seule, jamais interactif
+    renderTypeBonusPanel(observed.typeBonus);
     myScoreValueEl.textContent = observed.score;
     if (!isAdminNow() && observed.hasChosen) {
       setChoiceButtonsEnabled(false);
@@ -3074,6 +3157,7 @@ function applyGameStarted({ status, turn, maxTurns, route, boss, players, gameMo
   bossSpriteEl.src = boss.sprite;
   bossNameEl.textContent = boss.name.toUpperCase();
   bossTargetValueEl.textContent = bossTarget;
+  renderBossTypeInfo(boss);
   applyGameState({ status, turn, maxTurns, route, players });
   showScreen(screenGame);
 }
@@ -3224,7 +3308,7 @@ socket.on('bonus_result', (data) => {
   updateMyScore(data.score, data.scoreDelta);
 });
 
-socket.on('choice_result', ({ pokemon, rarity, basePoints, effect, pointsGained, bossAttackHit, score, team }) => {
+socket.on('choice_result', ({ pokemon, rarity, basePoints, effect, pointsGained, bossAttackHit, typeBonusDelta, typeBonus, score, team }) => {
   resultPanelEl.dataset.rarity = rarity || 'commun'; // rareté fournie par le serveur, jamais déterminée ici
   resultPanelEl.classList.toggle('result-panel--shiny', !!pokemon.shiny);
   resultRarityEl.textContent = RARITY_LABELS[rarity] || '';
@@ -3239,11 +3323,20 @@ socket.on('choice_result', ({ pokemon, rarity, basePoints, effect, pointsGained,
   resultEffectEl.classList.toggle('result-effect--malus', effect.multiplier < 1);
   resultPointsEl.textContent = pointsGained;
   resultBossAttackEl.classList.toggle('screen--hidden', !bossAttackHit);
+  // Bonus de type de CE tirage (faiblesse du nouveau Pokémon + variation d'affinité), fourni par le serveur.
+  resultTypeBonusEl.textContent = typeBonusDelta ? `Bonus de type : ${typeBonusDelta > 0 ? '+' : ''}${typeBonusDelta} PTS` : '';
+  resultTypeBonusEl.classList.toggle('screen--hidden', !typeBonusDelta);
+  renderTypeBonusPanel(typeBonus);
   resultPanelEl.classList.remove('result-panel--hidden');
   playRevealAnimation();
   playRevealSound();
   renderTeam(team, true); // toujours ta propre équipe (résultat de ton propre choix)
-  updateMyScore(score, pointsGained);
+  updateMyScore(score, pointsGained + (typeBonusDelta || 0));
+});
+
+// Bonus de type recalculé par le serveur (après tirage, évolution, Méga, événement...) : affichage seul.
+socket.on('type_bonus_updated', (detail) => {
+  if (!isSpectating) renderTypeBonusPanel(detail);
 });
 
 socket.on('game_updated', ({ status, turn, maxTurns, route, players, hostId: hId, adminId, bossAttackTargetId }) => {
@@ -3287,6 +3380,21 @@ function renderFinishedTeam(team) {
           ? `${mon.megaFrom} → ${mon.name} (Méga Gemme)`
           : `${mon.evolvedFrom} → ${mon.name} (Bonbon XP)`;
         slot.appendChild(evoTag);
+      }
+
+      if (mon.types) {
+        const typesRow = document.createElement('div');
+        typesRow.className = 'type-badges type-badges--small';
+        renderTypeBadges(typesRow, mon.types);
+        slot.appendChild(typesRow);
+        // Détail du score : composantes envoyées par le serveur (jamais recalculées ici).
+        const detail = document.createElement('p');
+        detail.className = 'finished-team-slot__detail';
+        const parts = [`Base ${mon.basePoints}`, `Trait ×${formatMultiplier(mon.multiplier)}`];
+        if (mon.shiny && !mon.shinyInMultiplier) parts.push(`Shiny ×${SHINY_POINTS_MULTIPLIER}`);
+        if (mon.typeMult && mon.typeMult !== 1) parts.push(`Type ×${formatMultiplier(mon.typeMult)} (${mon.typeBonus > 0 ? '+' : ''}${mon.typeBonus})`);
+        detail.textContent = parts.join(' · ');
+        slot.appendChild(detail);
       }
 
       if (mon.effectName && mon.effectName !== 'Neutre') {
@@ -3349,6 +3457,16 @@ function applyGameFinished({ boss, difficulty, gameMode, adminId, reason, player
   finishedBossSpriteEl.src = boss.sprite;
   finishedBossNameEl.textContent = boss.name.toUpperCase();
   finishedDifficultyEl.textContent = DIFFICULTY_LABELS[difficulty] || '';
+  renderTypeBadges(finishedBossTypesEl, boss.types);
+  const tb = observed && observed.typeBonus;
+  if (tb && boss.typeRules) {
+    const aff = tb.affinity;
+    finishedTypeBonusEl.textContent = `Bonus de type : +${tb.total} pts (faiblesses +${tb.weakness}`
+      + `${boss.typeRules.affinity.enabled ? `, affinité ${typeLabel(aff.counterType)} +${aff.bonus}` : ''})`;
+    finishedTypeBonusEl.classList.remove('screen--hidden');
+  } else {
+    finishedTypeBonusEl.classList.add('screen--hidden');
+  }
   ['easy', 'medium', 'hard', 'extreme'].forEach(d => {
     finishedDifficultyEl.classList.toggle(`finished-difficulty-badge--${d}`, d === difficulty);
   });

@@ -16,6 +16,8 @@ const path = require('path');
 // Points des Pokémon : Base Stats PokéAPI -> BST -> catégorie -> multiplicateur (cf. stats-config.js / stats.js).
 const statsConfig = require('./stats-config');
 const pokemonStats = require('./stats');
+const bossMechanicsConfig = require('./boss-mechanics-config');
+const { loadTypeData, createBossMechanics } = require('./boss-mechanics');
 const { LEGENDARY_GROUP } = statsConfig; // légendaire + fabuleux + ultra-chimère (ancien palier "légendaire")
 
 const app = express();
@@ -1049,6 +1051,43 @@ try {
   process.exit(1);
 }
 
+// ---- Mécaniques de TYPE des boss (cf. boss-mechanics.js / boss-mechanics-config.js) ----
+// Types par Pokémon (data/pokemon-stats.json, via fetch-stats.js) + table d'efficacité
+// (data/type-chart.json, via fetch-types.js) : jamais saisis à la main. Le serveur refuse de
+// démarrer si l'un des deux est absent/incomplet. Le pool de référence (type « à contrer »)
+// exclut les Méga (id >= 10000, tirées seulement en Admin vs Joueur).
+let BOSS_MECHANICS;
+try {
+  BOSS_MECHANICS = createBossMechanics({
+    ...loadTypeData(),
+    config: bossMechanicsConfig,
+    shinyMultiplier: SHINY_POINTS_MULTIPLIER,
+    poolIds: POKEMON_ENTRIES.filter(e => e.id < 10000).map(e => e.id)
+  });
+} catch (err) {
+  console.error('[types] Démarrage impossible : ' + err.message);
+  process.exit(1);
+}
+
+// Recalcule le bonus de type du joueur depuis son équipe ACTUELLE (un seul calcul partagé) et
+// ajuste player.score de la différence. À appeler après TOUT changement d'équipe/de score.
+// Retourne la variation de score due aux bonus (0 si la mécanique est inactive dans ce mode).
+function syncTypeBonus(player, game) {
+  const delta = BOSS_MECHANICS.syncPlayer(player, game);
+  if (player.typeBonus && player.id) io.to(player.id).emit('type_bonus_updated', player.typeBonus);
+  return delta;
+}
+
+// Types / faiblesses / type à contrer du boss + règles affichables ; calibrage optionnel des
+// objectifs (facteur 1 par défaut = aucun changement). Appelé AVANT le calcul de l'objectif coop.
+function applyBossMechanics(game) {
+  const boss = game.boss;
+  Object.assign(boss, BOSS_MECHANICS.describeBoss(boss));
+  boss.typeRules = BOSS_MECHANICS.isEnabled(game.gameMode) ? BOSS_MECHANICS.publicRules() : null;
+  const scale = BOSS_MECHANICS.scaleFor(boss, game.gameMode);
+  if (scale !== 1) boss.requiredPoints = Math.round(boss.requiredPoints * scale / 10) * 10;
+}
+
 const POKEMON_POOLS = {};
 statsConfig.CATEGORY_ORDER.forEach(cat => { POKEMON_POOLS[cat] = []; });
 for (const e of POKEMON_ENTRIES) {
@@ -1551,12 +1590,14 @@ function monContribution(mon) {
 // Applique une mutation à un Pokémon puis répercute la différence de contribution sur
 // le score du joueur. `mutate` reçoit le Pokémon et le modifie en place. Retourne le
 // scoreDelta appliqué.
-function applyMonMutation(player, mon, mutate) {
+function applyMonMutation(player, mon, mutate, game) {
   const before = monContribution(mon);
   mutate(mon);
   const after = monContribution(mon);
-  const scoreDelta = after - before;
+  let scoreDelta = after - before;
   player.score += scoreDelta;
+  // Types (évolution, Méga, Métamorph...) et valeur de l'équipe ayant pu changer : bonus recalculé.
+  if (game) scoreDelta += syncTypeBonus(player, game);
   return scoreDelta;
 }
 
@@ -1678,8 +1719,8 @@ function getMegaForms(mon) {
 // est ajusté de la différence entre la valeur du Méga (base × trait × shiny, même formule que
 // buildRewardOption) et celle du Pokémon d'origine (base × trait × shiny). Retourne
 // { fromName, scoreDelta }.
-function megaEvolveMon(player, mon, form) {
-  const shinyFactor = mon.shiny ? SHINY_POINTS_MULTIPLIER : 1;
+function megaEvolveMon(player, mon, form, game) {
+  const shinyFactor = mon.shiny && !mon.shinyInMultiplier ? SHINY_POINTS_MULTIPLIER : 1;
   const before = Math.round(mon.basePoints * mon.multiplier * shinyFactor);
   const after = Math.round(form.basePoints * mon.multiplier * shinyFactor);
   const fromName = mon.name;
@@ -1690,8 +1731,9 @@ function megaEvolveMon(player, mon, form) {
   mon.basePoints = form.basePoints;
   mon.rarity = 'mega';
   mon.megaFrom = fromName;
-  const scoreDelta = after - before;
+  let scoreDelta = after - before;
   player.score += scoreDelta;
+  if (game) scoreDelta += syncTypeBonus(player, game);
   return { fromName, scoreDelta };
 }
 
@@ -2404,9 +2446,10 @@ function resolveDoubleEncounter(game, player, action) {
   if (optionIndex === null || !replacedMon) return { error: 'Choix invalide.' };
 
   const chosen = options[optionIndex];
-  const scoreDelta = chosen.finalPoints - monContribution(replacedMon);
+  let scoreDelta = chosen.finalPoints - monContribution(replacedMon);
   player.team[replaceIndex] = teamMonFromReward(chosen);
   player.score += scoreDelta;
+  scoreDelta += syncTypeBonus(player, game);
 
   return {
     result: {
@@ -2471,7 +2514,7 @@ function resolveDoubleOrNothing(game, player, action) {
   }
 
   const success = Math.random() < DOUBLE_OR_NOTHING_SUCCESS_CHANCE; // tiré côté serveur, jamais le client
-  const scoreDelta = applyMonMutation(player, mon, m => { m.multiplier = success ? m.multiplier * 2 : 0; });
+  const scoreDelta = applyMonMutation(player, mon, m => { m.multiplier = success ? m.multiplier * 2 : 0; }, game);
 
   return {
     result: {
@@ -2509,7 +2552,7 @@ function resolveHiddenTalent(game, player, action) {
   if (!mon) return { error: 'Pokémon invalide.' };
 
   const newEffect = randomFrom(EFFECTS.filter(e => e.name !== 'Neutre'));
-  const scoreDelta = applyMonMutation(player, mon, m => assignEffect(m, newEffect));
+  const scoreDelta = applyMonMutation(player, mon, m => assignEffect(m, newEffect), game);
 
   return {
     result: {
@@ -2548,7 +2591,7 @@ function resolveInstantEvolution(game, player, action) {
   if (!mon || !evolution) return { error: 'Ce Pokémon ne peut pas évoluer.' };
 
   let fromName;
-  const scoreDelta = applyMonMutation(player, mon, m => { fromName = evolveMon(m, evolution); });
+  const scoreDelta = applyMonMutation(player, mon, m => { fromName = evolveMon(m, evolution); }, game);
 
   return {
     result: {
@@ -2575,7 +2618,8 @@ function startShinyPokemon(game, player) {
     m.shiny = true;
     m.shinySprite = shinySpriteUrl(m.id);
     m.multiplier = m.multiplier * SHINY_POINTS_MULTIPLIER;
-  });
+    m.shinyInMultiplier = true; // le ×shiny est déjà dans le multiplicateur : jamais recompté
+  }, game);
 
   broadcastGameUpdated(game); // score/équipe changés hors du flux de tour déjà diffusé par finalizePlayerTurn
   io.to(player.id).emit('rare_event_result', {
@@ -2637,9 +2681,10 @@ function resolveTimeRift(game, player, action) {
   const replacedMon = replaceIndex !== null ? player.team[replaceIndex] : null;
   if (!replacedMon) return { error: 'Choix invalide.' };
 
-  const scoreDelta = reward.finalPoints - monContribution(replacedMon);
+  let scoreDelta = reward.finalPoints - monContribution(replacedMon);
   player.team[replaceIndex] = teamMonFromReward(reward);
   player.score += scoreDelta;
+  scoreDelta += syncTypeBonus(player, game);
 
   return {
     result: {
@@ -2738,6 +2783,9 @@ function resolveDuel(game, player, action) {
 
   if (playerA && winnerId === idA) playerA.score += DUEL_REWARD_POINTS;
   if (playerB && winnerId === idB) playerB.score += DUEL_REWARD_POINTS;
+  // L'affinité est un % du score brut : recalculée après tout changement de score.
+  if (playerA) syncTypeBonus(playerA, game);
+  if (playerB) syncTypeBonus(playerB, game);
 
   const resultsByPlayer = {};
   [playerA, playerB].forEach(p => {
@@ -2972,6 +3020,14 @@ async function loadPersistedGames() {
       if (!game || !game.id || !Array.isArray(game.players)) return;
       game.turnTimer = null;
       game.guessTurnTimer = null;
+      // Partie sauvegardée AVANT les mécaniques de type : on ajoute seulement types/faiblesses au
+      // boss (objectif et scores déjà sauvegardés, jamais recalculés).
+      if (game.boss && !game.boss.types && game.boss.id !== undefined) {
+        try {
+          Object.assign(game.boss, BOSS_MECHANICS.describeBoss(game.boss));
+          game.boss.typeRules = BOSS_MECHANICS.isEnabled(game.gameMode) ? BOSS_MECHANICS.publicRules() : null;
+        } catch (e) { console.error('[types] boss restauré sans types :', e.message); }
+      }
       games[game.id] = game;
 
       game.players.forEach(player => {
@@ -3164,6 +3220,7 @@ function getPublicPlayers(game) {
     disconnected: p.disconnected,
     score: p.score,
     team: p.team,
+    typeBonus: p.typeBonus || null, // détail du bonus de type (affichage) — calculé par le serveur
     hasChosen: p.currentChoice !== null,
     secretSelected: p.secretPokemonIndex !== null // mode "guess" : jamais LEQUEL, juste si choisi
   }));
@@ -3255,6 +3312,7 @@ function beginRouteGameplay(game, gameId) {
   // Cloné (jamais la référence partagée de BOSSES) : en mode coop on ajoute un champ
   // teamRequiredPoints propre à CETTE partie, jamais sur l'objet boss partagé.
   game.boss = { ...pickRandomBoss(game.selectedDifficulty || 'medium') };
+  applyBossMechanics(game); // types/faiblesses + calibrage éventuel, AVANT l'objectif coop
   if (game.gameMode === 'coop') {
     game.boss.teamRequiredPoints = computeCoopTeamRequiredPoints(game.boss, game.players.length);
     // Attaque du boss (mécanique exclusive au mode Coop, cf. advanceTurn) : jamais au
@@ -3341,6 +3399,9 @@ function advanceTurn(game) {
 }
 
 function finishGame(game) {
+  // Filet de sécurité : score final = score brut + bonus de type de l'équipe FINALE, quel que
+  // soit le chemin qui a modifié l'équipe (idempotent : sans effet si déjà à jour).
+  game.players.forEach(p => syncTypeBonus(p, game));
   game.status = 'finished';
   deletePersistedGame(game.id); // partie finie : plus jamais besoin de la restaurer après un redémarrage
   game.route[game.route.length - 1].status = 'done';
@@ -3353,7 +3414,7 @@ function finishGame(game) {
     const teamScore = game.players.reduce((sum, p) => sum + p.score, 0);
     const teamWon = teamScore >= game.boss.teamRequiredPoints;
     const coopResults = game.players.map(p => ({
-      id: p.id, name: p.name, avatar: p.avatar, score: p.score, team: p.team,
+      id: p.id, name: p.name, avatar: p.avatar, score: p.score, team: p.team, typeBonus: p.typeBonus || null,
       result: teamWon ? 'victory' : 'defeat'
     }));
     game.players.forEach(p => {
@@ -3397,6 +3458,7 @@ function finishGame(game) {
       avatar: p.avatar,
       score: p.score,
       team: p.team,
+      typeBonus: p.typeBonus || null,
       result: p.score >= game.boss.requiredPoints ? 'victory' : 'defeat'
     };
   });
@@ -4154,6 +4216,8 @@ io.on('connection', (socket) => {
     game.players.forEach(p => {
       p.score = 0;
       p.team = [];
+      p.typeBonusTotal = 0;
+      p.typeBonus = null;
       p.currentChoice = null;
       p.currentOptions = null;
       p.hasShinyCharm = false;
@@ -4820,6 +4884,7 @@ io.on('connection', (socket) => {
 
     player.score += pointsGained;
     pushMonToTeam(player, teamMonFromReward(reward));
+    const typeBonusDelta = syncTypeBonus(player, game); // bonus de faiblesse + affinité, recalculés depuis l'équipe
 
     socket.emit('choice_result', {
       pokemon: { name: reward.name, sprite: reward.sprite, shiny: reward.shiny, shinySprite: reward.shinySprite },
@@ -4828,6 +4893,8 @@ io.on('connection', (socket) => {
       effect: { name: reward.effectName, multiplier: reward.multiplier },
       pointsGained,
       bossAttackHit,
+      typeBonusDelta,
+      typeBonus: player.typeBonus || null,
       score: player.score,
       team: player.team
     });
@@ -4991,7 +5058,7 @@ io.on('connection', (socket) => {
     }
 
     const teamSizeBefore = player.team.length;
-    const { fromName, scoreDelta } = megaEvolveMon(player, mon, randomFrom(forms));
+    const { fromName, scoreDelta } = megaEvolveMon(player, mon, randomFrom(forms), game);
 
     player.pendingBonusKey = null;
     player.heldItemUsed = true;
@@ -5052,7 +5119,7 @@ io.on('connection', (socket) => {
     }
 
     let fromName;
-    const scoreDelta = applyMonMutation(player, mon, m => { fromName = evolveMon(m, evolution); });
+    const scoreDelta = applyMonMutation(player, mon, m => { fromName = evolveMon(m, evolution); }, game);
 
     player.pendingBonusKey = null;
     player.heldItemUsed = true;
@@ -5101,7 +5168,7 @@ io.on('connection', (socket) => {
     }
 
     const newEffect = randomFrom(EFFECTS.filter(e => e.name !== 'Neutre'));
-    const scoreDelta = applyMonMutation(player, mon, m => assignEffect(m, newEffect));
+    const scoreDelta = applyMonMutation(player, mon, m => assignEffect(m, newEffect), game);
 
     player.pendingBonusKey = null;
     player.heldItemUsed = true;
@@ -5237,10 +5304,13 @@ io.on('connection', (socket) => {
       }
       m.basePoints = targetContribution;
       m.multiplier = METAMORPH_TRANSFORM_MULTIPLIER;
+      // Copie les TYPES de la cible ; et reprend son éventuel ×shiny déjà inclus dans targetContribution.
+      m.typeSourceId = target.typeSourceId ?? target.id;
+      m.shinyInMultiplier = !!target.shinyInMultiplier;
       m.effectName = 'Transformé';
       m.metamorphUsed = true; // verrou définitif : usage unique pour ce Métamorph
       // m.name INTENTIONNELLEMENT jamais réécrit : reste "Métamorph" pour toujours.
-    });
+    }, game);
 
     socket.emit('metamorph_transformed', {
       score: player.score,

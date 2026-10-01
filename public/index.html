@@ -243,6 +243,9 @@
           <img id="boss-sprite" class="boss-sprite" src="" alt="">
           <h2 id="boss-name" class="boss-name">ARCEUS</h2>
           <p class="boss-target">Objectif : <span id="boss-target-value">2500</span> PTS</p>
+          <div id="boss-types" class="type-badges screen--hidden"></div>
+          <p id="boss-weak" class="boss-weak screen--hidden"></p>
+          <div id="type-bonus-panel" class="type-bonus-panel screen--hidden"></div>
           <p id="boss-attack-banner" class="boss-attack-banner screen--hidden"></p>
           <div class="my-score-row">
             <span id="my-score-label" class="my-score-label">Ton score</span>
@@ -335,6 +338,7 @@
             <p class="result-line">Effet : <span id="result-effect">—</span></p>
             <p class="result-final">Résultat : <span id="result-points">0</span> PTS</p>
             <p id="result-boss-attack" class="result-boss-attack screen--hidden">⚡ Le boss t'a frappé : gains divisés par deux !</p>
+            <p id="result-type-bonus" class="result-type-bonus screen--hidden"></p>
           </div>
         </div>
 
@@ -388,6 +392,8 @@
         <img id="finished-boss-sprite" class="boss-sprite" src="" alt="">
         <h2 id="finished-boss-name" class="boss-name"></h2>
         <p id="finished-difficulty" class="finished-difficulty-badge"></p>
+        <div id="finished-boss-types" class="type-badges screen--hidden"></div>
+        <p id="finished-type-bonus" class="finished-type-bonus screen--hidden"></p>
 
         <div class="finished-stats">
           <div class="finished-stat">

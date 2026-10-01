@@ -4604,3 +4604,106 @@ button.friend-chip--online:active {
   animation: revealPopLegendary 1.1s ease both;
 }
 .event-modal[data-rarity="ultra_chimere"] { border-color: var(--rarity-ultra-chimere); box-shadow: 0 0 40px rgba(255, 138, 61, 0.35); }
+/* =====================================================================
+   MÉCANIQUES DE TYPE DES BOSS (affichage uniquement : valeurs fournies par le serveur)
+   ===================================================================== */
+.type-badges {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  margin: 8px 0 4px;
+}
+.type-badges--small { gap: 4px; margin: 4px 0 2px; }
+.type-badge {
+  --type-color: #8a93a6;
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-family: var(--font-display);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #0b0f16;
+  background: var(--type-color);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35) inset;
+}
+.type-badges--small .type-badge { padding: 1px 7px; font-size: 0.62rem; }
+.type-badge[data-type="normal"]   { --type-color: #a8a77a; }
+.type-badge[data-type="fire"]     { --type-color: #ee8130; }
+.type-badge[data-type="water"]    { --type-color: #6390f0; }
+.type-badge[data-type="electric"] { --type-color: #f7d02c; }
+.type-badge[data-type="grass"]    { --type-color: #7ac74c; }
+.type-badge[data-type="ice"]      { --type-color: #96d9d6; }
+.type-badge[data-type="fighting"] { --type-color: #c22e28; color: #fff; }
+.type-badge[data-type="poison"]   { --type-color: #a33ea1; color: #fff; }
+.type-badge[data-type="ground"]   { --type-color: #e2bf65; }
+.type-badge[data-type="flying"]   { --type-color: #a98ff3; }
+.type-badge[data-type="psychic"]  { --type-color: #f95587; }
+.type-badge[data-type="bug"]      { --type-color: #a6b91a; }
+.type-badge[data-type="rock"]     { --type-color: #b6a136; }
+.type-badge[data-type="ghost"]    { --type-color: #735797; color: #fff; }
+.type-badge[data-type="dragon"]   { --type-color: #6f35fc; color: #fff; }
+.type-badge[data-type="dark"]     { --type-color: #705746; color: #fff; }
+.type-badge[data-type="steel"]    { --type-color: #b7b7ce; }
+.type-badge[data-type="fairy"]    { --type-color: #d685ad; }
+
+.boss-weak {
+  margin: 4px 0 0;
+  font-size: 0.8rem;
+  line-height: 1.35;
+  color: var(--text-muted);
+  text-align: center;
+}
+.type-bonus-panel {
+  margin: 8px 0 2px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-panel-alt);
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: var(--text-primary);
+}
+.type-bonus-panel p { margin: 2px 0; }
+.type-bonus-panel p + p { color: var(--accent-bas); font-weight: 600; }
+
+.result-type-bonus {
+  margin: 6px 0 0;
+  font-family: var(--font-display);
+  font-weight: 700;
+  color: var(--accent-bas);
+}
+
+.team-slot { position: relative; }
+.team-slot__type {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  padding: 0 5px;
+  border-radius: 6px;
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  font-weight: 700;
+  line-height: 1.5;
+  background: rgba(7, 10, 16, 0.85);
+}
+.team-slot__type--bonus { color: var(--accent-bas); border: 1px solid var(--accent-bas-dim); }
+.team-slot__type--malus { color: var(--danger); border: 1px solid var(--danger); }
+
+.finished-team-slot__detail {
+  margin: 2px 0 0;
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  line-height: 1.35;
+  color: var(--text-muted);
+  text-align: center;
+}
+.finished-type-bonus {
+  margin: 4px 0 0;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--accent-bas);
+  text-align: center;
+}
