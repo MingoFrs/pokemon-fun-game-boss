@@ -55,12 +55,12 @@ const COUNTER_TYPE_OVERRIDES = {};
 // multipliés entre eux. Ne sont appliqués QUE dans les modes où la mécanique est active.
 // ⚠ Valeurs à renseigner d'après `node simulate-bosses.js` (jamais à la main, jamais au hasard).
 const SCALE_BY_DIFFICULTY = {
-  facile: 1,
-  moyen: 1,
-  difficile: 1,
-  'extrême': 1
+  facile: 1.065,
+  moyen: 1.086,
+  difficile: 1.100,
+  'extrême': 1      // non calibrable ici : voir choix ci-dessous
 };
-const SCALE_BY_BOSS = {};
+const SCALE_BY_BOSS = {};   // corrections par boss : à ajouter plus tard si besoin
 
 // Les 18 types officiels (ordre de départage), exclus : unknown / shadow / stellar.
 const TYPE_ORDER = [
