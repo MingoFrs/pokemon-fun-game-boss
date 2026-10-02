@@ -743,6 +743,15 @@ console.log('\nJ) Branchement de server.js (python3 patch-server-fly.py)');
       assert.ok(src.includes('flyBrain.load()') && src.includes('flyBrain.flush()') && src.includes('registerFlyAdminRoutes(app'));
     });
   }
+  test('debug-fly.js : s\'exécute, affiche poids / features / probabilités ; jamais importé par le serveur ni le client', () => {
+    const dbg = path.join(__dirname, 'debug-fly.js');
+    if (!fs.existsSync(dbg)) return console.log('      (ignoré : debug-fly.js absent)');
+    const out = require('child_process').execFileSync(process.execPath, [dbg, '--draws', '2', '--train', '300', '--synthetic'], { encoding: 'utf8' });
+    assert.ok(/POIDS/.test(out) && /features:/.test(out) && /p=\s*\d/.test(out) && /bp\*left/.test(out));
+    assert.ok(!/debug-fly/.test(src));
+    const cl = path.join(__dirname, 'public', 'client.js');
+    if (fs.existsSync(cl)) assert.ok(!/debug-fly/.test(fs.readFileSync(cl, 'utf8')));
+  });
   test('fly-game.js : seuls les événements autorisés sont émis, aucun champ interne dans les payloads', () => {
     const g = fs.readFileSync(path.join(__dirname, 'fly-game.js'), 'utf8');
     const events = [...g.matchAll(/\.emit\('([a-z_]+)'/g)].map(m => m[1]);
