@@ -225,7 +225,8 @@ const ACHIEVEMENTS = [
 // contexte plat, pratique à tester dans chaque `check` ci-dessus. rows[i].team est le
 // snapshot stocké par recordGameResult : peut être null (mode "guess") ou un tableau de
 // Pokémon.
-function buildAchievementContext(rows) {
+function buildAchievementContext(allRows) {
+  const rows = allRows.filter(r => r.game_mode !== 'fly'); // mode fly : jamais dans les succès
   const ctx = {
     gamesPlayed: rows.length,
     wins: 0,
@@ -2960,7 +2961,7 @@ function serializeGameForPersistence(game) {
 }
 
 async function persistGame(game) {
-  if (!supabase || game.status !== 'playing') return;
+  if (!supabase || game.status !== 'playing' || game.gameMode === 'fly') return;
   try {
     await supabase.from('active_games').upsert({
       game_id: game.id,
@@ -2998,6 +2999,7 @@ process.on('SIGTERM', async () => {
     console.log('[persistance] SIGTERM reçu, sauvegarde des parties en cours...');
     await Promise.all(Object.values(games).map(persistGame));
   }
+  try { await flyBrain.flush(); } catch (e) { /* cerveau : meilleur effort */ }
   process.exit(0);
 });
 
@@ -3073,7 +3075,7 @@ async function loadPersistedGames() {
 // mode admin sera ajoutée aux étapes suivantes (génération des options, diffusion
 // différenciée admin/joueur, interfaces dédiées).
 // -----------------------------------------------------------------
-const GAME_MODES = ['normal', 'admin', 'guess', 'auction', 'coop'];
+const GAME_MODES = ['normal', 'admin', 'guess', 'auction', 'coop', 'fly'];
 
 // Objectif D'ÉQUIPE en mode Coop (cf. finishGame) : la vie de base du boss (100%, déjà
 // buffée dans BOSSES comme en mode normal) PLUS +50% de cette vie de base pour CHAQUE
@@ -3351,6 +3353,10 @@ function beginRouteGameplay(game, gameId) {
 // Mode ADMIN VS JOUEUR : décision de gameplay volontaire — jamais d'objet dans ce mode
 // (assignAdminModeOptions gère ses 6 tours identiques lui-même).
 function startTurnForPlayers(game) {
+  if (game.gameMode === 'fly') {
+    FLY.startTurn(game);
+    return;
+  }
   if (game.gameMode === 'admin') {
     assignAdminModeOptions(game);
     return;
@@ -3399,6 +3405,13 @@ function advanceTurn(game) {
 }
 
 function finishGame(game) {
+  if (game.gameMode === 'fly') {
+    // Aucun boss, aucun bonus de type, aucun objectif : cf. fly-game.js
+    game.status = 'finished';
+    game.route[game.route.length - 1].status = 'done';
+    FLY.finish(game);
+    return;
+  }
   // Filet de sécurité : score final = score brut + bonus de type de l'équipe FINALE, quel que
   // soit le chemin qui a modifié l'équipe (idempotent : sans effet si déjà à jour).
   game.players.forEach(p => syncTypeBonus(p, game));
@@ -3514,6 +3527,7 @@ function hasBlockingEvent(player) {
 function maybeScheduleTurnTransition(game) {
   if (game.status !== 'playing') return;
   if (game.turnTimer) return; // déjà planifié, ne pas doubler
+  if (game.gameMode === 'fly' && !(game.fly && game.fly.revealed)) return; // la Mouche n'a pas encore révélé son choix
 
   const allReady = game.players.length > 0 && game.players.every(p => p.currentChoice !== null && !hasBlockingEvent(p));
   if (!allReady) return;
@@ -3537,6 +3551,12 @@ function maybeScheduleTurnTransition(game) {
 // compatibles avec ce mode.
 function finalizePlayerTurn(game, player) {
   broadcastGameUpdated(game);
+  if (game.gameMode === 'fly') {
+    // Événements rares désactivés (comme en admin, dans un premier temps)
+    FLY.onHumanChose(game);
+    maybeScheduleTurnTransition(game);
+    return;
+  }
   if (player && game.gameMode !== 'admin') {
     applyCrossedFatesLink(game, player);
     maybeTriggerEvent(game, player);
@@ -3569,6 +3589,7 @@ function finalizePlayerRemoval(game, gameId, leavingPlayer) {
     if (game.turnTimer) clearTimeout(game.turnTimer);
     if (game.guessTurnTimer) clearTimeout(game.guessTurnTimer); // sinon timer zombie qui retient `game` en mémoire et peut encore tenter d'émettre sur un salon mort
     clearSpectators(game, gameId);
+    FLY.dispose(game); // mode fly : abandon = aucun apprentissage
     delete games[gameId];
     deletePersistedGame(gameId);
     return;
@@ -3972,6 +3993,10 @@ io.on('connection', (socket) => {
       socket.emit('error_message', 'Partie introuvable.');
       return;
     }
+    if (game.gameMode === 'fly' && socket.data.gameId !== id) {
+      socket.emit('error_message', 'Cette partie est un duel Humanité vs Mouche : elle ne peut pas être rejointe.');
+      return;
+    }
     if (game.status !== 'waiting') {
       // Partie déjà démarrée : mode spectateur, tous modes confondus. Un spectateur
       // n'entre JAMAIS dans game.players : voir clearSpectators/removeSpectator plus
@@ -4188,6 +4213,10 @@ io.on('connection', (socket) => {
       socket.emit('error_message', 'Le mode Coop nécessite au moins 2 joueurs.');
       return;
     }
+    if (game.gameMode === 'fly' && (game.players.length !== 1 || (game.spectators && game.spectators.length > 0))) {
+      socket.emit('error_message', 'Humanité vs Mouche : 1 seul joueur, sans spectateur.');
+      return;
+    }
 
     // Mise sur le banc AVANT toute génération d'état de partie : au-delà de 2 joueurs en
     // mode admin/guess, seuls les 2 actifs choisis par l'hôte jouent réellement.
@@ -4236,6 +4265,10 @@ io.on('connection', (socket) => {
 
     // Mode ADMIN VS JOUEUR : décision de gameplay volontaire — jamais d'objet dans ce
     // mode (déjà le cas avant, cf. startTurnForPlayers), inchangé : démarre directement.
+    if (game.gameMode === 'fly') {
+      FLY.begin(game); // pas d'objet de départ, pas de boss, pas de persistance
+      return;
+    }
     if (game.gameMode === 'admin') {
       beginRouteGameplay(game, gameId);
       return;
@@ -4601,6 +4634,7 @@ io.on('connection', (socket) => {
       specSocket.emit('spectate_joined', buildSpectatePayload(newGame));
     });
 
+    FLY.dispose(oldGame);
     if (oldGame.turnTimer) clearTimeout(oldGame.turnTimer); // filet de sécurité : status 'finished' devrait déjà l'avoir nettoyé
     if (oldGame.guessTurnTimer) clearTimeout(oldGame.guessTurnTimer);
     delete games[oldGameId];
@@ -4669,6 +4703,10 @@ io.on('connection', (socket) => {
     }
     if (!GAME_MODES.includes(mode)) {
       socket.emit('error_message', 'Mode de jeu invalide.');
+      return;
+    }
+    if (mode === 'fly' && game.players.length !== 1) {
+      socket.emit('error_message', 'Humanité vs Mouche se joue seul : retire les autres joueurs du lobby.');
       return;
     }
 
@@ -4884,7 +4922,7 @@ io.on('connection', (socket) => {
 
     player.score += pointsGained;
     pushMonToTeam(player, teamMonFromReward(reward));
-    const typeBonusDelta = syncTypeBonus(player, game); // bonus de faiblesse + affinité, recalculés depuis l'équipe
+    const typeBonusDelta = game.gameMode === 'fly' ? 0 : syncTypeBonus(player, game); // bonus de faiblesse + affinité, recalculés depuis l'équipe
 
     socket.emit('choice_result', {
       pokemon: { name: reward.name, sprite: reward.sprite, shiny: reward.shiny, shinySprite: reward.shinySprite, types: BOSS_MECHANICS.getTypes(reward.pokemonId) },
@@ -5256,6 +5294,10 @@ io.on('connection', (socket) => {
   socket.on('transform_metamorph', ({ index } = {}) => {
     const gameId = socket.data.gameId;
     const game = games[gameId];
+    if (game && game.gameMode === 'fly') {
+      socket.emit('error_message', 'Indisponible dans ce mode.');
+      return;
+    }
 
     if (!game) {
       socket.emit('error_message', 'Partie introuvable.');
@@ -5420,8 +5462,10 @@ io.on('connection', (socket) => {
       // (liste des lots vendus) si la reconnexion arrive après la fin du draft.
       auctionType: game.gameMode === 'auction' ? game.auctionType : undefined,
       auctionHistory: game.gameMode === 'auction' ? game.auctionHistory : undefined,
-      chatMessages: game.chatMessages
+      chatMessages: game.chatMessages,
+      fly: game.gameMode === 'fly' ? FLY.publicState(game) : undefined
     });
+    if (game.gameMode === 'fly') FLY.resyncTurn(game, socket.id);
 
     // Mode "auction" : renvoie le lot en cours à CE seul joueur, avec la même règle de
     // visibilité que broadcastAuctionLot (jamais le Pokémon s'il ne doit pas le voir).
@@ -5493,11 +5537,30 @@ io.on('connection', (socket) => {
   });
 });
 
+// ---- MODE 'fly' (Humanité vs Mouche) : cerveau partagé, XP plafonnée, déroulement de partie ----
+const { createBrainStore } = require('./fly-brain-store');
+const { registerFlyAdminRoutes } = require('./fly-admin-routes');
+const { createFlyGame } = require('./fly-game');
+const { createFlyXp } = require('./fly-xp');
+const flyBrain = createBrainStore({ supabase });
+registerFlyAdminRoutes(app, { store: flyBrain });
+const FLY = createFlyGame({
+  io, store: flyBrain,
+  recordFlyResult: createFlyXp({ supabase, createAuthClient, xpParticipation: XP_PARTICIPATION, xpVictoryBonus: XP_VICTORY_BONUS }),
+  deps: {
+    pickPlayerTurnOptions: (...a) => pickPlayerTurnOptions(...a),
+    teamMonFromReward: r => teamMonFromReward(r),
+    buildRoute: () => buildRoute(),
+    getPublicPlayers: g => getPublicPlayers(g),
+    maybeScheduleTurnTransition: g => maybeScheduleTurnTransition(g)
+  }
+});
+
 const PORT = process.env.PORT || 3000;
 // Restaure les parties persistées AVANT d'accepter des connexions : sinon un client qui
 // se reconnecte dans la fraction de seconde suivant le démarrage pourrait arriver avant
 // que sa partie soit relue, et se voir répondre "partie introuvable" à tort.
-loadPersistedGames()
+Promise.all([loadPersistedGames(), flyBrain.load().catch(err => console.error('[fly] chargement du cerveau', err.message))])
   .catch(err => console.error('[persistance] échec inattendu au démarrage', err.message))
   .finally(() => {
     server.listen(PORT, () => {
