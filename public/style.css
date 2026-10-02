@@ -4707,3 +4707,237 @@ button.friend-chip--online:active {
   color: var(--accent-bas);
   text-align: center;
 }
+
+/* =====================================================================
+   MODE « HUMANITÉ VS MOUCHE » (affichage uniquement : tout vient du serveur, cf. fly-client.js)
+   Teinte propre à la Mouche (vert chitine) : HAUT = ambre et BAS = turquoise restent réservés au gameplay.
+   ===================================================================== */
+:root {
+  --fly-accent: #b6e35a;
+  --fly-dim: #4b6a24;
+  --fly-soft: rgba(182, 227, 90, 0.1);
+}
+
+/* ---------- Lobby : carte « La Mouche » ---------- */
+.fly-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  margin: 14px 0 4px;
+  padding: 14px;
+  background: var(--bg-panel);
+  border: 1px solid var(--fly-dim);
+  border-radius: 12px;
+}
+.fly-card__icon { width: 64px; height: 64px; flex-shrink: 0; }
+.fly-card__body { flex: 1; min-width: 0; }
+.fly-card__name {
+  margin: 0 0 4px;
+  font-family: var(--font-display);
+  font-size: 20px;
+  letter-spacing: 0.04em;
+  color: var(--fly-accent);
+}
+.fly-card__tag { margin: 0 0 12px; color: var(--text-muted); font-size: 13px; line-height: 1.45; }
+.fly-card__stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 0; }
+.fly-card__stat {
+  min-width: 0;
+  padding: 8px 10px;
+  background: var(--bg-panel-alt);
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+}
+.fly-card__stat dt { margin: 0 0 2px; font-size: 11px; line-height: 1.3; color: var(--text-muted); }
+.fly-card__stat dd { margin: 0; font-family: var(--font-mono); font-size: 18px; font-weight: 700; }
+.fly-card__note { margin: 8px 0 0; font-size: 12px; color: var(--text-muted); }
+
+/* ---------- Écran de jeu ---------- */
+/* Le panneau « boss » ne garde que MON score ; aucun objectif, type ni bonus en mode fly. */
+#screen-game.screen--fly .boss-panel > :not(.my-score-row) { display: none !important; }
+#screen-game.screen--fly .boss-panel {
+  animation: none;
+  border-color: var(--border);
+  box-shadow: none;
+}
+#screen-game.screen--fly .boss-panel .my-score-row { margin-top: 0; padding-top: 0; border-top: 0; }
+#screen-game.screen--fly .my-score-value { font-size: 30px; }
+#screen-game.screen--fly .players-panel { display: none; }
+
+.fly-panel {
+  margin-bottom: 16px;
+  padding: 16px;
+  background: var(--bg-panel);
+  border: 1px solid var(--fly-dim);
+  border-radius: 12px;
+}
+.fly-panel__head { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.fly-panel__icon { width: 44px; height: 44px; flex-shrink: 0; }
+.fly-panel__name {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 20px;
+  letter-spacing: 0.04em;
+  color: var(--fly-accent);
+}
+.fly-panel__meta { margin: 2px 0 0; font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); }
+.fly-panel__score-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+.fly-score-value { font-size: 30px; color: var(--fly-accent); }
+.fly-status {
+  display: flex;
+  align-items: center;
+  min-height: 20px;
+  margin: 12px 0;
+  font-size: 14px;
+  color: var(--text-muted);
+}
+.fly-panel--thinking .fly-status { color: var(--fly-accent); }
+.fly-dots { display: inline-flex; gap: 3px; margin-left: 4px; }
+.fly-dots i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: flyDot 1.2s ease-in-out infinite both;
+}
+.fly-dots i:nth-child(2) { animation-delay: 0.2s; }
+.fly-dots i:nth-child(3) { animation-delay: 0.4s; }
+@keyframes flyDot {
+  0%, 80%, 100% { opacity: 0.25; }
+  40% { opacity: 1; }
+}
+.fly-team-slots { gap: 6px; }
+.fly-team-slots .team-slot:empty { border-style: dashed; opacity: 0.6; }
+
+/* Révélation du choix de la Mouche (réutilise .result-panel : raretés et animations identiques) */
+.fly-reveal__eyebrow { color: var(--fly-accent); }
+.fly-reveal__choice { margin: 0 0 8px; font-family: var(--font-display); font-size: 18px; letter-spacing: 0.04em; }
+
+/* Pastille « la Mouche a choisi cette carte » sur HAUT / BAS */
+.choice-card--fly { position: relative; }
+.choice-card--fly::after {
+  content: "";
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 30px;
+  height: 30px;
+  border: 1.5px solid var(--fly-accent);
+  border-radius: 50%;
+  background: var(--bg-void) url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%3E%3Cg%20fill%3D%22%23bfe8ff%22%20fill-opacity%3D%22.38%22%20stroke%3D%22%23bfe8ff%22%20stroke-opacity%3D%22.8%22%20stroke-width%3D%221.2%22%3E%3Cellipse%20cx%3D%2220%22%20cy%3D%2237%22%20rx%3D%226.5%22%20ry%3D%2216%22%20transform%3D%22rotate%2830%2020%2037%29%22%2F%3E%3Cellipse%20cx%3D%2244%22%20cy%3D%2237%22%20rx%3D%226.5%22%20ry%3D%2216%22%20transform%3D%22rotate%28-30%2044%2037%29%22%2F%3E%3C%2Fg%3E%3Cpath%20d%3D%22M26%2033l-9%205M26%2038l-10%208M38%2033l9%205M38%2038l10%208%22%20stroke%3D%22%23b6e35a%22%20stroke-width%3D%221.6%22%20stroke-linecap%3D%22round%22%20fill%3D%22none%22%2F%3E%3Cellipse%20cx%3D%2232%22%20cy%3D%2242%22%20rx%3D%228%22%20ry%3D%2213%22%20fill%3D%22%232f4a35%22%20stroke%3D%22%23b6e35a%22%20stroke-width%3D%221.6%22%2F%3E%3Cpath%20d%3D%22M24.5%2040h15M24.5%2046h15%22%20stroke%3D%22%23b6e35a%22%20stroke-opacity%3D%22.55%22%20stroke-width%3D%221.4%22%2F%3E%3Cellipse%20cx%3D%2232%22%20cy%3D%2230%22%20rx%3D%227%22%20ry%3D%226%22%20fill%3D%22%232f4a35%22%20stroke%3D%22%23b6e35a%22%20stroke-width%3D%221.6%22%2F%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%2220%22%20r%3D%226%22%20fill%3D%22%232f4a35%22%20stroke%3D%22%23b6e35a%22%20stroke-width%3D%221.6%22%2F%3E%3Ccircle%20cx%3D%2227.8%22%20cy%3D%2219%22%20r%3D%223%22%20fill%3D%22%23e8615d%22%2F%3E%3Ccircle%20cx%3D%2236.2%22%20cy%3D%2219%22%20r%3D%223%22%20fill%3D%22%23e8615d%22%2F%3E%3C%2Fsvg%3E") center / 20px 20px no-repeat;
+}
+.choice-card--rejected.choice-card--fly { opacity: 0.55 !important; }
+
+/* ---------- Écran de fin ---------- */
+.fly-duel { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 16px 0; }
+.fly-duel__side {
+  padding: 14px;
+  text-align: center;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.fly-duel__side--won { border-color: var(--accent-bas); box-shadow: 0 0 0 1px var(--accent-bas) inset; }
+#fly-duel-fly.fly-duel__side--won { border-color: var(--fly-accent); box-shadow: 0 0 0 1px var(--fly-accent) inset; }
+.fly-duel__who {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin: 0 0 4px;
+  font-family: var(--font-display);
+  font-size: 14px;
+  color: var(--text-muted);
+}
+.fly-duel__icon { width: 22px; height: 22px; }
+.fly-duel__score { margin: 0; font-family: var(--font-mono); font-size: 28px; font-weight: 700; }
+
+.fly-learned {
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  background: var(--fly-soft);
+  border-left: 3px solid var(--fly-accent);
+  border-radius: 0 8px 8px 0;
+}
+.fly-learned__main { margin: 0; font-family: var(--font-display); font-size: 17px; }
+.fly-learned__sub { margin: 2px 0 0; font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); }
+.fly-learned__sub:empty { display: none; }
+
+.fly-tally {
+  margin: 0 0 16px;
+  padding: 14px;
+  text-align: center;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.fly-tally__score {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 12px;
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 26px;
+  font-weight: 700;
+}
+.fly-tally__side { display: inline-flex; align-items: baseline; gap: 8px; }
+.fly-tally__side:first-child { color: var(--accent-bas); }
+.fly-tally__side:last-child { color: var(--fly-accent); }
+.fly-tally__name { font-family: var(--font-display); font-size: 14px; font-weight: 600; color: var(--text-muted); }
+.fly-tally__dash { color: var(--text-muted); }
+.fly-tally__draws { margin: 4px 0 0; font-size: 12px; color: var(--text-muted); }
+.fly-tally__draws:empty { display: none; }
+
+.fly-curve-wrap { margin-bottom: 8px; }
+.fly-curve {
+  padding: 12px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.fly-curve__svg { display: block; width: 100%; height: auto; overflow: visible; }
+.fly-curve__grid { stroke: var(--border); stroke-width: 1; }
+.fly-curve__mid { stroke: var(--text-muted); stroke-width: 1; stroke-dasharray: 4 4; opacity: 0.7; }
+.fly-curve__tick { fill: var(--text-muted); font-family: var(--font-mono); font-size: 9px; }
+.fly-curve__area { fill: var(--fly-accent); opacity: 0.12; }
+.fly-curve__line { fill: none; stroke: var(--fly-accent); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.fly-curve__dot { fill: var(--fly-accent); stroke: var(--bg-panel); stroke-width: 2; }
+.fly-curve__caption { margin: 8px 0 0; font-size: 12px; color: var(--text-muted); }
+.fly-curve__empty { margin: 0; font-size: 13px; color: var(--text-muted); }
+
+.fly-turns { display: grid; gap: 8px; margin: 0 0 20px; padding: 0; list-style: none; }
+.fly-turn {
+  display: grid;
+  grid-template-columns: auto 1fr 1fr;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.fly-turn__n { font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); white-space: nowrap; }
+.fly-turn__side { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.fly-turn__side img { width: 36px; height: 36px; flex-shrink: 0; object-fit: contain; }
+.fly-turn__who { margin: 0; font-size: 11px; color: var(--text-muted); }
+.fly-turn__what { margin: 0; font-family: var(--font-mono); font-size: 13px; }
+.fly-turn__side--won .fly-turn__what { color: var(--accent-bas); font-weight: 700; }
+.fly-turn__side:last-child.fly-turn__side--won .fly-turn__what { color: var(--fly-accent); }
+
+@media (max-width: 480px) {
+  .fly-card { flex-direction: column; }
+  .fly-turn { grid-template-columns: 1fr 1fr; }
+  .fly-turn__n { grid-column: 1 / -1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .fly-dots i { animation: none; opacity: 0.7; }
+}
+html.reduce-motion .fly-dots i { animation: none; opacity: 0.7; }

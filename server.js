@@ -5544,6 +5544,11 @@ const { createFlyGame } = require('./fly-game');
 const { createFlyXp } = require('./fly-xp');
 const flyBrain = createBrainStore({ supabase });
 registerFlyAdminRoutes(app, { store: flyBrain });
+// Stats PUBLIQUES de la Mouche (carte du lobby) : getPublicStats() ne contient jamais poids/baseline/décision.
+app.get('/api/fly/stats', (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.json(flyBrain.getPublicStats());
+});
 const FLY = createFlyGame({
   io, store: flyBrain,
   recordFlyResult: createFlyXp({ supabase, createAuthClient, xpParticipation: XP_PARTICIPATION, xpVictoryBonus: XP_VICTORY_BONUS }),

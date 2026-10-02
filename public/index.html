@@ -11,7 +11,7 @@
 <link rel="preconnect" href="https://raw.githubusercontent.com" crossorigin>
 <link rel="dns-prefetch" href="https://raw.githubusercontent.com">
 <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=2">
+<link rel="stylesheet" href="style.css?v=3">
 <!-- Applique thème de fond + réduction d'animations AVANT le premier rendu, pour
      éviter un flash visuel (contenu défini par le panneau Réglages, cf. client.js). -->
 <script>
@@ -173,10 +173,26 @@
             <button type="button" class="gamemode-btn" data-mode="guess">Devine le Pokémon</button>
             <button type="button" class="gamemode-btn" data-mode="auction">Draft/Enchères</button>
             <button type="button" class="gamemode-btn" data-mode="coop">Coop</button>
+            <button type="button" class="gamemode-btn" data-mode="fly">Humanité vs Mouche</button>
           </div>
         </div>
 
         <p id="gamemode-hint" class="gamemode-hint screen--hidden"></p>
+
+        <!-- Mode "fly" uniquement : stats publiques de la Mouche (GET /api/fly/stats), jamais de poids. -->
+        <div id="fly-lobby-card" class="fly-card screen--hidden">
+          <img id="fly-lobby-icon" class="fly-card__icon" alt="" width="64" height="64">
+          <div class="fly-card__body">
+            <h3 class="fly-card__name">La Mouche</h3>
+            <p class="fly-card__tag">Elle apprend de chaque partie jouée jusqu'au bout. Seul contre elle, tu fais partie de son entraînement.</p>
+            <dl class="fly-card__stats">
+              <div class="fly-card__stat"><dt>Parties jouées</dt><dd id="fly-lobby-games">—</dd></div>
+              <div class="fly-card__stat"><dt>Victoires de la Mouche</dt><dd id="fly-lobby-rate">—</dd></div>
+              <div class="fly-card__stat"><dt>Génération</dt><dd id="fly-lobby-gen">—</dd></div>
+            </dl>
+            <p id="fly-lobby-note" class="fly-card__note screen--hidden">Statistiques indisponibles pour le moment.</p>
+          </div>
+        </div>
 
         <!-- Visible uniquement si le mode est admin/guess ET qu'il y a plus de 2 joueurs
              dans le lobby : l'hôte choisit qui joue, les autres deviennent spectateurs
@@ -254,6 +270,26 @@
               <span id="my-score-popup" class="my-score-popup"></span>
             </span>
           </div>
+        </div>
+
+        <!-- Mode "fly" : score, équipe et état de la Mouche (alimentés par fly_thinking / fly_choice_revealed). -->
+        <div id="fly-panel" class="fly-panel screen--hidden">
+          <div class="fly-panel__head">
+            <img id="fly-panel-icon" class="fly-panel__icon" alt="" width="44" height="44">
+            <div>
+              <h2 class="fly-panel__name">La Mouche</h2>
+              <p id="fly-panel-gen" class="fly-panel__meta"></p>
+            </div>
+          </div>
+          <div class="fly-panel__score-row">
+            <span class="my-score-label">Score de la Mouche</span>
+            <span class="my-score-value-wrap">
+              <span id="fly-score-value" class="my-score-value fly-score-value">0</span>
+              <span id="fly-score-popup" class="my-score-popup"></span>
+            </span>
+          </div>
+          <p id="fly-status" class="fly-status" role="status" aria-live="polite"></p>
+          <div id="fly-team-slots" class="team-slots fly-team-slots"></div>
         </div>
 
         <div class="route-panel">
@@ -343,6 +379,20 @@
           </div>
         </div>
 
+        <!-- Mode "fly" : choix de la Mouche, révélé après son délai d'hésitation (fly_choice_revealed). -->
+        <div id="fly-reveal-panel" class="result-panel fly-reveal result-panel--hidden" aria-live="polite">
+          <p class="eyebrow fly-reveal__eyebrow">Choix de la Mouche</p>
+          <p id="fly-reveal-choice" class="fly-reveal__choice"></p>
+          <p id="fly-reveal-rarity" class="result-rarity"></p>
+          <img id="fly-reveal-sprite" class="result-sprite" src="" alt="">
+          <p id="fly-reveal-name" class="result-name"></p>
+          <div class="result-breakdown">
+            <p class="result-line">Base : <span id="fly-reveal-base">0</span> PTS</p>
+            <p class="result-line">Effet : <span id="fly-reveal-effect">—</span></p>
+            <p class="result-final">Résultat : <span id="fly-reveal-points">0</span> PTS</p>
+          </div>
+        </div>
+
         <!-- Résultat d'un bonus (Bonbon XP / Objet Mystère / Charme Chroma) : même style que result-panel. -->
         <div id="bonus-result-panel" class="result-panel result-panel--hidden">
           <p class="eyebrow" id="bonus-result-title">Bonus</p>
@@ -388,7 +438,7 @@
   <section id="screen-finished" class="screen screen--hidden">
     <p id="finished-outcome" class="finished-outcome"></p>
 
-    <div class="finished-grid">
+    <div id="finished-grid-classic" class="finished-grid">
       <div class="finished-col">
         <img id="finished-boss-sprite" class="boss-sprite" src="" alt="">
         <h2 id="finished-boss-name" class="boss-name"></h2>
@@ -418,6 +468,53 @@
 
         <p class="eyebrow finished-ranking-title">Classement</p>
         <div id="finished-results" class="finished-results"></div>
+      </div>
+    </div>
+
+    <!-- Mode "fly" : remplace la grille boss ci-dessus (cf. FlyClient.onGameFinished). -->
+    <div id="fly-finished" class="finished-grid fly-finished screen--hidden">
+      <div class="finished-col">
+        <div class="fly-duel">
+          <div id="fly-duel-human" class="fly-duel__side">
+            <p class="fly-duel__who">Toi</p>
+            <p id="fly-finished-human-score" class="fly-duel__score">0</p>
+          </div>
+          <div id="fly-duel-fly" class="fly-duel__side">
+            <p class="fly-duel__who"><img id="fly-duel-icon" class="fly-duel__icon" alt="" width="22" height="22">La Mouche</p>
+            <p id="fly-finished-fly-score" class="fly-duel__score">0</p>
+          </div>
+        </div>
+
+        <div id="fly-learned-box" class="fly-learned screen--hidden">
+          <p id="fly-learned" class="fly-learned__main"></p>
+          <p id="fly-learned-sub" class="fly-learned__sub"></p>
+        </div>
+
+        <div id="fly-tally" class="fly-tally screen--hidden">
+          <p class="eyebrow">Score global</p>
+          <p class="fly-tally__score">
+            <span class="fly-tally__side"><span class="fly-tally__name">Humanité</span> <span id="fly-tally-human">0</span></span>
+            <span class="fly-tally__dash" aria-hidden="true">–</span>
+            <span class="fly-tally__side"><span id="fly-tally-fly">0</span> <span class="fly-tally__name">Mouche</span></span>
+          </p>
+          <p id="fly-tally-draws" class="fly-tally__draws"></p>
+        </div>
+
+        <div class="fly-curve-wrap">
+          <p class="eyebrow">Progression de la Mouche</p>
+          <div id="fly-curve" class="fly-curve"></div>
+        </div>
+      </div>
+
+      <div class="finished-col">
+        <p class="eyebrow finished-ranking-title">Ton équipe</p>
+        <div id="fly-finished-human-team" class="finished-my-team"></div>
+
+        <p class="eyebrow finished-ranking-title">Équipe de la Mouche</p>
+        <div id="fly-finished-fly-team" class="finished-my-team"></div>
+
+        <p class="eyebrow finished-ranking-title">Tour par tour</p>
+        <ol id="fly-finished-turns" class="fly-turns"></ol>
       </div>
     </div>
 
@@ -941,6 +1038,7 @@
 <div id="friend-invite-toast-container" class="achievement-toast-container" aria-live="polite"></div>
 
 <script src="/socket.io/socket.io.js"></script>
-<script src="client.js?v=2"></script>
+<script src="fly-client.js?v=1"></script>
+<script src="client.js?v=3"></script>
 </body>
 </html>
