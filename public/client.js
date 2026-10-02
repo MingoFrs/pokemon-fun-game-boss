@@ -1,5 +1,4 @@
 const socket = io();
-const FLY_UI = window.FlyClient || null; // mode 'fly' (cf. fly-client.js)
 
 // Easter egg : dex id de Métamorph (cf. socket.on('transform_metamorph') côté serveur).
 const METAMORPH_DEX_ID = 132;
@@ -1549,9 +1548,7 @@ function renderGameMode(gameMode) {
   // AUCUN plafond, tous jouent. Score cumulé contre un boss commun qui scale avec
   // l'effectif (cf. computeCoopTeamRequiredPoints côté serveur).
   const needsCoopHint = currentGameMode === 'coop';
-  // "Humanité vs Mouche" : 1 seul joueur, sans spectateur (revalidé par le serveur au démarrage).
-  const needsFlyHint = currentGameMode === 'fly';
-  gamemodeHintEl.classList.toggle('screen--hidden', !needsGuessHint && !needsAuctionHint && !needsCoopHint && !needsFlyHint);
+  gamemodeHintEl.classList.toggle('screen--hidden', !needsGuessHint && !needsAuctionHint && !needsCoopHint);
   if (needsGuessHint) {
     gamemodeHintEl.textContent = lastLobbyPlayers.length > 2
       ? 'Choisis les 2 joueurs qui vont jouer ci-dessous — les autres seront spectateurs.'
@@ -1560,10 +1557,6 @@ function renderGameMode(gameMode) {
     gamemodeHintEl.textContent = lastLobbyPlayers.length === 2
       ? 'Choisis le type de draft ci-dessous, puis lance la partie.'
       : 'Ce mode nécessite exactement 2 joueurs, ni plus ni moins.';
-  } else if (needsFlyHint) {
-    gamemodeHintEl.textContent = lastLobbyPlayers.length > 1
-      ? 'Humanité vs Mouche se joue seul : retire les autres joueurs du lobby.'
-      : 'Tu joues seul contre la Mouche : 6 tours, aucun boss.';
   } else if (needsCoopHint) {
     const n = lastLobbyPlayers.length;
     gamemodeHintEl.textContent = n >= 2
@@ -1572,7 +1565,6 @@ function renderGameMode(gameMode) {
   }
   guessDurationPanelEl.classList.toggle('screen--hidden', currentGameMode !== 'guess');
   auctionTypePanelEl.classList.toggle('screen--hidden', currentGameMode !== 'auction');
-  if (FLY_UI) FLY_UI.onLobbyMode(currentGameMode); // carte « La Mouche » (stats publiques)
 }
 
 // Reflet local de la durée de tour choisie par l'hôte (mode "guess"). Le serveur reste
@@ -1890,7 +1882,7 @@ function renderTeam(team, interactive) {
       // Usage unique (pokemon.metamorphUsed, verrouillé côté serveur) : une fois utilisé,
       // le slot reste figé (verrouillé visuellement) pour le reste de la partie, y compris
       // après reconnexion. Avant usage, verrouillage anti-spam le temps de la réponse serveur.
-      if (interactive && currentGameMode !== 'fly' && pokemon.id === METAMORPH_DEX_ID) {
+      if (interactive && pokemon.id === METAMORPH_DEX_ID) {
         slot.classList.add('team-slot--metamorph');
         if (pokemon.metamorphUsed) {
           slot.classList.add('team-slot--metamorph-locked');
@@ -2505,7 +2497,6 @@ function resetTurnUI() {
 // se contente de vider l'affichage, le prochain événement serveur reconstruit l'état réel.
 function resetGameUI() {
   clearError();
-  if (FLY_UI) FLY_UI.reset(); // mode 'fly' : panneaux Mouche / écran de fin dédié
 
   // Écran de fin
   screenFinished.classList.add('screen--hidden');
@@ -3030,8 +3021,7 @@ socket.on('rejoin_success', (payload) => {
       boss: payload.boss,
       players: payload.players,
       gameMode: payload.gameMode,
-      adminId: payload.adminId,
-      fly: payload.fly
+      adminId: payload.adminId
     });
   } else if (payload.status === 'finished') {
     applyGameFinished({
@@ -3040,9 +3030,7 @@ socket.on('rejoin_success', (payload) => {
       gameMode: payload.gameMode,
       adminId: payload.adminId,
       reason: null,
-      players: payload.players,
-      fly: payload.fly,
-      fromRejoin: true
+      players: payload.players
     });
   }
 });
@@ -3164,22 +3152,11 @@ socket.on('players_updated', ({ players, hostId: hId }) => {
 });
 
 // ---------- Événements serveur : jeu ----------
-function applyGameStarted({ status, turn, maxTurns, route, boss, players, gameMode, adminId, fly }) {
+function applyGameStarted({ status, turn, maxTurns, route, boss, players, gameMode, adminId }) {
   resetGameUI(); // aucun résidu de l'ancienne partie ; masque aussi le choix tour 4 par défaut
   resetChatPanel(); // nouvelle partie = discussion vierge
   currentGameMode = gameMode || 'normal';
   currentAdminId = adminId || null;
-  if (currentGameMode === 'fly') {
-    // Humanité vs Mouche : boss: null, aucun objectif ni bonus de type. Le reste (tour, route, choix HAUT/BAS,
-    // résultat de MON choix) réutilise le flux normal ; la Mouche est affichée par fly-client.js.
-    myScoreLabelEl.textContent = 'Ton score';
-    coopTeamRequired = null;
-    renderBossTypeInfo(null); // efface tout résidu d'un boss précédent (sinon renderTypeBonusPanel s'appuie dessus)
-    applyGameState({ status, turn, maxTurns, route, players });
-    if (FLY_UI) FLY_UI.onGameStarted({ maxTurns, fly });
-    showScreen(screenGame);
-    return;
-  }
   myScoreLabelEl.textContent = isAdminNow() ? 'Score du joueur' : 'Ton score';
   coopTeamRequired = currentGameMode === 'coop' ? boss.teamRequiredPoints : null;
   // Coop : l'objectif affiché est celui de L'ÉQUIPE (la vraie condition de victoire, cf.
@@ -3383,8 +3360,8 @@ socket.on('game_updated', ({ status, turn, maxTurns, route, players, hostId: hId
 
 // Équipe finale détaillée du joueur : sprite + nom + trait (si non neutre) + évolution
 // éventuelle (Bonbon XP). Réutilise la même structure de slot que .team-slot en jeu.
-function renderFinishedTeam(team, container = finishedMyTeamEl) {
-  container.innerHTML = '';
+function renderFinishedTeam(team) {
+  finishedMyTeamEl.innerHTML = '';
   for (let i = 0; i < 6; i++) {
     const slot = document.createElement('div');
     slot.className = 'team-slot finished-team-slot';
@@ -3437,7 +3414,7 @@ function renderFinishedTeam(team, container = finishedMyTeamEl) {
       }
     }
 
-    container.appendChild(slot);
+    finishedMyTeamEl.appendChild(slot);
   }
 }
 
@@ -3468,13 +3445,7 @@ socket.on('metamorph_transformed', ({ score, scoreDelta, team, targetName, sprit
   showMetamorphResult({ targetName, sprite, scoreDelta });
 });
 
-function applyGameFinished({ boss, difficulty, gameMode, adminId, reason, players, teamScore, teamRequired, fly, fromRejoin }) {
-  if (gameMode === 'fly') {
-    // Humanité vs Mouche : écran de fin dédié (aucun boss), cf. fly-client.js
-    currentGameMode = 'fly';
-    if (FLY_UI) FLY_UI.onGameFinished({ players, fly, fromRejoin });
-    return;
-  }
+function applyGameFinished({ boss, difficulty, gameMode, adminId, reason, players, teamScore, teamRequired }) {
   // Le rôle a pu changer entre le dernier game_started reçu (aucun risque en pratique
   // puisqu'il est verrouillé après start_game, mais on resynchronise par cohérence).
   currentGameMode = gameMode || currentGameMode;
@@ -5184,16 +5155,3 @@ accountFrameButtons.forEach(btn => {
       // le comportement précédent (chargement à la demande), jamais bloquant.
     });
 })();
-
-// ---------- Mode 'fly' (Humanité vs Mouche) : branchement de fly-client.js (affichage uniquement) ----------
-if (FLY_UI) {
-  FLY_UI.init({
-    socket,
-    getMyId: () => myId,
-    screenGame, screenFinished, showScreen,
-    pokemonSprite, rarityLabels: RARITY_LABELS, formatMultiplier, shinyMultiplier: SHINY_POINTS_MULTIPLIER,
-    renderFinishedTeam, updateReplayControls, finishedOutcome: finishedOutcomeEl,
-    choiceHaut: btnHaut, choiceBas: btnBas, matchup: gameMatchupRefs,
-    sounds: { reveal: playRevealSound, victory: playVictorySound, defeat: playDefeatSound }
-  });
-}

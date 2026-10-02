@@ -11,7 +11,7 @@
 <link rel="preconnect" href="https://raw.githubusercontent.com" crossorigin>
 <link rel="dns-prefetch" href="https://raw.githubusercontent.com">
 <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=3">
+<link rel="stylesheet" href="style.css?v=2">
 <!-- Applique thème de fond + réduction d'animations AVANT le premier rendu, pour
      éviter un flash visuel (contenu défini par le panneau Réglages, cf. client.js). -->
 <script>
@@ -178,21 +178,7 @@
         </div>
 
         <p id="gamemode-hint" class="gamemode-hint screen--hidden"></p>
-
-        <!-- Mode "fly" uniquement : stats publiques de la Mouche (GET /api/fly/stats), jamais de poids. -->
-        <div id="fly-lobby-card" class="fly-card screen--hidden">
-          <img id="fly-lobby-icon" class="fly-card__icon" alt="" width="64" height="64">
-          <div class="fly-card__body">
-            <h3 class="fly-card__name">La Mouche</h3>
-            <p class="fly-card__tag">Elle apprend de chaque partie jouée jusqu'au bout. Seul contre elle, tu fais partie de son entraînement.</p>
-            <dl class="fly-card__stats">
-              <div class="fly-card__stat"><dt>Parties jouées</dt><dd id="fly-lobby-games">—</dd></div>
-              <div class="fly-card__stat"><dt>Victoires de la Mouche</dt><dd id="fly-lobby-rate">—</dd></div>
-              <div class="fly-card__stat"><dt>Génération</dt><dd id="fly-lobby-gen">—</dd></div>
-            </dl>
-            <p id="fly-lobby-note" class="fly-card__note screen--hidden">Statistiques indisponibles pour le moment.</p>
-          </div>
-        </div>
+        <div id="fly-lobby-stats" class="fly-stats screen--hidden"></div>
 
         <!-- Visible uniquement si le mode est admin/guess ET qu'il y a plus de 2 joueurs
              dans le lobby : l'hôte choisit qui joue, les autres deviennent spectateurs
@@ -272,24 +258,26 @@
           </div>
         </div>
 
-        <!-- Mode "fly" : score, équipe et état de la Mouche (alimentés par fly_thinking / fly_choice_revealed). -->
-        <div id="fly-panel" class="fly-panel screen--hidden">
-          <div class="fly-panel__head">
-            <img id="fly-panel-icon" class="fly-panel__icon" alt="" width="44" height="44">
+        <div id="fly-card" class="fly-card screen--hidden">
+          <p class="eyebrow">Adversaire</p>
+          <div class="fly-card__head">
+            <span class="fly-card__avatar" aria-hidden="true">🪰</span>
             <div>
-              <h2 class="fly-panel__name">La Mouche</h2>
-              <p id="fly-panel-gen" class="fly-panel__meta"></p>
+              <h2 class="fly-card__name">LA MOUCHE</h2>
+              <p id="fly-card-meta" class="fly-card__meta"></p>
             </div>
           </div>
-          <div class="fly-panel__score-row">
+          <p id="fly-card-status" class="fly-card__status"></p>
+          <div class="my-score-row">
             <span class="my-score-label">Score de la Mouche</span>
             <span class="my-score-value-wrap">
-              <span id="fly-score-value" class="my-score-value fly-score-value">0</span>
+              <span id="fly-score-value" class="my-score-value">0</span>
               <span id="fly-score-popup" class="my-score-popup"></span>
             </span>
           </div>
-          <p id="fly-status" class="fly-status" role="status" aria-live="polite"></p>
-          <div id="fly-team-slots" class="team-slots fly-team-slots"></div>
+          <div id="fly-team" class="fly-team"></div>
+          <p class="fly-card__note">IA simple (apprentissage par renforcement) : elle apprend après chaque partie.</p>
+          <div id="fly-card-stats" class="fly-stats"></div>
         </div>
 
         <div class="route-panel">
@@ -379,10 +367,16 @@
           </div>
         </div>
 
-        <!-- Mode "fly" : choix de la Mouche, révélé après son délai d'hésitation (fly_choice_revealed). -->
-        <div id="fly-reveal-panel" class="result-panel fly-reveal result-panel--hidden" aria-live="polite">
-          <p class="eyebrow fly-reveal__eyebrow">Choix de la Mouche</p>
-          <p id="fly-reveal-choice" class="fly-reveal__choice"></p>
+        <!-- Résultat d'un bonus (Bonbon XP / Objet Mystère / Charme Chroma) : même style que result-panel. -->
+        <div id="bonus-result-panel" class="result-panel result-panel--hidden">
+          <p class="eyebrow" id="bonus-result-title">Bonus</p>
+          <img id="bonus-result-sprite" class="result-sprite" src="" alt="">
+          <p id="bonus-result-detail" class="result-name"></p>
+          <p id="bonus-result-final" class="result-final"></p>
+        </div>
+
+        <div id="fly-reveal-panel" class="result-panel fly-reveal fly-reveal--hidden">
+          <p class="eyebrow">Choix de la Mouche · <span id="fly-reveal-choice"></span></p>
           <p id="fly-reveal-rarity" class="result-rarity"></p>
           <img id="fly-reveal-sprite" class="result-sprite" src="" alt="">
           <p id="fly-reveal-name" class="result-name"></p>
@@ -392,15 +386,6 @@
             <p class="result-final">Résultat : <span id="fly-reveal-points">0</span> PTS</p>
           </div>
         </div>
-
-        <!-- Résultat d'un bonus (Bonbon XP / Objet Mystère / Charme Chroma) : même style que result-panel. -->
-        <div id="bonus-result-panel" class="result-panel result-panel--hidden">
-          <p class="eyebrow" id="bonus-result-title">Bonus</p>
-          <img id="bonus-result-sprite" class="result-sprite" src="" alt="">
-          <p id="bonus-result-detail" class="result-name"></p>
-          <p id="bonus-result-final" class="result-final"></p>
-        </div>
-
         <button id="btn-skip" type="button" class="btn btn--ghost btn--block screen--hidden">Skip ⏩</button>
 
         <!-- Easter egg Métamorph : révélation de transformation, masquée par défaut, jamais
@@ -438,7 +423,7 @@
   <section id="screen-finished" class="screen screen--hidden">
     <p id="finished-outcome" class="finished-outcome"></p>
 
-    <div id="finished-grid-classic" class="finished-grid">
+    <div class="finished-grid">
       <div class="finished-col">
         <img id="finished-boss-sprite" class="boss-sprite" src="" alt="">
         <h2 id="finished-boss-name" class="boss-name"></h2>
@@ -471,56 +456,30 @@
       </div>
     </div>
 
-    <!-- Mode "fly" : remplace la grille boss ci-dessus (cf. FlyClient.onGameFinished). -->
-    <div id="fly-finished" class="finished-grid fly-finished screen--hidden">
-      <div class="finished-col">
-        <div class="fly-duel">
-          <div id="fly-duel-human" class="fly-duel__side">
-            <p class="fly-duel__who">Toi</p>
-            <p id="fly-finished-human-score" class="fly-duel__score">0</p>
-          </div>
-          <div id="fly-duel-fly" class="fly-duel__side">
-            <p class="fly-duel__who"><img id="fly-duel-icon" class="fly-duel__icon" alt="" width="22" height="22">La Mouche</p>
-            <p id="fly-finished-fly-score" class="fly-duel__score">0</p>
-          </div>
-        </div>
-
-        <div id="fly-learned-box" class="fly-learned screen--hidden">
-          <p id="fly-learned" class="fly-learned__main"></p>
-          <p id="fly-learned-sub" class="fly-learned__sub"></p>
-        </div>
-
-        <div id="fly-tally" class="fly-tally screen--hidden">
-          <p class="eyebrow">Score global</p>
-          <p class="fly-tally__score">
-            <span class="fly-tally__side"><span class="fly-tally__name">Humanité</span> <span id="fly-tally-human">0</span></span>
-            <span class="fly-tally__dash" aria-hidden="true">–</span>
-            <span class="fly-tally__side"><span id="fly-tally-fly">0</span> <span class="fly-tally__name">Mouche</span></span>
-          </p>
-          <p id="fly-tally-draws" class="fly-tally__draws"></p>
-        </div>
-
-        <div class="fly-curve-wrap">
-          <p class="eyebrow">Progression de la Mouche</p>
-          <div id="fly-curve" class="fly-curve"></div>
-        </div>
-      </div>
-
-      <div class="finished-col">
-        <p class="eyebrow finished-ranking-title">Ton équipe</p>
-        <div id="fly-finished-human-team" class="finished-my-team"></div>
-
-        <p class="eyebrow finished-ranking-title">Équipe de la Mouche</p>
-        <div id="fly-finished-fly-team" class="finished-my-team"></div>
-
-        <p class="eyebrow finished-ranking-title">Tour par tour</p>
-        <ol id="fly-finished-turns" class="fly-turns"></ol>
-      </div>
-    </div>
-
     <button id="btn-replay" class="btn btn--haut btn--block screen--hidden">Rejouer</button>
     <p class="lobby-status" id="finished-status"></p>
     <button id="btn-leave-finished" class="btn btn--ghost btn--block">Quitter</button>
+  </section>
+
+  <!-- ============ MODE "HUMANITÉ vs MOUCHE" : écran de fin ============ -->
+  <section id="screen-fly-finished" class="screen screen--hidden">
+    <p id="fly-finished-outcome" class="finished-outcome"></p>
+    <div class="fly-finished-scores">
+      <div class="finished-stat">
+        <p class="eyebrow">Toi</p>
+        <p id="fly-finished-me" class="finished-stat__value">0 PTS</p>
+      </div>
+      <div class="finished-stat">
+        <p class="eyebrow">La Mouche 🪰</p>
+        <p id="fly-finished-fly" class="finished-stat__value">0 PTS</p>
+      </div>
+    </div>
+    <p class="eyebrow finished-ranking-title">Tour par tour</p>
+    <div id="fly-finished-turns" class="fly-turns"></div>
+    <p id="fly-finished-learned" class="fly-learned"></p>
+    <div id="fly-finished-stats" class="fly-stats"></div>
+    <button id="fly-btn-replay" class="btn btn--haut btn--block screen--hidden">Rejouer</button>
+    <button id="fly-btn-leave" class="btn btn--ghost btn--block">Quitter</button>
   </section>
 
   <!-- ============ MODE "DEVINE LE POKÉMON" ============ -->
@@ -1038,7 +997,7 @@
 <div id="friend-invite-toast-container" class="achievement-toast-container" aria-live="polite"></div>
 
 <script src="/socket.io/socket.io.js"></script>
+<script src="client.js?v=2"></script>
 <script src="fly-client.js?v=1"></script>
-<script src="client.js?v=3"></script>
 </body>
 </html>

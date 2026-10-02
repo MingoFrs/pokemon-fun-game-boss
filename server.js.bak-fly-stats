@@ -5544,10 +5544,6 @@ const { createFlyGame } = require('./fly-game');
 const { createFlyXp } = require('./fly-xp');
 const flyBrain = createBrainStore({ supabase });
 registerFlyAdminRoutes(app, { store: flyBrain });
-app.get('/api/fly/stats', (req, res) => {
-  res.set('Cache-Control', 'no-store');
-  res.json(flyBrain.getPublicStats()); // nom, parties, victoires, nuls, taux, génération, derniers résultats : jamais de poids
-});
 const FLY = createFlyGame({
   io, store: flyBrain,
   recordFlyResult: createFlyXp({ supabase, createAuthClient, xpParticipation: XP_PARTICIPATION, xpVictoryBonus: XP_VICTORY_BONUS }),

@@ -734,6 +734,11 @@ console.log('\nJ) Branchement de server.js (python3 patch-server-fly.py)');
       assert.ok(!/socket\.on\('fly/.test(src));
       assert.ok(!/fly\.decision|flyBrain\.choose|\.policy\b/.test(src));
     });
+    test('GET /api/fly/stats : ne renvoie que getPublicStats (si patch-server-fly-stats.py appliqué)', () => {
+      const m = src.match(/app\.get\('\/api\/fly\/stats', \(req, res\) => \{([\s\S]*?)\n\}\);/);
+      if (!m) return console.log('      (ignoré : patch-server-fly-stats.py non appliqué)');
+      assert.ok(/res\.json\(flyBrain\.getPublicStats\(\)\)/.test(m[1]) && !/policy|weights|getState/.test(m[1]));
+    });
     test('Cerveau : chargé au démarrage, flush au SIGTERM, routes admin enregistrées', () => {
       assert.ok(src.includes('flyBrain.load()') && src.includes('flyBrain.flush()') && src.includes('registerFlyAdminRoutes(app'));
     });

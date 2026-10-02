@@ -1,0 +1,946 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Route du Boss</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<!-- Sprites Pokémon servis depuis GitHub : établir la connexion (DNS+TLS) tôt, avant même
+     de savoir quelles images seront demandées, réduit le délai visible sur la toute
+     première image chargée (cf. préchargement en arrière-plan dans client.js). -->
+<link rel="preconnect" href="https://raw.githubusercontent.com" crossorigin>
+<link rel="dns-prefetch" href="https://raw.githubusercontent.com">
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css?v=2">
+<!-- Applique thème de fond + réduction d'animations AVANT le premier rendu, pour
+     éviter un flash visuel (contenu défini par le panneau Réglages, cf. client.js). -->
+<script>
+(function () {
+  try {
+    var s = JSON.parse(localStorage.getItem('rdb_settings_v1')) || {};
+    if (s.theme) document.documentElement.dataset.theme = s.theme;
+    if (s.reduceMotion) document.documentElement.classList.add('reduce-motion');
+  } catch (e) {}
+})();
+</script>
+</head>
+<body data-screen="home">
+
+<div class="bg-glow" aria-hidden="true"></div>
+
+<!-- Chrome persistant : présent sur TOUS les écrans (accueil compris). Le hero plein
+     format (gros logo/tagline) reste, lui, propre à #screen-home (cf. plus bas) — cette
+     barre est volontairement compacte pour ne jamais concurrencer le contenu de jeu. -->
+<header class="app-bar">
+  <div class="app-bar__brand">
+    <svg class="app-bar__mark" viewBox="0 0 40 40" fill="none" aria-hidden="true">
+      <circle cx="20" cy="6" r="4" class="node node--boss"/>
+      <path d="M20 10 L20 15" class="edge edge--trunk"/>
+      <circle cx="12" cy="21" r="3" class="node node--haut"/>
+      <circle cx="28" cy="21" r="3" class="node node--bas"/>
+      <path d="M20 15 L12 18" class="edge edge--haut"/>
+      <path d="M20 15 L28 18" class="edge edge--bas"/>
+      <path d="M12 24 L18 31" class="edge edge--haut"/>
+      <path d="M28 24 L22 31" class="edge edge--bas"/>
+      <circle cx="20" cy="34" r="4" class="node node--start"/>
+    </svg>
+    <span class="app-bar__title">Route du Boss</span>
+  </div>
+  <button id="btn-settings" type="button" class="app-bar__settings" aria-label="Réglages">
+    <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="3"></circle>
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+    </svg>
+  </button>
+</header>
+
+<main class="app">
+
+  <section id="screen-home" class="screen">
+    <div class="home-shell">
+
+      <div class="home-hero">
+        <svg class="hero__path" viewBox="0 0 220 320" fill="none" aria-hidden="true">
+          <circle cx="110" cy="24" r="14" class="node node--boss"/>
+          <path d="M110 38 L110 66" class="edge edge--trunk"/>
+          <circle cx="110" cy="80" r="9" class="node"/>
+          <path d="M110 89 L58 128" class="edge edge--haut"/>
+          <path d="M110 89 L162 128" class="edge edge--bas"/>
+          <circle cx="58" cy="132" r="8" class="node node--haut"/>
+          <circle cx="162" cy="132" r="8" class="node node--bas"/>
+          <path d="M58 140 L58 176" class="edge edge--haut"/>
+          <path d="M162 140 L162 176" class="edge edge--bas"/>
+          <circle cx="58" cy="184" r="7" class="node node--haut"/>
+          <circle cx="162" cy="184" r="7" class="node node--bas"/>
+          <path d="M58 191 L94 224" class="edge edge--haut"/>
+          <path d="M162 191 L126 224" class="edge edge--bas"/>
+          <circle cx="110" cy="232" r="9" class="node"/>
+          <path d="M110 241 L110 268" class="edge edge--trunk"/>
+          <circle cx="110" cy="284" r="12" class="node node--start"/>
+        </svg>
+        <p class="eyebrow">Multijoueur temps réel</p>
+        <h1>Route du Boss</h1>
+        <p class="tagline">Choisis HAUT ou BAS à chaque tour. Capture des Pokémon. Atteins le boss.</p>
+      </div>
+
+      <div class="home-panel">
+        <p id="reconnect-status" class="lobby-status screen--hidden">Reconnexion à ta partie...</p>
+
+        <div id="home-forms" class="field">
+          <label for="pseudo-input">Pseudo</label>
+          <input id="pseudo-input" type="text" maxlength="16" placeholder="Ton nom de dresseur" autocomplete="off">
+        </div>
+
+        <p class="account-entry">
+          <span id="account-status-guest">
+            Tu joues en invité. <button id="btn-account-open" type="button" class="link-btn">Se connecter / créer un compte</button>
+          </span>
+          <span id="account-status-logged" class="screen--hidden">
+            <img id="account-status-avatar" class="account-status-avatar-img" src="" alt="">
+            Connecté : <strong id="account-status-pseudo"></strong> — <button id="btn-account-open-logged" type="button" class="link-btn">Gérer (Réglages)</button>
+          </span>
+        </p>
+
+        <div id="home-cards" class="cards">
+          <div class="card">
+            <h2>Créer une partie</h2>
+            <p class="card__hint">Génère un code et invite tes amis.</p>
+            <button id="btn-create" class="btn btn--haut">Créer une partie</button>
+          </div>
+
+          <div class="card">
+            <h2>Rejoindre une partie</h2>
+            <p class="card__hint">Entre le code reçu de l'hôte.</p>
+            <input id="code-input" type="text" maxlength="6" placeholder="CODE" class="input-code" autocomplete="off">
+            <button id="btn-join" class="btn btn--bas">Rejoindre</button>
+          </div>
+        </div>
+
+        <p id="error-message" class="error-message" role="alert"></p>
+      </div>
+
+    </div>
+  </section>
+
+  <section id="screen-lobby" class="screen screen--hidden">
+    <div class="lobby-header">
+      <div>
+        <p class="eyebrow">Code de la partie</p>
+        <div class="game-code-row">
+          <div class="game-code" id="game-code">------</div>
+          <button id="btn-copy-code" type="button" class="btn btn--ghost btn--copy">Copier</button>
+          <button id="btn-copy-link" type="button" class="btn btn--ghost btn--copy">Copier le lien</button>
+        </div>
+        <p id="copy-feedback" class="copy-feedback"></p>
+      </div>
+      <div class="lobby-header__actions">
+        <button id="btn-leave" class="btn btn--ghost">Quitter</button>
+      </div>
+    </div>
+
+    <!-- Barre d'amis persistante (visible seulement si connecté, cf. applyAccountUI) :
+         amis en ligne d'abord avec bouton "Inviter" direct, hors-ligne ensuite grisés.
+         Rafraîchie à chaque entrée dans le lobby (cf. refreshLobbyFriendsBar). -->
+    <div id="lobby-friends-bar" class="lobby-friends-bar screen--hidden">
+      <span class="lobby-friends-bar__label">Amis</span>
+      <div id="lobby-friends-bar-list" class="lobby-friends-bar__list"></div>
+    </div>
+
+    <div class="lobby-grid">
+      <div class="lobby-col lobby-col--players">
+        <div class="players-panel">
+          <h2>Joueurs <span id="players-count">(0)</span></h2>
+          <ul id="players-list" class="players-list"></ul>
+        </div>
+      </div>
+
+      <div class="lobby-col lobby-col--config">
+        <div class="difficulty-panel">
+          <p class="eyebrow">Difficulté du boss</p>
+          <div id="difficulty-options" class="difficulty-options">
+            <button type="button" class="difficulty-btn" data-difficulty="easy">Facile</button>
+            <button type="button" class="difficulty-btn" data-difficulty="medium">Moyen</button>
+            <button type="button" class="difficulty-btn" data-difficulty="hard">Difficile</button>
+            <button type="button" class="difficulty-btn" data-difficulty="extreme">Extrême</button>
+          </div>
+        </div>
+
+        <div class="gamemode-panel">
+          <p class="eyebrow">Mode de jeu</p>
+          <div id="gamemode-options" class="gamemode-options">
+            <button type="button" class="gamemode-btn" data-mode="normal">Mode normal</button>
+            <button type="button" class="gamemode-btn" data-mode="admin">Admin vs Joueur</button>
+            <button type="button" class="gamemode-btn" data-mode="guess">Devine le Pokémon</button>
+            <button type="button" class="gamemode-btn" data-mode="auction">Draft/Enchères</button>
+            <button type="button" class="gamemode-btn" data-mode="coop">Coop</button>
+          </div>
+        </div>
+
+        <p id="gamemode-hint" class="gamemode-hint screen--hidden"></p>
+
+        <!-- Visible uniquement si le mode est admin/guess ET qu'il y a plus de 2 joueurs
+             dans le lobby : l'hôte choisit qui joue, les autres deviennent spectateurs
+             automatiquement au lancement (cf. renderActivePlayersOptions). -->
+        <div id="active-players-panel" class="admin-role-panel screen--hidden">
+          <p class="eyebrow">Choisir les 2 joueurs qui jouent</p>
+          <div id="active-players-options" class="admin-role-options"></div>
+          <p id="active-players-status" class="admin-role-status"></p>
+        </div>
+
+        <div id="admin-role-panel" class="admin-role-panel screen--hidden">
+          <p class="eyebrow">Choisir l'ADMIN</p>
+          <div id="admin-role-options" class="admin-role-options"></div>
+          <p id="admin-role-status" class="admin-role-status"></p>
+        </div>
+
+        <div id="guess-duration-panel" class="admin-role-panel screen--hidden">
+          <p class="eyebrow">Durée d'un tour</p>
+          <div id="guess-duration-options" class="guess-duration-options">
+            <button type="button" class="admin-role-btn" data-duration="20000">20s</button>
+            <button type="button" class="admin-role-btn" data-duration="30000">30s</button>
+            <button type="button" class="admin-role-btn" data-duration="45000">45s</button>
+            <button type="button" class="admin-role-btn" data-duration="60000">60s</button>
+            <button type="button" class="admin-role-btn" data-duration="90000">90s</button>
+          </div>
+        </div>
+
+        <!-- Mode "auction" uniquement : type d'enchère à choisir avant de pouvoir démarrer
+             (cf. socket.on('start_game') côté serveur, qui bloque tant que rien n'est choisi). -->
+        <div id="auction-type-panel" class="admin-role-panel screen--hidden">
+          <p class="eyebrow">Type de draft</p>
+          <div id="auction-type-options" class="admin-role-options">
+            <button type="button" class="admin-role-btn" data-auctiontype="complete">Complet</button>
+            <button type="button" class="admin-role-btn" data-auctiontype="semi_blind">Semi-aveugle</button>
+          </div>
+          <p id="auction-type-status" class="admin-role-status"></p>
+        </div>
+      </div>
+    </div>
+
+    <button id="btn-start" class="btn btn--haut btn--block screen--hidden">Démarrer la partie</button>
+    <p class="lobby-status" id="lobby-status">En attente d'autres dresseurs...</p>
+  </section>
+
+  <section id="screen-game" class="screen screen--hidden">
+
+    <div id="game-matchup-banner" class="matchup-banner">
+      <div class="matchup-side">
+        <img id="game-matchup-me-avatar" class="matchup-avatar" src="" alt="">
+        <span id="game-matchup-me-name" class="matchup-name">Toi</span>
+      </div>
+      <span class="matchup-vs">VS</span>
+      <div class="matchup-side">
+        <img id="game-matchup-opp-avatar" class="matchup-avatar" src="" alt="">
+        <span id="game-matchup-opp-name" class="matchup-name">Adversaire</span>
+      </div>
+    </div>
+
+    <div class="game-grid">
+      <div class="game-sidebar">
+
+        <div class="boss-panel" id="boss-panel">
+          <p class="eyebrow">Boss de fin</p>
+          <img id="boss-sprite" class="boss-sprite" src="" alt="">
+          <h2 id="boss-name" class="boss-name">ARCEUS</h2>
+          <p class="boss-target">Objectif : <span id="boss-target-value">2500</span> PTS</p>
+          <div id="boss-types" class="type-badges screen--hidden"></div>
+          <p id="boss-weak" class="boss-weak screen--hidden"></p>
+          <div id="type-bonus-panel" class="type-bonus-panel screen--hidden"></div>
+          <p id="boss-attack-banner" class="boss-attack-banner screen--hidden"></p>
+          <div class="my-score-row">
+            <span id="my-score-label" class="my-score-label">Ton score</span>
+            <span class="my-score-value-wrap">
+              <span id="my-score-value" class="my-score-value">0</span>
+              <span id="my-score-popup" class="my-score-popup"></span>
+            </span>
+          </div>
+        </div>
+
+        <div class="route-panel">
+          <p class="eyebrow">Route</p>
+          <div id="route-track" class="route-track"></div>
+        </div>
+
+        <div class="team-panel">
+          <p class="eyebrow">Ton équipe</p>
+          <div id="team-slots" class="team-slots"></div>
+        </div>
+
+      </div>
+
+      <div class="game-main">
+
+        <div class="turn-panel">
+          <p class="turn-label">TOUR <span id="turn-current">1</span> / <span id="turn-max">6</span></p>
+          <p id="turn-status" class="turn-status">Choisis ton chemin</p>
+
+          <div id="choice-cards" class="choice-cards">
+            <button id="btn-haut" type="button" class="choice-card choice-card--haut">
+              <img id="choice-haut-sprite" class="choice-card__sprite" src="" alt="">
+              <p id="choice-haut-name" class="choice-card__name">???</p>
+              <span class="choice-card__label">🔼 HAUT</span>
+            </button>
+            <button id="btn-bas" type="button" class="choice-card choice-card--bas">
+              <img id="choice-bas-sprite" class="choice-card__sprite" src="" alt="">
+              <p id="choice-bas-name" class="choice-card__name">???</p>
+              <span class="choice-card__label">🔽 BAS</span>
+            </button>
+          </div>
+
+          <!-- Mode ADMIN VS JOUEUR, écran de l'ADMIN : lecture seule, aucun bouton de choix.
+               Remplace #choice-cards (masqué) pour ce rôle. -->
+          <div id="admin-view-panel" class="admin-view-panel screen--hidden">
+            <p class="admin-view-hint">Tu es l'ADMIN — indique au JOUEUR ce que tu vois (ou mens-lui).</p>
+            <p class="admin-view-target">
+              Joueur observé : <span id="admin-view-player-name">—</span> ·
+              <span id="admin-view-player-score">0</span> PTS
+            </p>
+            <div class="admin-view-cards">
+              <div class="admin-view-card admin-view-card--haut">
+                <span class="admin-view-card__label">🔼 HAUT</span>
+                <img id="admin-view-haut-sprite" class="admin-view-card__sprite" src="" alt="">
+                <p id="admin-view-haut-name" class="admin-view-card__name">???</p>
+                <p id="admin-view-haut-rarity" class="admin-view-card__rarity"></p>
+                <p id="admin-view-haut-points" class="admin-view-card__points"></p>
+                <p id="admin-view-haut-effect" class="admin-view-card__effect"></p>
+              </div>
+              <div class="admin-view-card admin-view-card--bas">
+                <span class="admin-view-card__label">🔽 BAS</span>
+                <img id="admin-view-bas-sprite" class="admin-view-card__sprite" src="" alt="">
+                <p id="admin-view-bas-name" class="admin-view-card__name">???</p>
+                <p id="admin-view-bas-rarity" class="admin-view-card__rarity"></p>
+                <p id="admin-view-bas-points" class="admin-view-card__points"></p>
+                <p id="admin-view-bas-effect" class="admin-view-card__effect"></p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Cible de l'objet en cours d'utilisation (Bonbon XP / Objet Mystère), cf. mini-
+               inventaire plus bas : overlay indépendant du choix HAUT/BAS du tour (l'objet est
+               utilisable à tout moment, cf. #item-inventory-bar), jamais un remplacement de
+               #choice-cards contrairement à l'ancien flux du tour 4. -->
+          <div id="bonus-target-overlay" class="event-overlay screen--hidden">
+            <div class="event-modal">
+              <p id="bonus-target-title" class="bonus-target-title"></p>
+              <div id="bonus-target-list" class="bonus-target-list"></div>
+              <button id="btn-bonus-target-cancel" type="button" class="btn btn--ghost">Annuler</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="result-panel" class="result-panel result-panel--hidden">
+          <p class="eyebrow">Résultat</p>
+          <p id="result-rarity" class="result-rarity"></p>
+          <img id="result-sprite" class="result-sprite" src="" alt="">
+          <p id="result-name" class="result-name"></p>
+          <div id="result-types" class="type-badges screen--hidden"></div>
+          <div class="result-breakdown">
+            <p class="result-line">Base : <span id="result-base">0</span> PTS</p>
+            <p class="result-line">Effet : <span id="result-effect">—</span></p>
+            <p class="result-final">Résultat : <span id="result-points">0</span> PTS</p>
+            <p id="result-boss-attack" class="result-boss-attack screen--hidden">⚡ Le boss t'a frappé : gains divisés par deux !</p>
+            <p id="result-type-bonus" class="result-type-bonus screen--hidden"></p>
+          </div>
+        </div>
+
+        <!-- Résultat d'un bonus (Bonbon XP / Objet Mystère / Charme Chroma) : même style que result-panel. -->
+        <div id="bonus-result-panel" class="result-panel result-panel--hidden">
+          <p class="eyebrow" id="bonus-result-title">Bonus</p>
+          <img id="bonus-result-sprite" class="result-sprite" src="" alt="">
+          <p id="bonus-result-detail" class="result-name"></p>
+          <p id="bonus-result-final" class="result-final"></p>
+        </div>
+
+        <button id="btn-skip" type="button" class="btn btn--ghost btn--block screen--hidden">Skip ⏩</button>
+
+        <!-- Easter egg Métamorph : révélation de transformation, masquée par défaut, jamais
+             confondue avec #bonus-result-panel (qui appartient au flux tour 4). -->
+        <div id="metamorph-result-panel" class="result-panel result-panel--hidden">
+          <p class="eyebrow">Métamorphose</p>
+          <p id="metamorph-result-title" class="result-name">Métamorphe se transforme ??!</p>
+          <img id="metamorph-result-sprite" class="result-sprite" src="" alt="">
+          <p id="metamorph-result-detail" class="result-name"></p>
+          <p id="metamorph-result-final" class="result-final"></p>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="players-panel">
+      <h2>Joueurs</h2>
+      <p id="team-score-line" class="team-score-line screen--hidden"></p>
+      <ul id="game-players-list" class="players-list"></ul>
+    </div>
+
+    <!-- Mini-inventaire : l'objet choisi avant le tour 1 (cf. #item-select-overlay), utilisable
+         À TOUT MOMENT en cliquant son icône (cf. socket 'use_item'). Masqué tant qu'aucun objet
+         n'est en main (mode ADMIN VS JOUEUR, ou avant que 'your_item' arrive). -->
+    <div id="item-inventory-bar" class="item-inventory-bar">
+      <button id="btn-use-item" type="button" class="item-inventory-btn" disabled>
+        <span id="item-inventory-icon" class="item-inventory-btn__icon">🎁</span>
+        <span id="item-inventory-label" class="item-inventory-btn__label">—</span>
+      </button>
+    </div>
+
+    <button id="btn-leave-game" class="btn btn--ghost">Quitter</button>
+  </section>
+
+  <section id="screen-finished" class="screen screen--hidden">
+    <p id="finished-outcome" class="finished-outcome"></p>
+
+    <div class="finished-grid">
+      <div class="finished-col">
+        <img id="finished-boss-sprite" class="boss-sprite" src="" alt="">
+        <h2 id="finished-boss-name" class="boss-name"></h2>
+        <p id="finished-difficulty" class="finished-difficulty-badge"></p>
+        <div id="finished-boss-types" class="type-badges screen--hidden"></div>
+        <p id="finished-type-bonus" class="finished-type-bonus screen--hidden"></p>
+
+        <div class="finished-stats">
+          <div class="finished-stat">
+            <p id="finished-my-score-label" class="eyebrow">Ton score</p>
+            <p id="finished-my-score" class="finished-stat__value">0 PTS</p>
+          </div>
+          <div class="finished-stat">
+            <p class="eyebrow">Objectif</p>
+            <p id="finished-target" class="finished-stat__value finished-stat__value--muted">0 PTS</p>
+          </div>
+          <div id="finished-team-stat" class="finished-stat screen--hidden">
+            <p class="eyebrow">Score d'équipe</p>
+            <p id="finished-team-score" class="finished-stat__value">0 PTS</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="finished-col">
+        <p id="finished-my-team-label" class="eyebrow finished-ranking-title">Ton équipe</p>
+        <div id="finished-my-team" class="finished-my-team"></div>
+
+        <p class="eyebrow finished-ranking-title">Classement</p>
+        <div id="finished-results" class="finished-results"></div>
+      </div>
+    </div>
+
+    <button id="btn-replay" class="btn btn--haut btn--block screen--hidden">Rejouer</button>
+    <p class="lobby-status" id="finished-status"></p>
+    <button id="btn-leave-finished" class="btn btn--ghost btn--block">Quitter</button>
+  </section>
+
+  <!-- ============ MODE "DEVINE LE POKÉMON" ============ -->
+
+  <section id="screen-guess" class="screen screen--hidden">
+    <header class="guess-header">
+      <p class="eyebrow">Devine le Pokémon</p>
+      <button id="btn-leave-guess" class="btn btn--ghost">Quitter</button>
+    </header>
+
+    <div id="guess-matchup-banner" class="matchup-banner">
+      <div class="matchup-side">
+        <img id="guess-matchup-me-avatar" class="matchup-avatar" src="" alt="">
+        <span id="guess-matchup-me-name" class="matchup-name">Toi</span>
+      </div>
+      <span class="matchup-vs">VS</span>
+      <div class="matchup-side">
+        <img id="guess-matchup-opp-avatar" class="matchup-avatar" src="" alt="">
+        <span id="guess-matchup-opp-name" class="matchup-name">Adversaire</span>
+      </div>
+    </div>
+
+    <div class="guess-status-stack">
+      <!-- Phase 1 : sélection du secret, avant que les 2 joueurs soient prêts. -->
+      <div id="guess-selection-panel" class="guess-panel">
+        <h2 id="guess-selection-title">Choisis ton Pokémon secret</h2>
+        <p id="guess-selection-status" class="lobby-status">Clique sur une case de la planche.</p>
+      </div>
+
+      <!-- Phase 2 : tours chronométrés, une fois les 2 secrets choisis. -->
+      <div id="guess-turn-panel" class="guess-panel screen--hidden">
+        <p class="guess-turn-label">Tour de : <span id="guess-active-name">—</span></p>
+        <p id="guess-turn-hint" class="guess-turn-hint"></p>
+        <div class="guess-timer-wrap">
+          <div class="guess-timer-track"><div id="guess-timer-bar" class="guess-timer-bar"></div></div>
+          <span id="guess-timer-value" class="guess-timer-value">25</span>
+        </div>
+        <div id="guess-active-actions" class="guess-active-actions screen--hidden">
+          <button id="btn-guess-answer" type="button" class="btn btn--haut">Dire ma réponse</button>
+          <button id="btn-guess-finish-turn" type="button" class="btn btn--ghost">Finir le tour</button>
+        </div>
+      </div>
+
+      <!-- Dernière tentative (publique aux 2 joueurs), masquée par défaut. -->
+      <div id="guess-last-attempt" class="guess-last-attempt screen--hidden"></div>
+    </div>
+
+    <div class="guess-grid">
+      <!-- Planche partagée : mêmes Pokémon, mêmes cases, pour les 2 joueurs. -->
+      <div class="guess-board-panel">
+        <div id="guess-board" class="guess-board"></div>
+      </div>
+
+      <div class="players-panel">
+        <h2>Joueurs</h2>
+        <ul id="guess-players-list" class="players-list"></ul>
+      </div>
+    </div>
+
+    <!-- Case fixe en bas : rappel visuel du Pokémon secret choisi. -->
+    <div id="guess-my-secret" class="guess-my-secret screen--hidden">
+      <span class="guess-my-secret__label">Ton secret</span>
+      <img id="guess-my-secret-sprite" class="guess-my-secret__sprite" alt="">
+      <span id="guess-my-secret-name" class="guess-my-secret__name"></span>
+    </div>
+  </section>
+
+  <div id="guess-confirm-overlay" class="event-overlay screen--hidden" role="dialog" aria-modal="true">
+    <div class="event-modal">
+      <p class="event-modal__eyebrow">Confirmer ta réponse</p>
+      <div id="guess-confirm-content" class="guess-confirm-content"></div>
+      <div class="event-modal__actions">
+        <button id="btn-guess-confirm-cancel" type="button" class="btn btn--ghost btn--block">Annuler</button>
+        <button id="btn-guess-confirm-ok" type="button" class="btn btn--haut btn--block">Confirmer</button>
+      </div>
+    </div>
+  </div>
+
+  <section id="screen-guess-finished" class="screen screen--hidden">
+    <p id="guess-finished-outcome" class="finished-outcome"></p>
+    <div id="guess-finished-detail" class="guess-finished-detail"></div>
+    <button id="btn-guess-replay" class="btn btn--haut btn--block screen--hidden">Rejouer</button>
+    <p class="lobby-status" id="guess-finished-status"></p>
+    <button id="btn-leave-guess-finished" class="btn btn--ghost btn--block">Quitter</button>
+  </section>
+
+  <!-- ============ MODE DRAFT/ENCHÈRES ============
+       Strictement 2 joueurs, aucun banc/spectateur (cf. socket.on('join_game') côté
+       serveur : "Partie déjà commencée" pour quiconque tenterait de rejoindre en cours).
+       Type "complete" : les 2 voient le Pokémon en vente. Type "semi_blind" : un seul
+       joueur (auction-seer-name) le voit, rotation à chaque lot — l'autre enchérit à
+       l'aveugle sur la seule base du prix de départ. -->
+
+  <section id="screen-auction" class="screen screen--hidden">
+    <header class="guess-header">
+      <p class="eyebrow">Draft/Enchères — <span id="auction-lots-remaining">30</span> lots restants</p>
+      <button id="btn-leave-auction" class="btn btn--ghost">Quitter</button>
+    </header>
+
+    <div class="auction-budgets">
+      <div class="auction-budget-card" id="auction-budget-me">
+        <span class="auction-budget-card__label">Toi</span>
+        <span class="auction-budget-card__value" id="auction-my-budget">500M</span>
+      </div>
+      <div class="auction-budget-card" id="auction-budget-opp">
+        <span class="auction-budget-card__label" id="auction-opp-name">Adversaire</span>
+        <span class="auction-budget-card__value" id="auction-opp-budget">500M</span>
+      </div>
+    </div>
+
+    <div id="auction-lot-panel" class="guess-panel">
+      <!-- Semi-aveugle, ce joueur n'est PAS le voyant : jamais de sprite/nom envoyé par
+           le serveur pour ce lot (cf. broadcastAuctionLot), pas juste masqué en CSS. -->
+      <div id="auction-lot-mystery" class="auction-lot-mystery screen--hidden">
+        <p class="auction-lot-mystery__icon">❔</p>
+        <p class="auction-lot-mystery__text">Pokémon mystère — seul <span id="auction-seer-name">—</span> le voit</p>
+      </div>
+      <div id="auction-lot-reveal" class="auction-lot-reveal screen--hidden">
+        <img id="auction-lot-sprite" class="auction-lot-sprite" src="" alt="">
+        <h2 id="auction-lot-name" class="auction-lot-name">—</h2>
+      </div>
+
+      <p class="guess-turn-label">Tour de : <span id="auction-active-name">—</span></p>
+
+      <p class="auction-current-bid">
+        Enchère actuelle : <span id="auction-current-bid-value">—</span>
+        <span id="auction-current-bidder" class="auction-current-bidder"></span>
+      </p>
+
+      <div id="auction-bid-controls" class="auction-bid-controls">
+        <input id="auction-bid-input" type="text" inputmode="decimal" placeholder="Montant en M (ex: 15,5)">
+        <button id="btn-auction-bid" type="button" class="btn btn--haut">Enchérir</button>
+        <button id="btn-auction-pass" type="button" class="btn btn--ghost">Passer</button>
+      </div>
+      <div id="auction-quick-bid-options" class="auction-quick-bid-options">
+        <button type="button" class="admin-role-btn" data-increment="10000000">+10M</button>
+        <button type="button" class="admin-role-btn" data-increment="25000000">+25M</button>
+        <button type="button" class="admin-role-btn" data-increment="50000000">+50M</button>
+        <button type="button" class="admin-role-btn" data-increment="100000000">+100M</button>
+      </div>
+      <p id="auction-bid-hint" class="auction-bid-hint"></p>
+    </div>
+
+    <div class="auction-teams">
+      <div class="auction-team-col">
+        <p class="eyebrow auction-team-col__header">
+          <img id="auction-my-team-avatar" class="player-item__avatar" src="" alt="">
+          Ton équipe <span id="auction-my-team-count">(0/6)</span>
+        </p>
+        <div id="auction-my-team-slots" class="team-slots"></div>
+      </div>
+      <div class="auction-team-col">
+        <p class="eyebrow auction-team-col__header">
+          <img id="auction-opp-team-avatar" class="player-item__avatar" src="" alt="">
+          <span id="auction-opp-team-label">Équipe adverse</span> <span id="auction-opp-team-count">(0/6)</span>
+        </p>
+        <div id="auction-opp-team-slots" class="team-slots"></div>
+      </div>
+    </div>
+
+    <div id="auction-history-panel" class="auction-history-panel">
+      <p class="eyebrow">Derniers lots vendus</p>
+      <ul id="auction-history-list" class="auction-history-list"></ul>
+    </div>
+  </section>
+
+  <section id="screen-auction-finished" class="screen screen--hidden">
+    <p id="auction-finished-title" class="finished-outcome">Draft terminé</p>
+    <p id="auction-finished-reason" class="lobby-status"></p>
+
+    <div class="auction-teams auction-teams--finished">
+      <div class="auction-team-col">
+        <p class="eyebrow auction-team-col__header">
+          <img id="auction-finished-my-avatar" class="player-item__avatar" src="" alt="">
+          Ton équipe
+        </p>
+        <div id="auction-finished-my-slots" class="team-slots"></div>
+        <p class="auction-budget-card__value" id="auction-finished-my-budget"></p>
+        <button id="btn-auction-copy-team" type="button" class="btn btn--ghost btn--block">Copier l'équipe évoluée (format Smogon)</button>
+        <p id="auction-copy-feedback" class="copy-feedback"></p>
+      </div>
+      <div class="auction-team-col">
+        <p class="eyebrow auction-team-col__header">
+          <img id="auction-finished-opp-avatar" class="player-item__avatar" src="" alt="">
+          <span id="auction-finished-opp-label">Équipe adverse</span>
+        </p>
+        <div id="auction-finished-opp-slots" class="team-slots"></div>
+        <p class="auction-budget-card__value" id="auction-finished-opp-budget"></p>
+      </div>
+    </div>
+
+    <button id="btn-auction-replay" class="btn btn--haut btn--block screen--hidden">Rejouer</button>
+    <p class="lobby-status" id="auction-finished-status"></p>
+    <button id="btn-leave-auction-finished" class="btn btn--ghost btn--block">Quitter</button>
+  </section>
+
+  <!-- ============ MODE SPECTATEUR ============
+       Rejoint automatiquement quand on entre le code d'une partie déjà commencée
+       (normal/admin uniquement, cf. socket.on('join_game') côté serveur). Vue minimale
+       et strictement en lecture readonly : boss + tour + joueurs (score, mini équipe,
+       a choisi ou non) — jamais le détail d'un choix ou d'une révélation. -->
+  <section id="screen-spectate" class="screen screen--hidden">
+    <header class="guess-header">
+      <p class="eyebrow">Mode spectateur</p>
+      <button id="btn-leave-spectate" class="btn btn--ghost">Quitter</button>
+    </header>
+
+    <div class="boss-panel" id="spectate-boss-panel">
+      <p class="eyebrow">Boss de fin</p>
+      <img id="spectate-boss-sprite" class="boss-sprite" src="" alt="">
+      <h2 id="spectate-boss-name" class="boss-name">—</h2>
+      <p class="boss-target">Objectif : <span id="spectate-boss-target">0</span> PTS</p>
+    </div>
+
+    <div class="boss-panel screen--hidden" id="spectate-auction-panel">
+      <p class="eyebrow">Lot en cours</p>
+      <img id="spectate-auction-sprite" class="boss-sprite" src="" alt="">
+      <h2 id="spectate-auction-name" class="boss-name">—</h2>
+      <p class="boss-target" id="spectate-auction-bid">Aucune enchère</p>
+    </div>
+
+    <p id="spectate-turn" class="spectate-turn">Tour — / 6</p>
+
+    <div class="players-panel">
+      <h2>Joueurs</h2>
+      <ul id="spectate-players-list" class="players-list"></ul>
+    </div>
+
+    <p id="spectate-status" class="lobby-status"></p>
+  </section>
+
+</main>
+
+<!-- Réactions rapides : widget unique et partagé, visible en partie ou en spectateur
+     uniquement (cf. body[data-screen] dans style.css) — pas besoin de le dupliquer par
+     écran. -->
+<div id="reaction-bar" class="reaction-bar">
+  <button type="button" class="reaction-btn" data-emoji="🔥" aria-label="Réagir avec le feu">🔥</button>
+  <button type="button" class="reaction-btn" data-emoji="😭" aria-label="Réagir en pleurant">😭</button>
+  <button type="button" class="reaction-btn" data-emoji="💀" aria-label="Réagir avec la tête de mort">💀</button>
+  <button type="button" class="reaction-btn" data-emoji="⚡" aria-label="Réagir avec l'éclair">⚡</button>
+</div>
+
+<!-- Chat texte de la partie : même principe que reaction-bar (widget unique et partagé,
+     visible en partie/spectateur uniquement, cf. body[data-screen] dans style.css).
+     Fermé par défaut ; s'ouvre en drawer au clic sur le bouton flottant. -->
+<button type="button" id="btn-chat-toggle" class="chat-toggle" aria-label="Discussion">
+  💬<span id="chat-unread-badge" class="chat-unread-badge screen--hidden"></span>
+</button>
+<div id="chat-panel" class="chat-panel screen--hidden">
+  <div class="chat-panel__header">
+    <span>Discussion</span>
+    <button type="button" id="btn-chat-close" class="chat-panel__close" aria-label="Fermer la discussion">✕</button>
+  </div>
+  <ul id="chat-messages" class="chat-messages"></ul>
+  <form id="chat-form" class="chat-form">
+    <input id="chat-input" type="text" class="chat-input" placeholder="Écrire un message..." maxlength="300" autocomplete="off">
+    <button type="submit" class="chat-send" aria-label="Envoyer">➤</button>
+  </form>
+</div>
+<div id="reaction-bubbles" class="reaction-bubbles" aria-hidden="true"></div>
+
+<div id="event-overlay" class="event-overlay screen--hidden" role="dialog" aria-modal="true">
+  <div id="event-modal" class="event-modal">
+    <p class="event-modal__eyebrow">✨ Événement rare</p>
+    <h3 id="event-title" class="event-modal__title"></h3>
+    <div id="event-body" class="event-modal__body"></div>
+  </div>
+</div>
+
+<!-- Menu Réglages : compte, préférences d'affichage/partie, thème, crédits. Persisté en
+     localStorage (rdb_settings_v1) et appliqué via le script anti-flash dans <head>.
+     Structure en onglets (Compte / Préférences / Infos) : chaque page a son propre
+     scroll interne, l'en-tête + la barre d'onglets restent fixes — cf. .settings-content. -->
+<!-- Choix de l'objet de départ, AVANT le tour 1 (remplace l'ancien choix spécial du tour 4).
+     Affiché par-dessus le lobby dès que tous les joueurs ont cliqué "Démarrer" ; disparaît de
+     lui-même au 'game_started' qui suit (une fois TOUS les joueurs choisis, cf. client.js). -->
+<div id="item-select-overlay" class="event-overlay screen--hidden">
+  <div class="event-modal item-select-modal">
+    <p class="event-modal__eyebrow">Avant de partir</p>
+    <h3 class="event-modal__title">Choisis ton objet de départ</h3>
+    <p class="item-select-hint">Il te suit toute la partie — à utiliser quand tu veux depuis ton inventaire (sauf le Charme Chroma, passif).</p>
+    <div class="choice-cards choice-cards--three">
+      <button id="start-item-card-a" type="button" class="choice-card choice-card--haut">
+        <span id="start-item-card-a-icon" class="choice-card__icon">🎁</span>
+        <p id="start-item-card-a-label" class="choice-card__name">???</p>
+        <span id="start-item-card-a-desc" class="choice-card__label"></span>
+      </button>
+      <button id="start-item-card-b" type="button" class="choice-card choice-card--bas">
+        <span id="start-item-card-b-icon" class="choice-card__icon">🎁</span>
+        <p id="start-item-card-b-label" class="choice-card__name">???</p>
+        <span id="start-item-card-b-desc" class="choice-card__label"></span>
+      </button>
+      <button id="start-item-card-c" type="button" class="choice-card choice-card--haut">
+        <span id="start-item-card-c-icon" class="choice-card__icon">🎁</span>
+        <p id="start-item-card-c-label" class="choice-card__name">???</p>
+        <span id="start-item-card-c-desc" class="choice-card__label"></span>
+      </button>
+    </div>
+    <p id="item-select-status" class="item-select-status screen--hidden">Objet choisi — en attente des autres joueurs...</p>
+  </div>
+</div>
+
+<div id="settings-overlay" class="event-overlay screen--hidden" role="dialog" aria-modal="true">
+  <div class="event-modal settings-modal">
+
+    <div class="settings-header">
+      <h3 class="settings-header__title">Réglages</h3>
+      <button id="btn-settings-close" type="button" class="settings-header__close" aria-label="Fermer">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true">
+          <line x1="6" y1="6" x2="18" y2="18"></line>
+          <line x1="18" y1="6" x2="6" y2="18"></line>
+        </svg>
+      </button>
+    </div>
+
+    <div class="settings-body">
+    <div class="settings-tabs" role="tablist">
+      <button type="button" class="settings-tab settings-tab--selected" data-settings-page="account" role="tab" aria-selected="true">
+        <span class="settings-tab__icon" aria-hidden="true">👤</span>Compte
+      </button>
+      <button type="button" class="settings-tab" data-settings-page="leaderboard" role="tab" aria-selected="false">
+        <span class="settings-tab__icon" aria-hidden="true">🏆</span>Classement
+      </button>
+      <button type="button" class="settings-tab" data-settings-page="prefs" role="tab" aria-selected="false">
+        <span class="settings-tab__icon" aria-hidden="true">🎨</span>Préférences
+      </button>
+      <button type="button" class="settings-tab" data-settings-page="info" role="tab" aria-selected="false">
+        <span class="settings-tab__icon" aria-hidden="true">ℹ️</span>Infos
+      </button>
+    </div>
+
+    <div class="settings-content">
+
+      <!-- ---------- Page : Compte ---------- -->
+      <div class="settings-page" data-settings-page="account">
+        <div id="account-tabs" class="admin-role-options">
+          <button type="button" class="admin-role-btn admin-role-btn--selected" data-account-tab="login">Connexion</button>
+          <button type="button" class="admin-role-btn" data-account-tab="register">Créer un compte</button>
+        </div>
+
+        <div id="account-form-login">
+          <div class="field">
+            <label for="account-login-email">Email</label>
+            <input id="account-login-email" type="email" autocomplete="username" placeholder="ton@email.com">
+          </div>
+          <div class="field">
+            <label for="account-login-password">Mot de passe</label>
+            <input id="account-login-password" type="password" autocomplete="current-password">
+          </div>
+          <button id="btn-account-login" type="button" class="btn btn--haut btn--block">Se connecter</button>
+        </div>
+
+        <div id="account-form-register" class="screen--hidden">
+          <div class="field">
+            <label for="account-register-pseudo">Pseudo</label>
+            <input id="account-register-pseudo" type="text" maxlength="16" autocomplete="off" placeholder="Ton nom de dresseur">
+          </div>
+          <div class="field">
+            <label for="account-register-email">Email</label>
+            <input id="account-register-email" type="email" autocomplete="username" placeholder="ton@email.com">
+          </div>
+          <div class="field">
+            <label for="account-register-password">Mot de passe</label>
+            <input id="account-register-password" type="password" autocomplete="new-password">
+          </div>
+          <button id="btn-account-register" type="button" class="btn btn--haut btn--block">Créer le compte</button>
+        </div>
+
+        <div id="account-logged-panel" class="screen--hidden">
+          <div class="account-profile-card">
+            <img id="account-avatar-current" class="account-profile-card__avatar" src="" alt="Avatar actuel">
+            <div class="account-profile-card__info">
+              <strong id="account-logged-pseudo" class="account-profile-card__pseudo"></strong>
+              <p class="account-level-label">Niveau <strong id="account-level-value">1</strong></p>
+              <div class="account-xp-bar"><div id="account-xp-bar-fill" class="account-xp-bar__fill"></div></div>
+              <p id="account-xp-text" class="account-xp-text"></p>
+            </div>
+            <button id="btn-account-logout-modal" type="button" class="account-profile-card__logout">Déconnexion</button>
+          </div>
+
+          <div id="account-subtabs" class="settings-subtabs" role="tablist">
+            <button type="button" class="settings-subtab settings-subtab--selected" data-account-subpage="history" role="tab" aria-selected="true">Historique</button>
+            <button type="button" class="settings-subtab" data-account-subpage="achievements" role="tab" aria-selected="false">Succès</button>
+            <button type="button" class="settings-subtab" data-account-subpage="pokedex" role="tab" aria-selected="false">Pokédex</button>
+            <button type="button" class="settings-subtab" data-account-subpage="stats" role="tab" aria-selected="false">Stats</button>
+            <button type="button" class="settings-subtab" data-account-subpage="friends" role="tab" aria-selected="false">Amis</button>
+            <button type="button" class="settings-subtab" data-account-subpage="avatar" role="tab" aria-selected="false">Avatar</button>
+          </div>
+
+          <div class="account-subpage" data-account-subpage="history">
+            <p class="account-history-hint">Touche une partie pour voir l'équipe complète.</p>
+            <ul id="account-history-list" class="account-history-list"></ul>
+          </div>
+
+          <div class="account-subpage screen--hidden" data-account-subpage="achievements">
+            <div id="account-achievements-list" class="account-achievements-list"></div>
+          </div>
+
+          <div class="account-subpage screen--hidden" data-account-subpage="pokedex">
+            <p id="account-pokedex-count" class="account-history-hint">0 / 0 Pokémon obtenus</p>
+            <input id="account-pokedex-search" type="text" class="account-avatar-search" placeholder="Rechercher un Pokémon...">
+            <div id="account-pokedex-gen-tabs" class="pokedex-gen-tabs"></div>
+            <div id="account-pokedex-grid" class="pokedex-grid"></div>
+          </div>
+
+          <div class="account-subpage screen--hidden" data-account-subpage="stats">
+            <div id="account-stats-content"></div>
+          </div>
+
+          <div class="account-subpage screen--hidden" data-account-subpage="friends">
+            <input id="friends-search-input" type="text" class="account-avatar-search" placeholder="Chercher un pseudo...">
+            <div id="friends-search-results" class="friends-list"></div>
+
+            <div id="friends-incoming-block" class="screen--hidden">
+              <p class="settings-section__title">Demandes reçues</p>
+              <div id="friends-incoming-list" class="friends-list"></div>
+            </div>
+
+            <div id="friends-outgoing-block" class="screen--hidden">
+              <p class="settings-section__title">Demandes envoyées</p>
+              <div id="friends-outgoing-list" class="friends-list"></div>
+            </div>
+
+            <p class="settings-section__title">Mes amis</p>
+            <div id="friends-list" class="friends-list"></div>
+          </div>
+
+          <div class="account-subpage screen--hidden" data-account-subpage="avatar">
+            <p class="settings-section__title">Cadre (débloqué en montant de niveau)</p>
+            <div id="account-frame-options" class="account-frame-options">
+              <button type="button" class="account-frame-swatch" data-frame="" data-required-level="1" aria-label="Aucun cadre"><span class="account-frame-swatch__preview account-frame-preview--"></span></button>
+              <button type="button" class="account-frame-swatch" data-frame="bronze" data-required-level="5" aria-label="Cadre bronze — débloqué niveau 5"><span class="account-frame-swatch__preview account-frame-preview--bronze"></span></button>
+              <button type="button" class="account-frame-swatch" data-frame="silver" data-required-level="10" aria-label="Cadre argent — débloqué niveau 10"><span class="account-frame-swatch__preview account-frame-preview--silver"></span></button>
+              <button type="button" class="account-frame-swatch" data-frame="gold" data-required-level="20" aria-label="Cadre or — débloqué niveau 20"><span class="account-frame-swatch__preview account-frame-preview--gold"></span></button>
+              <button type="button" class="account-frame-swatch" data-frame="legendary" data-required-level="30" aria-label="Cadre légendaire — débloqué niveau 30"><span class="account-frame-swatch__preview account-frame-preview--legendary"></span></button>
+            </div>
+            <p class="settings-section__title">Choisir un avatar</p>
+            <input id="account-avatar-search" type="text" class="account-avatar-search" placeholder="Rechercher (ex: morty, red, korrina)...">
+            <div id="account-avatar-grid" class="account-avatar-grid"></div>
+          </div>
+        </div>
+
+        <p id="account-error" class="error-message" role="alert"></p>
+      </div>
+
+      <!-- ---------- Page : Classement ---------- -->
+      <div class="settings-page screen--hidden" data-settings-page="leaderboard">
+        <p class="account-history-hint">Top 50 par XP, tous comptes confondus.</p>
+        <ol id="leaderboard-list" class="leaderboard-list"></ol>
+      </div>
+
+      <!-- ---------- Page : Préférences ---------- -->
+      <div class="settings-page screen--hidden" data-settings-page="prefs">
+        <div class="settings-block">
+          <p class="settings-section__title">🖥️ Affichage</p>
+          <label class="settings-toggle">
+            <span class="settings-toggle__label">Réduire les animations</span>
+            <input type="checkbox" id="settings-reduce-motion" class="settings-toggle__input">
+            <span class="settings-toggle__track"><span class="settings-toggle__thumb"></span></span>
+          </label>
+          <label class="settings-toggle">
+            <span class="settings-toggle__label">Sons</span>
+            <input type="checkbox" id="settings-sound" class="settings-toggle__input">
+            <span class="settings-toggle__track"><span class="settings-toggle__thumb"></span></span>
+          </label>
+        </div>
+
+        <div class="settings-block">
+          <p class="settings-section__title">🔄 Partie</p>
+          <label class="settings-toggle">
+            <span class="settings-toggle__label">Reconnexion automatique</span>
+            <input type="checkbox" id="settings-auto-reconnect" class="settings-toggle__input">
+            <span class="settings-toggle__track"><span class="settings-toggle__thumb"></span></span>
+          </label>
+        </div>
+
+        <div class="settings-block">
+          <p class="settings-section__title">🎨 Couleur de fond</p>
+          <p class="account-history-hint">Les couleurs autres que Défaut se débloquent en montant de niveau.</p>
+          <div id="settings-theme-options" class="settings-theme-options">
+            <button type="button" class="settings-theme-swatch" data-theme="default" data-required-level="1" style="--swatch: #f5a623;" aria-label="Défaut"></button>
+            <button type="button" class="settings-theme-swatch" data-theme="violet" data-required-level="5" style="--swatch: #9d5cff;" aria-label="Violet — débloqué niveau 5"></button>
+            <button type="button" class="settings-theme-swatch" data-theme="crimson" data-required-level="10" style="--swatch: #e8615d;" aria-label="Rouge — débloqué niveau 10"></button>
+            <button type="button" class="settings-theme-swatch" data-theme="emerald" data-required-level="15" style="--swatch: #3fd096;" aria-label="Vert — débloqué niveau 15"></button>
+            <button type="button" class="settings-theme-swatch" data-theme="ocean" data-required-level="20" style="--swatch: #4fa9e8;" aria-label="Bleu — débloqué niveau 20"></button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ---------- Page : Infos ---------- -->
+      <div class="settings-page screen--hidden" data-settings-page="info">
+        <div class="settings-block">
+          <p class="settings-section__title">✦ Crédits</p>
+          <ul class="settings-credits">
+            <li>Fait principalement avec l'IA Claude</li>
+            <li>Créateur : <strong>MingoFr</strong></li>
+            <li>Inspiré par les vidéos de <strong>PsakBarney</strong></li>
+          </ul>
+        </div>
+      </div>
+
+    </div>
+    </div>
+  </div>
+</div>
+
+<!-- Toasts de déblocage de succès (cf. socket.on('achievements_unlocked')) : flottent
+     au-dessus de n'importe quel écran, empilables, disparaissent seuls après quelques
+     secondes. Vide et invisible tant qu'aucun succès n'a été débloqué pendant la session. -->
+<div id="achievement-toast-container" class="achievement-toast-container" aria-live="polite"></div>
+
+<!-- Invitations de parties reçues d'un ami en ligne (cf. socket.on('friend_game_invite')) :
+     même widget flottant que les succès, ID à part pour ne jamais se mélanger. -->
+<div id="friend-invite-toast-container" class="achievement-toast-container" aria-live="polite"></div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="client.js?v=2"></script>
+</body>
+</html>

@@ -1,421 +1,341 @@
 'use strict';
 // =====================================================================
-// MODE 'fly' (Humanité vs Mouche) — AFFICHAGE UNIQUEMENT.
-// Chargé AVANT client.js ; client.js appelle FlyClient.init(ctx) en dernière ligne.
-// Le client ne calcule rien : il montre ce que le serveur envoie (fly_thinking, fly_choice_revealed,
-// fly_state, game_started.fly, game_finished.fly) et ne reçoit JAMAIS probabilités / poids / décision.
-// Aucun événement n'est émis vers le serveur depuis ce fichier.
+// MODE 'fly' (HUMANITÉ vs MOUCHE) — interface. Chargé APRÈS client.js, qui n'est PAS modifié.
+// Le client n'affiche que ce que le serveur envoie : aucune décision, aucun calcul de score ni de
+// résultat ici. Les événements reçus : fly_thinking, fly_choice_revealed, fly_state, game_started /
+// game_finished (champ `fly`). Les stats globales viennent de GET /api/fly/stats.
+// Intégration : les fonctions de client.js (applyGameStarted, applyGameFinished, renderGameMode,
+// resetGameUI, showScreen) sont enveloppées ; hors mode 'fly', elles s'exécutent à l'identique.
 // =====================================================================
 (function () {
-  const SVG_FLY = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">'
-    + '<g fill="#bfe8ff" fill-opacity=".38" stroke="#bfe8ff" stroke-opacity=".8" stroke-width="1.2">'
-    + '<ellipse cx="20" cy="37" rx="6.5" ry="16" transform="rotate(30 20 37)"/>'
-    + '<ellipse cx="44" cy="37" rx="6.5" ry="16" transform="rotate(-30 44 37)"/></g>'
-    + '<path d="M26 33l-9 5M26 38l-10 8M38 33l9 5M38 38l10 8" stroke="#b6e35a" stroke-width="1.6" stroke-linecap="round" fill="none"/>'
-    + '<ellipse cx="32" cy="42" rx="8" ry="13" fill="#2f4a35" stroke="#b6e35a" stroke-width="1.6"/>'
-    + '<path d="M24.5 40h15M24.5 46h15" stroke="#b6e35a" stroke-opacity=".55" stroke-width="1.4"/>'
-    + '<ellipse cx="32" cy="30" rx="7" ry="6" fill="#2f4a35" stroke="#b6e35a" stroke-width="1.6"/>'
-    + '<circle cx="32" cy="20" r="6" fill="#2f4a35" stroke="#b6e35a" stroke-width="1.6"/>'
-    + '<circle cx="27.8" cy="19" r="3" fill="#e8615d"/><circle cx="36.2" cy="19" r="3" fill="#e8615d"/></svg>';
-  const FLY_ICON = 'data:image/svg+xml;utf8,' + encodeURIComponent(SVG_FLY);
+  const SMOOTH = 20;                 // fenêtre de lissage de la courbe (parties)
+  const MIN_POINTS = 5;              // en dessous, pas de courbe
+  const $ = id => document.getElementById(id);
 
-  const CURVE_WINDOW = 20;                       // moyenne glissante de la courbe (parties)
-  const SVG_NS = 'http://www.w3.org/2000/svg';
-  const CHOICE_LABEL = { HAUT: '🔼 HAUT', BAS: '🔽 BAS' };
-  const OUTCOME = {
-    victory: { text: 'VICTOIRE !', cls: 'finished-outcome--victory' },
-    defeat: { text: 'DÉFAITE', cls: 'finished-outcome--defeat' },
-    participation: { text: 'ÉGALITÉ', cls: '' }
-  };
-
-  let ctx = null;
-  const el = {};
-  const state = { active: false, maxTurns: 6, score: 0, team: [], scoreRaf: 0, statsToken: 0 };
-
-  const num = v => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
-  const reducedMotion = () =>
-    document.documentElement.classList.contains('reduce-motion') ||
-    !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
-  const percent = r => (typeof r === 'number' && Number.isFinite(r) ? `${Math.round(r * 100)} %` : '—');
-
-  // ---------------------------------------------------------------- Lobby
-  function renderLobbyStats(stats) {
-    el.lobbyGames.textContent = stats ? String(num(stats.gamesPlayed)) : '—';
-    el.lobbyRate.textContent = stats ? percent(stats.winRate) : '—';
-    el.lobbyGen.textContent = stats ? String(num(stats.generation)) : '—';
-    el.lobbyNote.classList.toggle('screen--hidden', !!stats);
-  }
-
-  function loadLobbyStats() {
-    const token = ++state.statsToken;
-    renderLobbyStats(null);
-    fetch('/api/fly/stats', { cache: 'no-store' })
-      .then(r => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
-      .then(stats => { if (token === state.statsToken) renderLobbyStats(stats); })
-      .catch(() => { if (token === state.statsToken) renderLobbyStats(null); });
-  }
-
-  function onLobbyMode(mode) {
-    if (!ctx) return;
-    const isFly = mode === 'fly';
-    el.lobbyCard.classList.toggle('screen--hidden', !isFly);
-    if (isFly) loadLobbyStats();
-  }
-
-  // ---------------------------------------------------------------- Partie
-  function renderTeam(team, animateLast) {
-    el.team.innerHTML = '';
-    for (let i = 0; i < state.maxTurns; i++) {
-      const slot = document.createElement('div');
-      slot.className = 'team-slot';
-      const mon = team[i];
-      if (mon) {
-        const img = document.createElement('img');
-        img.src = ctx.pokemonSprite(mon);
-        img.alt = mon.name;
-        img.title = mon.shiny ? `${mon.name} ✨` : mon.name;
-        if (mon.shiny) { img.onerror = () => { img.src = mon.sprite; }; slot.classList.add('team-slot--shiny'); }
-        slot.appendChild(img);
-        if (animateLast && i === team.length - 1) slot.classList.add('team-slot--new');
-      }
-      el.team.appendChild(slot);
-    }
-  }
-
-  function setScore(value) {
-    cancelAnimationFrame(state.scoreRaf);
-    state.score = value;
-    el.score.textContent = String(value);
-  }
-
-  function animateScore(target, delta) {
-    cancelAnimationFrame(state.scoreRaf);
-    const from = num(Number(el.score.textContent));
-    if (delta) {
-      el.popup.textContent = `${delta > 0 ? '+' : ''}${delta}`;
-      el.popup.classList.toggle('my-score-popup--negative', delta < 0);
-      el.popup.classList.remove('my-score-popup--play');
-      el.score.classList.remove('my-score-value--pulse');
-      void el.popup.offsetWidth;                                  // relance l'animation
-      el.popup.classList.add('my-score-popup--play');
-      el.score.classList.add('my-score-value--pulse');
-    }
-    state.score = target;
-    if (reducedMotion() || from === target) { el.score.textContent = String(target); return; }
-    const t0 = performance.now();
-    const duration = 700;
-    const step = now => {
-      const k = Math.min(1, (now - t0) / duration);
-      const eased = 1 - Math.pow(1 - k, 3);
-      el.score.textContent = String(Math.round(from + (target - from) * eased));
-      if (k < 1) state.scoreRaf = requestAnimationFrame(step);
-    };
-    state.scoreRaf = requestAnimationFrame(step);
-  }
-
-  function clearChoiceBadges() {
-    [ctx.choiceHaut, ctx.choiceBas].forEach(btn => btn.classList.remove('choice-card--fly'));
-  }
-
-  function setStatus(text, thinking) {
-    el.status.textContent = text;
-    const dots = document.createElement('span');
-    dots.className = 'fly-dots';
-    dots.setAttribute('aria-hidden', 'true');
-    dots.innerHTML = '<i></i><i></i><i></i>';
-    if (thinking) el.status.appendChild(dots);
-    el.panel.classList.toggle('fly-panel--thinking', !!thinking);
-  }
-
-  function setThinking() {
-    el.reveal.classList.add('result-panel--hidden');
-    el.reveal.classList.remove('result-panel--animate');
-    el.reveal.removeAttribute('data-rarity');
-    clearChoiceBadges();
-    setStatus('La Mouche hésite', true);
-  }
-
-  function showReveal(entry, animate) {
-    const mon = entry.pokemon || {};
-    el.reveal.dataset.rarity = entry.rarity || 'commun';
-    el.reveal.classList.toggle('result-panel--shiny', !!mon.shiny);
-    el.revealChoice.textContent = CHOICE_LABEL[entry.choice] || '';
-    el.revealRarity.textContent = ctx.rarityLabels[entry.rarity] || '';
-    el.revealSprite.src = ctx.pokemonSprite(mon);
-    el.revealSprite.onerror = mon.shiny ? () => { el.revealSprite.src = mon.sprite; } : null;
-    el.revealName.textContent = mon.shiny ? `✨ ${String(mon.name).toUpperCase()}` : String(mon.name).toUpperCase();
-    el.revealBase.textContent = String(num(entry.basePoints));
-    const eff = entry.effect || { name: '—', multiplier: 1 };
-    el.revealEffect.textContent = mon.shiny
-      ? `${eff.name} ×${ctx.formatMultiplier(eff.multiplier)} · Shiny ×${ctx.shinyMultiplier}`
-      : `${eff.name} ×${ctx.formatMultiplier(eff.multiplier)}`;
-    el.revealEffect.classList.toggle('result-effect--bonus', eff.multiplier >= 1);
-    el.revealEffect.classList.toggle('result-effect--malus', eff.multiplier < 1);
-    el.revealPoints.textContent = String(num(entry.pointsGained));
-    el.reveal.classList.remove('result-panel--hidden');
-    el.reveal.classList.remove('result-panel--animate');
-    if (animate) { void el.reveal.offsetWidth; el.reveal.classList.add('result-panel--animate'); }
-
-    clearChoiceBadges();
-    const btn = entry.choice === 'HAUT' ? ctx.choiceHaut : entry.choice === 'BAS' ? ctx.choiceBas : null;
-    if (btn) btn.classList.add('choice-card--fly');
-    setStatus(`La Mouche a choisi ${entry.choice}`, false);
-  }
-
-  function renderGeneration(stats) {
-    el.gen.textContent = stats && stats.generation ? `Génération ${stats.generation}` : '';
-  }
-
-  function setOpponentBanner() {
-    const m = ctx.matchup;
-    m.oppName.textContent = 'La Mouche';
-    m.oppAvatar.src = FLY_ICON;
-    m.oppAvatar.classList.remove('screen--hidden');
-  }
-
-  // publicState du serveur : { stats, score, team, history, thinking, finished }
-  function applyState(s) {
-    if (!s || !state.active) return;
-    renderGeneration(s.stats);
-    setScore(num(s.score));
-    state.team = Array.isArray(s.team) ? s.team.slice() : [];
-    renderTeam(state.team, false);
-    const history = Array.isArray(s.history) ? s.history : [];
-    if (s.thinking || !history.length) setThinking();
-    else showReveal(history[history.length - 1], false);
-  }
-
-  // payload = game_started (fly = stats publiques) ou rejoin_success (fly = publicState)
-  function onGameStarted(payload) {
-    if (!ctx) return;
-    state.active = true;
-    state.maxTurns = Number(payload && payload.maxTurns) || 6;
-    state.team = [];
-    ctx.screenGame.classList.add('screen--fly');
-    el.panel.classList.remove('screen--hidden');
-    setOpponentBanner();
-    const fly = payload && payload.fly;
-    setScore(0);
-    renderTeam([], false);
-    renderGeneration(fly && (fly.stats || fly));
-    setThinking();
-    if (fly && fly.stats) applyState(fly);        // reprise après reconnexion
-  }
-
-  // ---------------------------------------------------------------- Fin de partie
-  // Moyenne glissante du taux de victoire de la Mouche (nul = 0,5) sur les dernières parties.
-  function rollingRates(recent) {
-    const pts = recent.map(c => (c === 'W' ? 1 : c === 'D' ? 0.5 : 0));
-    return pts.map((_, i) => {
-      const win = pts.slice(Math.max(0, i + 1 - CURVE_WINDOW), i + 1);
-      return win.reduce((s, x) => s + x, 0) / win.length;
+  // ---------- Fonctions pures (testées) ----------
+  // Taux de victoire de la Mouche, lissé : victoire = 1, nul = 0,5, défaite = 0.
+  function rollingRates(recent, smooth = SMOOTH) {
+    const val = { W: 1, D: 0.5, L: 0 };
+    return recent.map((_, i) => {
+      const slice = recent.slice(Math.max(0, i - smooth + 1), i + 1);
+      return slice.reduce((s, r) => s + (val[r] ?? 0), 0) / slice.length;
     });
   }
+  const pct = x => `${Math.round(x * 100)} %`;
 
-  function svgEl(name, attrs) {
-    const n = document.createElementNS(SVG_NS, name);
-    Object.keys(attrs || {}).forEach(k => n.setAttribute(k, attrs[k]));
-    return n;
+  // Courbe SVG construite par l'API DOM (aucun innerHTML).
+  function buildCurve(recent) {
+    const NS = 'http://www.w3.org/2000/svg';
+    const W = 220, H = 64, PAD = 4;
+    const svg = document.createElementNS(NS, 'svg');
+    svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+    svg.setAttribute('class', 'fly-curve');
+    svg.setAttribute('role', 'img');
+    svg.setAttribute('aria-label', 'Taux de victoire de la Mouche sur les dernières parties');
+    const mid = document.createElementNS(NS, 'line');
+    mid.setAttribute('x1', PAD); mid.setAttribute('x2', W - PAD);
+    mid.setAttribute('y1', H / 2); mid.setAttribute('y2', H / 2);
+    mid.setAttribute('class', 'fly-curve__mid');
+    svg.appendChild(mid);
+    const rates = rollingRates(recent);
+    const n = rates.length;
+    const pts = rates.map((r, i) => {
+      const x = PAD + (n === 1 ? 0 : (i / (n - 1)) * (W - 2 * PAD));
+      const y = H - PAD - r * (H - 2 * PAD);
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    });
+    const line = document.createElementNS(NS, 'polyline');
+    line.setAttribute('points', pts.join(' '));
+    line.setAttribute('class', 'fly-curve__line');
+    svg.appendChild(line);
+    return svg;
   }
 
-  function renderCurve(recent) {
-    const box = el.curve;
-    box.innerHTML = '';
-    const list = Array.isArray(recent) ? recent.filter(c => c === 'W' || c === 'L' || c === 'D') : [];
-    if (list.length < 2) {
-      const p = document.createElement('p');
-      p.className = 'fly-curve__empty';
-      p.textContent = 'Pas encore assez de parties pour tracer la courbe.';
-      box.appendChild(p);
+  function el(tag, cls, text) {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text !== undefined) e.textContent = text;
+    return e;
+  }
+
+  // Encart « Humanité X – Mouche Y » + taux + génération + courbe.
+  function renderStats(container, stats) {
+    container.innerHTML = '';
+    if (!stats) { container.classList.add('screen--hidden'); return; }
+    container.classList.remove('screen--hidden');
+    if (!stats.gamesPlayed) {
+      container.appendChild(el('p', 'fly-stats__line', 'Aucune partie jouée : la Mouche débute.'));
       return;
     }
-    const rates = rollingRates(list);
-    const W = 320, H = 130, L = 34, R = 12, T = 12, B = 14;
-    const x = i => L + (i / (rates.length - 1)) * (W - L - R);
-    const y = v => T + (1 - v) * (H - T - B);
-    const svg = svgEl('svg', {
-      viewBox: `0 0 ${W} ${H}`, class: 'fly-curve__svg', role: 'img',
-      'aria-label': `Taux de victoire de la Mouche sur les ${list.length} dernières parties : `
-        + `${percent(rates[0])} au début, ${percent(rates[rates.length - 1])} actuellement.`
-    });
-    [1, 0.5, 0].forEach(v => {
-      svg.appendChild(svgEl('line', { x1: L, x2: W - R, y1: y(v), y2: y(v), class: v === 0.5 ? 'fly-curve__mid' : 'fly-curve__grid' }));
-      const t = svgEl('text', { x: L - 6, y: y(v) + 3.5, class: 'fly-curve__tick', 'text-anchor': 'end' });
-      t.textContent = `${Math.round(v * 100)} %`;
-      svg.appendChild(t);
-    });
-    const pts = rates.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
-    svg.appendChild(svgEl('polygon', { points: `${x(0).toFixed(1)},${y(0)} ${pts} ${x(rates.length - 1).toFixed(1)},${y(0)}`, class: 'fly-curve__area' }));
-    svg.appendChild(svgEl('polyline', { points: pts, class: 'fly-curve__line' }));
-    svg.appendChild(svgEl('circle', { cx: x(rates.length - 1), cy: y(rates[rates.length - 1]), r: 3.5, class: 'fly-curve__dot' }));
-    box.appendChild(svg);
-    const cap = document.createElement('p');
-    cap.className = 'fly-curve__caption';
-    cap.textContent = `Victoires de la Mouche, ${list.length} dernières parties (moyenne sur ${Math.min(CURVE_WINDOW, list.length)}).`;
-    box.appendChild(cap);
+    const score = el('p', 'fly-stats__score');
+    score.appendChild(el('span', 'fly-stats__humanity', `Humanité ${stats.humanityWins}`));
+    score.appendChild(el('span', 'fly-stats__dash', ' – '));
+    score.appendChild(el('span', 'fly-stats__fly', `Mouche ${stats.flyWins}`));
+    container.appendChild(score);
+    const nul = stats.draws ? ` · ${stats.draws} nul${stats.draws > 1 ? 's' : ''}` : '';
+    container.appendChild(el('p', 'fly-stats__line',
+      `Victoires de la Mouche : ${pct(stats.winRate)} (${stats.gamesPlayed} partie${stats.gamesPlayed > 1 ? 's' : ''}${nul}) · Génération ${stats.generation}`));
+    const recent = Array.isArray(stats.recent) ? stats.recent : [];
+    if (recent.length >= MIN_POINTS) {
+      container.appendChild(buildCurve(recent));
+      container.appendChild(el('p', 'fly-stats__caption', `Taux de victoire de la Mouche — ${recent.length} dernières parties`));
+    }
   }
 
-  function renderTurns(turns) {
-    el.turns.innerHTML = '';
-    turns.forEach(t => {
-      const mine = typeof t.humanPointsGained === 'number' ? t.humanPointsGained : null;
-      const hers = num(t.pointsGained);
-      const li = document.createElement('li');
-      li.className = 'fly-turn';
+  // ---------- État local (affichage uniquement) ----------
+  let active = false;           // une partie fly est affichée
+  let revealedThisTurn = false;
+  let lastStats = null;
 
-      const side = (label, choice, points, won, mon) => {
-        const d = document.createElement('div');
-        d.className = 'fly-turn__side' + (won ? ' fly-turn__side--won' : '');
-        if (mon) {
-          const img = document.createElement('img');
-          img.src = ctx.pokemonSprite(mon);
-          img.alt = mon.name;
-          img.title = mon.shiny ? `${mon.name} ✨` : mon.name;
-          if (mon.shiny) img.onerror = () => { img.src = mon.sprite; };
-          d.appendChild(img);
-        }
-        const p = document.createElement('p');
-        p.className = 'fly-turn__who';
-        p.textContent = label;
-        const c = document.createElement('p');
-        c.className = 'fly-turn__what';
-        c.textContent = `${choice ? CHOICE_LABEL[choice] || choice : '—'} · ${points === null ? '—' : `${points} PTS`}`;
-        const box = document.createElement('div');
-        box.appendChild(p); box.appendChild(c);
-        d.appendChild(box);
-        return d;
-      };
+  const flyCard = $('fly-card');
+  const flyMeta = $('fly-card-meta');
+  const flyStatus = $('fly-card-status');
+  const flyScoreValue = $('fly-score-value');
+  const flyScorePopup = $('fly-score-popup');
+  const flyTeam = $('fly-team');
+  const flyCardStats = $('fly-card-stats');
+  const revealPanel = $('fly-reveal-panel');
+  const lobbyStats = $('fly-lobby-stats');
+  const finishedScreen = $('screen-fly-finished');
 
-      const n = document.createElement('span');
-      n.className = 'fly-turn__n';
-      n.textContent = `Tour ${t.turn}`;
-      li.appendChild(n);
-      li.appendChild(side('Toi', t.humanChoice, mine, mine !== null && mine > hers, null));
-      li.appendChild(side('La Mouche', t.choice, hers, mine !== null && hers > mine, t.pokemon));
-      el.turns.appendChild(li);
+  function setStatus(kind, text) {
+    flyStatus.textContent = text;
+    flyStatus.classList.toggle('fly-card__status--thinking', kind === 'thinking');
+  }
+  function setMeta(stats) {
+    flyMeta.textContent = stats
+      ? `Génération ${stats.generation} · ${stats.gamesPlayed} partie${stats.gamesPlayed > 1 ? 's' : ''}` +
+        (stats.winRate === null ? '' : ` · ${pct(stats.winRate)} de victoires`)
+      : '';
+  }
+  function setScore(score, delta) {
+    if (delta) {
+      flyScorePopup.textContent = `+${delta}`;
+      flyScorePopup.classList.remove('my-score-popup--play');
+      flyScoreValue.classList.remove('my-score-value--pulse');
+      void flyScorePopup.offsetWidth;
+      flyScorePopup.classList.add('my-score-popup--play');
+      flyScoreValue.classList.add('my-score-value--pulse');
+    }
+    flyScoreValue.textContent = score;
+  }
+  function addToTeam(pokemon) {
+    const slot = el('div', 'team-slot fly-team__slot');
+    const img = document.createElement('img');
+    img.src = pokemon.shiny && pokemon.shinySprite ? pokemon.shinySprite : pokemon.sprite;
+    img.alt = pokemon.name;
+    img.title = pokemon.shiny ? `${pokemon.name} ✨` : pokemon.name;
+    slot.appendChild(img);
+    flyTeam.appendChild(slot);
+  }
+  function setBanner() {
+    gameMatchupOppNameEl.textContent = 'La Mouche 🪰';
+    gameMatchupOppAvatarEl.removeAttribute('src');
+    gameMatchupOppAvatarEl.classList.add('screen--hidden');
+  }
+  function hideReveal() {
+    revealPanel.classList.add('fly-reveal--hidden');
+    revealPanel.removeAttribute('data-rarity');
+  }
+  function showReveal(entry) {
+    $('fly-reveal-choice').textContent = entry.choice === 'HAUT' ? '🔼 HAUT' : '🔽 BAS';
+    $('fly-reveal-rarity').textContent = RARITY_LABELS[entry.rarity] || '';
+    const sprite = $('fly-reveal-sprite');
+    sprite.src = entry.pokemon.shiny && entry.pokemon.shinySprite ? entry.pokemon.shinySprite : entry.pokemon.sprite;
+    sprite.onerror = entry.pokemon.shiny ? () => { sprite.src = entry.pokemon.sprite; } : null;
+    $('fly-reveal-name').textContent = entry.pokemon.shiny ? `✨ ${entry.pokemon.name.toUpperCase()}` : entry.pokemon.name.toUpperCase();
+    $('fly-reveal-base').textContent = entry.basePoints;
+    const shinyTxt = entry.pokemon.shiny ? ` · Shiny ×${SHINY_POINTS_MULTIPLIER}` : '';
+    $('fly-reveal-effect').textContent = `${entry.effect.name} ×${formatMultiplier(entry.effect.multiplier)}${shinyTxt}`;
+    $('fly-reveal-points').textContent = entry.pointsGained;
+    revealPanel.dataset.rarity = entry.rarity || 'commun';
+    revealPanel.classList.toggle('fly-reveal--shiny', !!entry.pokemon.shiny);
+    revealPanel.classList.remove('fly-reveal--hidden');
+    revealPanel.classList.remove('result-panel--animate');
+    void revealPanel.offsetWidth;
+    revealPanel.classList.add('result-panel--animate');
+  }
+
+  function resetFlyUI() {
+    active = false;
+    revealedThisTurn = false;
+    document.body.classList.remove('fly-mode');
+    flyCard.classList.add('screen--hidden');
+    flyTeam.innerHTML = '';
+    flyScoreValue.textContent = '0';
+    flyScorePopup.textContent = '';
+    flyCardStats.innerHTML = '';
+    hideReveal();
+    finishedScreen.classList.add('screen--hidden');
+  }
+
+  // ---------- Démarrage / reprise ----------
+  function startFly(p) {
+    resetGameUI();                       // (enveloppée) remet aussi l'UI fly à zéro
+    resetChatPanel();
+    currentGameMode = 'fly';
+    currentAdminId = null;
+    currentBossInfo = null;              // jamais de boss : pas de panneau de type résiduel
+    typeBonusPanelEl.classList.add('screen--hidden');
+    bossWeakEl.classList.add('screen--hidden');
+    bossTypesEl.classList.add('screen--hidden');
+    coopTeamRequired = null;
+    active = true;
+    document.body.classList.add('fly-mode');
+    myScoreLabelEl.textContent = 'Ton score';
+    applyGameState({ status: p.status, turn: p.turn, maxTurns: p.maxTurns, route: p.route, players: p.players });
+    flyCard.classList.remove('screen--hidden');
+    lastStats = p.fly || lastStats;
+    setMeta(lastStats);
+    renderStats(flyCardStats, lastStats);
+    setScore(0, 0);
+    setStatus('thinking', '🪰 La Mouche hésite…');
+    setBanner();
+    showScreen(screenGame);
+  }
+
+  // Resynchronisation (reconnexion) : état PUBLIC déjà révélé, jamais la décision en attente.
+  function applyState(st) {
+    if (!st || !active) return;
+    lastStats = st.stats || lastStats;
+    setMeta(lastStats);
+    renderStats(flyCardStats, lastStats);
+    flyTeam.innerHTML = '';
+    st.history.forEach(h => addToTeam(h.pokemon));
+    flyScoreValue.textContent = st.score;
+    const turnDone = st.history.length >= (parseInt(turnCurrentEl.textContent, 10) || 1);
+    revealedThisTurn = turnDone;
+    if (turnDone) { showReveal(st.history[st.history.length - 1]); setStatus('done', 'La Mouche a choisi.'); }
+    else { hideReveal(); setStatus('thinking', '🪰 La Mouche hésite…'); }
+    setBanner();
+  }
+
+  // ---------- Fin de partie ----------
+  function finishFly(p) {
+    currentGameMode = 'fly';
+    const me = (p.players || []).find(x => x.id === myId) || (p.players || [])[0];
+    const fly = p.fly || null;
+    const result = me && me.result;
+    const label = result === 'victory' ? 'VICTOIRE ! L\'Humanité l\'emporte.' : result === 'defeat' ? 'DÉFAITE… La Mouche l\'emporte.' : result === 'participation' ? 'ÉGALITÉ.' : 'Partie terminée.';
+    const out = $('fly-finished-outcome');
+    out.textContent = label;
+    out.classList.toggle('finished-outcome--victory', result === 'victory');
+    out.classList.toggle('finished-outcome--defeat', result === 'defeat');
+    if (result === 'victory') playVictorySound(); else if (result === 'defeat') playDefeatSound();
+
+    $('fly-finished-me').textContent = me ? `${me.score} PTS` : '—';
+    $('fly-finished-fly').textContent = fly ? `${fly.score} PTS` : '—';
+
+    const turns = $('fly-finished-turns');
+    turns.innerHTML = '';
+    (fly && fly.turns ? fly.turns : []).forEach(t => {
+      const row = el('div', 'fly-turn');
+      row.appendChild(el('span', 'fly-turn__n', `T${t.turn}`));
+      const mine = el('span', 'fly-turn__side');
+      mine.textContent = `Toi : ${t.humanChoice || '—'} · +${t.humanPointsGained ?? 0}`;
+      const hers = el('span', 'fly-turn__side fly-turn__side--fly');
+      const img = document.createElement('img');
+      img.src = t.pokemon.shiny && t.pokemon.shinySprite ? t.pokemon.shinySprite : t.pokemon.sprite;
+      img.alt = '';
+      hers.appendChild(img);
+      hers.appendChild(document.createTextNode(` Mouche : ${t.choice} · ${t.pokemon.name} · +${t.pointsGained}`));
+      row.appendChild(mine); row.appendChild(hers);
+      turns.appendChild(row);
     });
+
+    const stats = (fly && fly.stats) || lastStats;
+    lastStats = stats;
+    const learned = $('fly-finished-learned');
+    if (!fly) learned.textContent = '';
+    else if (fly.learned) learned.textContent = `🪰 Elle a appris de cette partie. Génération ${stats.generation} · ${stats.gamesPlayed} partie${stats.gamesPlayed > 1 ? 's' : ''} jouée${stats.gamesPlayed > 1 ? 's' : ''}.`;
+    else learned.textContent = 'Partie non comptée pour l\'apprentissage de la Mouche.';
+    renderStats($('fly-finished-stats'), stats);
+    if (!fly) refreshLobbyStats($('fly-finished-stats'));   // reprise après coup : stats globales via l'API
+
+    $('fly-btn-replay').classList.remove('screen--hidden');
+    showScreen(screenFinished);          // masque tous les autres écrans...
+    screenFinished.classList.add('screen--hidden');   // ...puis on remplace par l'écran dédié
+    finishedScreen.classList.remove('screen--hidden');
   }
 
-  // Reconstruit un résumé minimal depuis rejoin_success (publicState) : pas de choix humains ni d'apprentissage.
-  function fromRejoin(fly, me) {
-    const pub = fly || {};
-    const flyScore = num(pub.score);
-    const mine = me ? num(me.score) : 0;
-    const result = flyScore > mine ? 'win' : flyScore < mine ? 'loss' : 'draw';
-    return {
-      score: flyScore, team: Array.isArray(pub.team) ? pub.team : [], result,
-      humanResult: { win: 'defeat', loss: 'victory', draw: 'participation' }[result],
-      turns: Array.isArray(pub.history) ? pub.history : [], learned: null, stats: pub.stats || null
-    };
+  // ---------- Stats globales (lobby) ----------
+  function refreshLobbyStats(target) {
+    fetch('/api/fly/stats', { cache: 'no-store' })
+      .then(r => (r.ok ? r.json() : null))
+      .then(st => { if (st) { lastStats = st; renderStats(target, st); } })
+      .catch(() => { target.classList.add('screen--hidden'); });
   }
 
-  function onGameFinished({ players, fly, fromRejoin: rejoined }) {
-    if (!ctx) return;
-    const me = (players || []).find(p => p.id === ctx.getMyId()) || (players || [])[0] || null;
-    const f = rejoined ? fromRejoin(fly, me) : (fly || fromRejoin(null, me));
-    const humanResult = (me && me.result) || f.humanResult || 'participation';
-    const out = OUTCOME[humanResult] || OUTCOME.participation;
-    const stats = f.stats || {};
-
-    ctx.finishedOutcome.textContent = out.text;
-    ctx.finishedOutcome.classList.toggle('finished-outcome--victory', humanResult === 'victory');
-    ctx.finishedOutcome.classList.toggle('finished-outcome--defeat', humanResult === 'defeat');
-    if (humanResult === 'victory') ctx.sounds.victory(); else if (humanResult === 'defeat') ctx.sounds.defeat();
-
-    el.humanScore.textContent = String(me ? num(me.score) : 0);
-    el.flyScore.textContent = String(num(f.score));
-    el.duelHuman.classList.toggle('fly-duel__side--won', humanResult === 'victory');
-    el.duelFly.classList.toggle('fly-duel__side--won', humanResult === 'defeat');
-
-    if (f.learned === true) {
-      el.learned.textContent = 'Elle a appris de cette partie.';
-      el.learnedSub.textContent = stats.generation ? `Génération ${stats.generation} · ${num(stats.gamesPlayed)} parties jouées` : '';
-    } else if (f.learned === false) {
-      el.learned.textContent = 'Cette partie n’a pas servi à entraîner la Mouche.';
-      el.learnedSub.textContent = '';
+  // ---------- Enveloppes des fonctions de client.js ----------
+  const orig = {
+    applyGameStarted: window.applyGameStarted, applyGameFinished: window.applyGameFinished,
+    renderGameMode: window.renderGameMode, resetGameUI: window.resetGameUI, showScreen: window.showScreen
+  };
+  window.applyGameStarted = function (p) {
+    if (p && p.gameMode === 'fly') return startFly(p);
+    resetFlyUI();
+    return orig.applyGameStarted.apply(this, arguments);
+  };
+  window.applyGameFinished = function (p) {
+    if (p && p.gameMode === 'fly') return finishFly(p);
+    return orig.applyGameFinished.apply(this, arguments);
+  };
+  window.renderGameMode = function (mode) {
+    const r = orig.renderGameMode.apply(this, arguments);
+    const isFly = (mode || 'normal') === 'fly';
+    const diff = document.querySelector('.difficulty-panel');
+    if (diff) diff.classList.toggle('screen--hidden', isFly);
+    if (isFly) {
+      gamemodeHintEl.textContent = 'Duel solo : tu affrontes La Mouche, une IA qui apprend après chaque partie. Pas de boss : le meilleur score après 6 tours gagne. Tu dois être seul dans le salon.';
+      gamemodeHintEl.classList.remove('screen--hidden');
+      refreshLobbyStats(lobbyStats);
     } else {
-      el.learned.textContent = '';
-      el.learnedSub.textContent = '';
+      lobbyStats.classList.add('screen--hidden');
     }
-    el.learnedBox.classList.toggle('screen--hidden', !el.learned.textContent);
+    return r;
+  };
+  window.resetGameUI = function () {
+    const r = orig.resetGameUI.apply(this, arguments);
+    resetFlyUI();
+    return r;
+  };
+  window.showScreen = function (screen) {
+    finishedScreen.classList.add('screen--hidden');
+    return orig.showScreen.apply(this, arguments);
+  };
 
-    const hasStats = typeof stats.gamesPlayed === 'number';
-    el.tally.classList.toggle('screen--hidden', !hasStats);
-    if (hasStats) {
-      el.tallyHuman.textContent = String(num(stats.humanityWins));
-      el.tallyFly.textContent = String(num(stats.flyWins));
-      const d = num(stats.draws);
-      el.tallyDraws.textContent = d ? `${d} ${d > 1 ? 'égalités' : 'égalité'}` : '';
-    }
-    renderCurve(stats.recent);
+  // ---------- Événements serveur ----------
+  socket.on('fly_thinking', () => {
+    if (!active) return;
+    revealedThisTurn = false;
+    setStatus('thinking', '🪰 La Mouche hésite…');
+  });
+  socket.on('turn_options', () => { if (active) { hideReveal(); revealedThisTurn = false; } });
+  socket.on('choice_result', () => {
+    // Ton choix est fait : en attendant la Mouche, le statut du tour le dit clairement.
+    if (active && !revealedThisTurn) turnStatusEl.textContent = 'La Mouche hésite…';
+  });
+  socket.on('fly_choice_revealed', (entry) => {
+    if (!active) return;
+    revealedThisTurn = true;
+    addToTeam(entry.pokemon);
+    setScore(entry.score, entry.pointsGained);
+    setStatus('done', `La Mouche a choisi ${entry.choice === 'HAUT' ? '🔼 HAUT' : '🔽 BAS'}.`);
+    turnStatusEl.textContent = 'La Mouche a choisi.';
+    showReveal(entry);
+  });
+  socket.on('fly_state', applyState);
+  socket.on('game_updated', () => { if (active) setBanner(); });
 
-    ctx.renderFinishedTeam((me && me.team) || [], el.humanTeam);
-    ctx.renderFinishedTeam(f.team || [], el.flyTeam);
-    renderTurns(Array.isArray(f.turns) ? f.turns : []);
+  // ---------- Boutons ----------
+  $('fly-btn-replay').addEventListener('click', () => socket.emit('play_again'));
+  $('fly-btn-leave').addEventListener('click', () => {
+    socket.emit('leave_game');
+    rememberActiveGame(null);
+    resetGameUI();
+    showScreen(screenHome);
+  });
 
-    el.classicGrid.classList.add('screen--hidden');
-    el.finished.classList.remove('screen--hidden');
-    ctx.screenFinished.classList.add('screen--fly');
-    ctx.updateReplayControls();
-    ctx.showScreen(ctx.screenFinished);
-  }
-
-  // ---------------------------------------------------------------- Remise à zéro (resetGameUI)
-  function reset() {
-    if (!ctx) return;
-    state.active = false;
-    cancelAnimationFrame(state.scoreRaf);
-    ctx.screenGame.classList.remove('screen--fly');
-    ctx.screenFinished.classList.remove('screen--fly');
-    el.panel.classList.add('screen--hidden');
-    el.panel.classList.remove('fly-panel--thinking');
-    el.reveal.classList.add('result-panel--hidden');
-    el.reveal.classList.remove('result-panel--animate');
-    el.reveal.removeAttribute('data-rarity');
-    el.team.innerHTML = '';
-    el.score.textContent = '0';
-    el.status.textContent = '';
-    clearChoiceBadges();
-    el.finished.classList.add('screen--hidden');
-    el.classicGrid.classList.remove('screen--hidden');
-    el.curve.innerHTML = '';
-    el.turns.innerHTML = '';
-    el.humanTeam.innerHTML = '';
-    el.flyTeam.innerHTML = '';
-  }
-
-  // ---------------------------------------------------------------- Branchement
-  function init(c) {
-    ctx = c;
-    const ids = {
-      lobbyCard: 'fly-lobby-card', lobbyGames: 'fly-lobby-games', lobbyRate: 'fly-lobby-rate', lobbyGen: 'fly-lobby-gen',
-      lobbyNote: 'fly-lobby-note', lobbyIcon: 'fly-lobby-icon',
-      panel: 'fly-panel', panelIcon: 'fly-panel-icon', gen: 'fly-panel-gen', score: 'fly-score-value', popup: 'fly-score-popup',
-      status: 'fly-status', team: 'fly-team-slots',
-      reveal: 'fly-reveal-panel', revealChoice: 'fly-reveal-choice', revealRarity: 'fly-reveal-rarity', revealSprite: 'fly-reveal-sprite',
-      revealName: 'fly-reveal-name', revealBase: 'fly-reveal-base', revealEffect: 'fly-reveal-effect', revealPoints: 'fly-reveal-points',
-      classicGrid: 'finished-grid-classic', finished: 'fly-finished', duelHuman: 'fly-duel-human', duelFly: 'fly-duel-fly',
-      duelFlyIcon: 'fly-duel-icon', humanScore: 'fly-finished-human-score', flyScore: 'fly-finished-fly-score',
-      learnedBox: 'fly-learned-box', learned: 'fly-learned', learnedSub: 'fly-learned-sub',
-      tally: 'fly-tally', tallyHuman: 'fly-tally-human', tallyFly: 'fly-tally-fly', tallyDraws: 'fly-tally-draws',
-      curve: 'fly-curve', humanTeam: 'fly-finished-human-team', flyTeam: 'fly-finished-fly-team', turns: 'fly-finished-turns'
-    };
-    Object.keys(ids).forEach(k => { el[k] = document.getElementById(ids[k]); });
-    el.lobbyIcon.src = FLY_ICON;
-    el.panelIcon.src = FLY_ICON;
-    el.duelFlyIcon.src = FLY_ICON;
-
-    ctx.socket.on('fly_thinking', () => { if (state.active) setThinking(); });
-    ctx.socket.on('fly_choice_revealed', payload => {
-      if (!state.active || !payload) return;
-      state.team = state.team.concat([payload.pokemon]).slice(0, state.maxTurns);
-      renderTeam(state.team, true);
-      showReveal(payload, true);
-      animateScore(num(payload.score), num(payload.pointsGained));
-      ctx.sounds.reveal();
-    });
-    ctx.socket.on('fly_state', applyState);
-  }
-
-  window.FlyClient = { init, reset, onLobbyMode, onGameStarted, onGameFinished, FLY_ICON };
+  // Exposé pour les tests.
+  window.FlyUI = { rollingRates, buildCurve, renderStats, startFly, applyState, finishFly, isActive: () => active };
 })();
