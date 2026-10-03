@@ -4707,3 +4707,73 @@ button.friend-chip--online:active {
   color: var(--accent-bas);
   text-align: center;
 }
+
+/* ===== MODE FLY (Humanité vs Mouche) ===== */
+/* Boss absent : on masque ses éléments dans le panneau (le score personnel, lui, reste affiché). */
+body.fly-mode #boss-panel > .eyebrow,
+body.fly-mode #boss-sprite,
+body.fly-mode #boss-name,
+body.fly-mode .boss-target,
+body.fly-mode #boss-types,
+body.fly-mode #boss-weak,
+body.fly-mode #type-bonus-panel,
+body.fly-mode #boss-attack-banner { display: none !important; }
+
+.fly-card {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 16px;
+  margin: 12px 0;
+}
+.fly-card__head { display: flex; align-items: center; gap: 12px; margin: 6px 0 10px; }
+.fly-card__avatar {
+  display: grid; place-items: center; width: 52px; height: 52px; flex: none;
+  font-size: 1.9rem; border-radius: 50%;
+  background: var(--bg-panel-raised); border: 1px solid var(--border);
+  animation: fly-buzz 2.4s ease-in-out infinite;
+}
+.fly-card__name { font-family: var(--font-display); font-size: 1.15rem; letter-spacing: 0.06em; margin: 0; }
+.fly-card__meta { margin: 2px 0 0; font-size: 0.78rem; color: var(--text-muted); }
+.fly-card__status { min-height: 1.4em; margin: 0 0 10px; font-size: 0.9rem; color: var(--accent-bas); }
+.fly-card__status--thinking::after {
+  content: ''; display: inline-block; width: 1.2em; text-align: left;
+  animation: fly-dots 1.2s steps(4, end) infinite;
+}
+.fly-card__note { margin: 10px 0 0; font-size: 0.72rem; color: var(--text-muted); }
+.fly-team { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.fly-team__slot { width: 44px; height: 44px; padding: 2px; }
+.fly-team__slot img { width: 100%; height: 100%; object-fit: contain; image-rendering: pixelated; }
+
+.fly-reveal--hidden { display: none; }
+
+.fly-stats { margin: 12px 0; padding: 12px; border: 1px solid var(--border-soft); border-radius: 12px; background: var(--bg-panel-alt); }
+.fly-stats__score { margin: 0 0 6px; font-family: var(--font-display); font-size: 1.15rem; letter-spacing: 0.04em; }
+.fly-stats__humanity { color: var(--accent-bas); }
+.fly-stats__fly { color: var(--accent-haut); }
+.fly-stats__dash { color: var(--text-muted); }
+.fly-stats__line { margin: 0 0 8px; font-size: 0.82rem; color: var(--text-muted); }
+.fly-stats__caption { margin: 4px 0 0; font-size: 0.7rem; color: var(--text-muted); }
+.fly-curve { display: block; width: 100%; max-width: 360px; height: 64px; }
+.fly-curve__mid { stroke: var(--border); stroke-width: 1; stroke-dasharray: 3 3; }
+.fly-curve__line { fill: none; stroke: var(--accent-haut); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+
+.fly-finished-scores { display: flex; gap: 12px; flex-wrap: wrap; margin: 12px 0; }
+.fly-finished-scores .finished-stat { flex: 1 1 140px; }
+.fly-turns { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+.fly-turn {
+  display: grid; grid-template-columns: 2.2em 1fr 1.6fr; gap: 8px; align-items: center;
+  padding: 8px 10px; background: var(--bg-panel); border: 1px solid var(--border-soft); border-radius: 10px; font-size: 0.85rem;
+}
+.fly-turn__n { font-family: var(--font-mono); color: var(--text-muted); }
+.fly-turn__side--fly { display: flex; align-items: center; gap: 4px; color: var(--accent-haut); }
+.fly-turn__side--fly img { width: 32px; height: 32px; object-fit: contain; image-rendering: pixelated; }
+.fly-learned { margin: 0 0 8px; color: var(--accent-bas); font-size: 0.9rem; }
+@media (max-width: 520px) {
+  .fly-turn { grid-template-columns: 2em 1fr; }
+  .fly-turn__side--fly { grid-column: 1 / -1; }
+}
+
+@keyframes fly-buzz { 0%, 100% { transform: translate(0, 0) rotate(0); } 25% { transform: translate(2px, -2px) rotate(6deg); } 75% { transform: translate(-2px, 1px) rotate(-6deg); } }
+@keyframes fly-dots { 0% { content: ''; } 25% { content: '.'; } 50% { content: '..'; } 75% { content: '...'; } }
+@media (prefers-reduced-motion: reduce) { .fly-card__avatar, .fly-card__status--thinking::after { animation: none; } }

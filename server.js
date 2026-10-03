@@ -5537,16 +5537,25 @@ io.on('connection', (socket) => {
   });
 });
 
-// ---- MODE 'fly' (Humanité vs Mouche) : cerveau partagé, XP plafonnée, déroulement de partie ----
+// ---- MODE 'fly' (Humanité vs Mouche) : cerveau partagé, échauffement, XP plafonnée, déroulement de partie ----
 const { createBrainStore } = require('./fly-brain-store');
 const { registerFlyAdminRoutes } = require('./fly-admin-routes');
 const { createFlyGame } = require('./fly-game');
 const { createFlyXp } = require('./fly-xp');
-const flyBrain = createBrainStore({ supabase });
+const { runWarmup } = require('./fly-warmup');
+const flyDraw = () => { const o = pickPlayerTurnOptions(false, 0, undefined, undefined, 'fly'); return [o.haut, o.bas]; };
+const flyGetTypes = id => { try { return BOSS_MECHANICS.getTypes(id); } catch (e) { return []; } }; // simple lecture : aucun bonus de type
+const flyBst = {};
+const flyTypes = {};
+Object.values(POKEMON_POOLS).flat().forEach(p => { flyBst[p.id] = p.bst; flyTypes[p.id] = flyGetTypes(p.id); });
+const flyBrain = createBrainStore({
+  supabase,
+  warmup: policy => runWarmup({ policy, draw: flyDraw, bst: flyBst, typesById: flyTypes }) // parties simulées sur tout cerveau neuf
+});
 registerFlyAdminRoutes(app, { store: flyBrain });
 app.get('/api/fly/stats', (req, res) => {
   res.set('Cache-Control', 'no-store');
-  res.json(flyBrain.getPublicStats()); // nom, parties, victoires, nuls, taux, génération, derniers résultats : jamais de poids
+  res.json(flyBrain.getPublicStats()); // génération, parties vécues, score global, courbe : jamais de valeurs apprises
 });
 const FLY = createFlyGame({
   io, store: flyBrain,
@@ -5556,7 +5565,8 @@ const FLY = createFlyGame({
     teamMonFromReward: r => teamMonFromReward(r),
     buildRoute: () => buildRoute(),
     getPublicPlayers: g => getPublicPlayers(g),
-    maybeScheduleTurnTransition: g => maybeScheduleTurnTransition(g)
+    maybeScheduleTurnTransition: g => maybeScheduleTurnTransition(g),
+    getTypes: flyGetTypes
   }
 });
 

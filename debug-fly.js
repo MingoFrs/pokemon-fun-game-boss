@@ -1,61 +1,72 @@
 #!/usr/bin/env node
 'use strict';
-// Debug de la Mouche : poids, features et probabilités de choix sur quelques tirages.
-//   node debug-fly.js [--draws 5] [--seed 1] [--train 3000] [--state brain.json] [--synthetic]
-// Sans --state, la Mouche est entraînée --train parties contre un joueur « mixte » simulé (0 = cerveau vierge).
-// --state : fichier JSON contenant l'état du modèle (colonne weights de fly_brain, + games_played/wins/losses/draws).
+// Debug du cerveau de la Mouche (modèle « valeur par Pokémon ») : valeurs apprises, observation et probabilités de
+// choix sur quelques tirages RÉELS. Outil LOCAL : jamais importé par server.js ni envoyé au client (test-fly.js vérifie).
+//   node debug-fly.js                       cerveau neuf + échauffement (WARMUP_GAMES), depuis la racine du projet
+//   node debug-fly.js --state brain.json    cerveau exporté de Supabase (voir ci-dessous), sans échauffement
+//   node debug-fly.js --warmup 500 --draws 8 --seed 3 --top 10 [--proxy] [--server server.js]
+// Export du cerveau réel (SQL Editor de Supabase) -> enregistrer le résultat dans brain.json :
+//   select weights || jsonb_build_object('games_played',games_played,'wins',wins,'losses',losses,'draws',draws) from fly_brain;
 const fs = require('fs');
+const path = require('path');
 const cfg = require('./fly-config');
-const { LinearPolicy, FEATURE_NAMES, mulberry32, bestPossibleScore, computeReward } = require('./fly-agent');
-const { createEnv, HUMAN_POLICIES } = require('./fly-env');
+const { ValuePolicy, mulberry32 } = require('./fly-value-policy');
+const { runWarmup } = require('./fly-warmup');
+const { createRealDraws, loadProjectEntries } = require('./fly-real-env');
 
 const args = process.argv.slice(2);
-const num = (n, d) => { const i = args.indexOf('--' + n); return i >= 0 ? Number(args[i + 1]) : d; };
-const str = n => { const i = args.indexOf('--' + n); return i >= 0 ? args[i + 1] : null; };
-const DRAWS = num('draws', 5), SEED = num('seed', 1), TRAIN = num('train', 3000);
+const has = n => args.includes('--' + n);
+const val = (n, d) => { const i = args.indexOf('--' + n); return i >= 0 ? args[i + 1] : d; };
+const SEED = Number(val('seed', 1)), DRAWS = Number(val('draws', 5)), TOP = Number(val('top', 8));
+const f1 = x => x.toFixed(1), f3 = x => x.toFixed(3);
 
-const env = createEnv({ rng: mulberry32(SEED * 31), rarities: cfg.RARITIES, useReal: !args.includes('--synthetic') });
-const policy = new LinearPolicy({ seed: SEED });
+const data = has('proxy') ? require('./fly-proxy-data').loadProxyEntries() : loadProjectEntries(process.cwd());
+const byId = {}; data.entries.forEach(e => { byId[e.id] = e; });
+const bst = {}; data.entries.forEach(e => { bst[e.id] = e.bst; });
+const server = path.resolve(val('server', 'server.js'));
+const mkDraws = rng => createRealDraws({ serverFile: server, entries: data.entries, rng, categoryOrder: data.categoryOrder, legendaryGroup: data.legendaryGroup });
 
-if (str('state')) {
-  policy.setState(JSON.parse(fs.readFileSync(str('state'), 'utf8')));
-  console.log(`Cerveau chargé depuis ${str('state')}`);
-} else if (TRAIN > 0) {
-  const rng = mulberry32(SEED + 7), human = HUMAN_POLICIES.mixed;
-  for (let g = 0; g < TRAIN; g++) {
-    let fly = 0, hum = 0; const traj = [], fin = [];
-    for (let turn = 1; turn <= cfg.TURNS; turn++) {
-      const o = env.drawOptions(); fin.push([o[0].finalPoints, o[1].finalPoints]);
-      const d = policy.choose({ turn, ownScore: fly, oppScore: hum, options: o.map(x => ({ basePoints: x.basePoints, rarity: x.rarity, shiny: x.shiny })) });
-      traj.push(d); fly += o[d.index].finalPoints; hum += o[human(o, rng)].finalPoints;
-    }
-    const { reward, result } = computeReward({ flyScore: fly, humanScore: hum, bestPossible: bestPossibleScore(fin) });
-    policy.learn(traj, reward, { result });
-  }
-  console.log(`Cerveau entraîné : ${TRAIN} parties simulées vs « mixte » (${env.source})`);
+const policy = new ValuePolicy({ seed: SEED });
+let origin;
+if (has('state')) { policy.setState(JSON.parse(fs.readFileSync(val('state'), 'utf8'))); origin = `fichier ${val('state')}`; }
+else {
+  const n = Number(val('warmup', cfg.WARMUP_GAMES));
+  const d = mkDraws(mulberry32(SEED * 31 + 1));
+  const r = runWarmup({ policy, draw: () => d.drawOptions(), bst, typesById: data.typesById, games: n, seed: SEED });
+  origin = `cerveau neuf + ${n} parties d'échauffement simulées (taux de victoire moyen pendant l'échauffement ≈ ${Math.round(100 * r.winRate)} %)`;
 }
 
 const s = policy.getState();
-console.log(`\nParties ${s.games_played} | V ${s.wins} · D ${s.losses} · N ${s.draws} | baseline ${s.baseline.toFixed(3)} | T = ${policy.temperature().toFixed(3)}`);
-console.log('\nPOIDS');
-FEATURE_NAMES.forEach((n, i) => console.log(`  ${n.padEnd(11)} ${s.weights[i].toFixed(3).padStart(8)}`));
+console.log(`\n=== CERVEAU : ${origin} ===`);
+console.log(`parties vécues ${s.games_played} (victoires Mouche ${s.wins}, Humanité ${s.losses}, nuls ${s.draws}) | échauffement ${s.warmup_games} | ` +
+  `température ${f3(policy.temperature())} (plancher ${cfg.VALUE_TEMP_FLOOR}) | moyenne globale ${f1(s.global[0])} pts sur ${s.global[1]} observations`);
+const known = Object.entries(s.ids).map(([id, [mean, n]]) => ({ id: Number(id), mean, n, e: byId[id] })).filter(k => k.e);
+console.log(`Pokémon connus : ${known.length}/${data.entries.length} | types utilisés comme a priori : ${cfg.VALUE_USE_TYPES ? 'oui' : 'non'}`);
+const corr = (() => { const xs = known.map(k => k.mean), ys = known.map(k => k.e.basePoints); const mx = xs.reduce((a, b) => a + b, 0) / xs.length, my = ys.reduce((a, b) => a + b, 0) / ys.length;
+  const c = xs.reduce((a, x, i) => a + (x - mx) * (ys[i] - my), 0); return c / Math.sqrt(xs.reduce((a, x) => a + (x - mx) ** 2, 0) * ys.reduce((a, y) => a + (y - my) ** 2, 0)); })();
+console.log(`Corrélation valeur apprise / points de base réels (Pokémon connus) : ${Number.isFinite(corr) ? corr.toFixed(3) : 'n/a'}`);
+const row = k => `  #${String(k.id).padStart(4)} ${(k.e.name || '').padEnd(14)} ${k.e.rarity.padEnd(17)} appris ${f1(k.mean).padStart(6)} | réel ${String(k.e.basePoints).padStart(4)} | vu ${k.n}×`;
+const sorted = known.slice().sort((a, b) => b.mean - a.mean);
+console.log(`\nLes ${TOP} Pokémon que la Mouche estime le plus :`); sorted.slice(0, TOP).forEach(k => console.log(row(k)));
+console.log(`Les ${TOP} qu'elle estime le moins :`); sorted.slice(-TOP).forEach(k => console.log(row(k)));
 
-console.log(`\nTIRAGES (${DRAWS}) — la Mouche ne voit que basePoints / rareté / shiny / tour / scores`);
-const rng = mulberry32(SEED + 99);
-let fly = 0, hum = 0;
-for (let i = 0; i < DRAWS; i++) {
-  const turn = (i % cfg.TURNS) + 1;
-  if (turn === 1) { fly = 0; hum = 0; }
-  const o = env.drawOptions();
-  const obs = { turn, ownScore: fly, oppScore: hum, options: o.map(x => ({ basePoints: x.basePoints, rarity: x.rarity, shiny: x.shiny })) };
+console.log(`\n=== ${DRAWS} TIRAGES RÉELS (vraies fonctions de server.js) ===`);
+console.log('Observation = identité + shiny + types. Les colonnes « caché » (points, effet) ne sont PAS vues avant le choix.\n');
+const d = mkDraws(mulberry32(SEED * 977 + 5));
+let agree = 0;
+for (let k = 0; k < DRAWS; k++) {
+  const o = d.drawOptions();
+  const obs = { turn: 1 + (k % cfg.TURNS), ownScore: 0, oppScore: 0, options: o.map(x => ({ pokemonId: x.pokemonId, shiny: x.shiny, types: data.typesById[x.pokemonId] || [] })) };
   const ev = policy.evaluate(obs);
-  const pick = ev.probs[1] > ev.probs[0] ? 1 : 0;
-  console.log(`\n#${i + 1}  tour ${turn}  score Mouche ${fly} · humain ${hum}  (T=${ev.temperature.toFixed(2)})`);
-  ['HAUT', 'BAS'].forEach((side, k) => {
-    const x = o[k];
-    console.log(`  ${side}${pick === k ? ' ◀' : '  '} ${x.rarity.padEnd(18)} base ${String(x.basePoints).padStart(4)}${x.shiny ? ' ✨' : '   '}  p=${(ev.probs[k] * 100).toFixed(1).padStart(5)} %   [caché : effet ${x.effectName} ×${x.multiplier} -> ${x.finalPoints}]`);
-    console.log('       features: ' + FEATURE_NAMES.map((n, j) => `${n}=${ev.phis[k][j].toFixed(2)}`).join(' '));
+  const pick = ev.probs[1] > ev.probs[0] ? 1 : 0, best = o[1].finalPoints > o[0].finalPoints ? 1 : 0;
+  agree += pick === best;
+  console.log(`Tirage ${k + 1} (tour ${obs.turn}/${cfg.TURNS}, température ${f3(ev.temperature)})`);
+  ['HAUT', 'BAS'].forEach((name, i) => {
+    const x = o[i];
+    console.log(`  ${name.padEnd(4)} #${String(x.pokemonId).padStart(4)} ${(x.name || '').padEnd(14)}${x.shiny ? '✨' : '  '} types ${(obs.options[i].types || []).join('/').padEnd(16)}` +
+      ` | valeur estimée ${f1(ev.values[i] * cfg.BASEPOINTS_SCALE).padStart(6)}  P=${ev.probs[i].toFixed(2)}${i === pick ? '  <- argmax' : '          '}` +
+      ` | caché: ${x.rarity} base ${x.basePoints} × ${x.multiplier} (${x.effectName}) = ${x.finalPoints}`);
   });
-  const idx = policy.choose(obs).index;
-  fly += o[idx].finalPoints; hum += o[HUMAN_POLICIES.mixed(o, rng)].finalPoints;
+  console.log();
 }
+console.log(`L'argmax coïncide avec l'option aux points finaux les plus élevés : ${agree}/${DRAWS} (les effets cachés l'en empêchent parfois).`);

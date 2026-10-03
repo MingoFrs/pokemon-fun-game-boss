@@ -1,23 +1,31 @@
 'use strict';
 // =====================================================================
 // LE CERVEAU PARTAGÉ DE LA MOUCHE : un seul objet pour TOUTES les parties simultanées.
-//   - charge / sauvegarde (Supabase, tables fly_brain + fly_brain_snapshots, cf. fly-brain.sql)
-//   - snapshots versionnés tous les N parties (SNAPSHOT_KEEP gardés), reset et restauration
+//   - charge / sauvegarde (Supabase : fly_brain + fly_brain_snapshots, cf. fly-brain-v2.sql)
+//   - échauffement simulé sur tout cerveau NEUF (premier démarrage, reset admin) : fonction `warmup` injectée
+//   - snapshots périodiques (tous les N parties vécues par le cerveau courant) ; archive avant reset / restauration
 //   - « epoch » : toute partie démarrée avant un reset/restauration est ignorée à sa fin
-//     (sa trajectoire a été produite par un ancien cerveau)
-// Toutes les écritures DB passent par UNE file d'attente (jamais deux en parallèle) ; les sauvegardes
-// en attente sont coalescées (seul l'état le plus récent est écrit). Aucun accès DB si supabase = null
-// (mode mémoire seule). Aucune dépendance autre que fly-agent / fly-config.
+//
+// DEUX niveaux de compteurs, volontairement séparés :
+//   * CERVEAU courant (génération G) : games_played / wins / losses / draws / warmup_games — repartent de zéro au reset
+//   * GLOBAL « Humanité X – Mouche Y » : total_games / total_wins / total_losses / total_draws — ne bougent JAMAIS au reset
+// `generation` augmente à chaque reset ou restauration (monotone). La courbe (recent_results) est globale.
+//
+// Toutes les écritures DB passent par UNE file d'attente ; les sauvegardes en attente sont coalescées.
+// Aucun accès DB si supabase = null (mode mémoire seule). Aucune écriture si la ligne en base est illisible.
 // =====================================================================
 const defaultConfig = require('./fly-config');
-const { LinearPolicy } = require('./fly-agent');
+const { ValuePolicy } = require('./fly-value-policy');
 
 const RESULT_CHAR = { win: 'W', loss: 'L', draw: 'D' };   // point de vue de la Mouche
+const BRAIN_KEYS = ['games_played', 'wins', 'losses', 'draws'];
+const NEW_COLUMNS = ['generation', 'total_games', 'total_wins', 'total_losses', 'total_draws'];
 
-function createBrainStore({ supabase = null, config = defaultConfig, makePolicy, logger = console } = {}) {
-  const policy = makePolicy ? makePolicy() : new LinearPolicy({ config });
+function createBrainStore({ supabase = null, config = defaultConfig, makePolicy, warmup = null, logger = console } = {}) {
+  const policy = makePolicy ? makePolicy() : new ValuePolicy({ config });
   const store = {
-    policy, epoch: 0, recent: [], persistent: false, saveDisabled: false, conflicts: 0
+    policy, epoch: 0, generation: 1, recent: [], persistent: false, saveDisabled: false, conflicts: 0,
+    totals: { games: 0, wins: 0, losses: 0, draws: 0 }, warmupResult: null
   };
   let tail = Promise.resolve();
   let savePending = null;
@@ -28,38 +36,77 @@ function createBrainStore({ supabase = null, config = defaultConfig, makePolicy,
     tail = run;
     return run;
   }
-
-  const payload = () => {
-    const s = policy.getState();
-    const { games_played, wins, losses, draws } = s;
-    const model = { ...s }; delete model.games_played; delete model.wins; delete model.losses; delete model.draws;
-    return { weights: model, games_played, wins, losses, draws, recent_results: store.recent.slice(), updated_at: new Date().toISOString() };
-  };
-  const fromRow = row => ({
-    ...row.weights, games_played: row.games_played, wins: row.wins, losses: row.losses, draws: row.draws
-  });
+  const freshState = () => (makePolicy ? makePolicy() : new ValuePolicy({ config })).getState();
+  const modelOf = s => { const m = { ...s }; BRAIN_KEYS.forEach(k => delete m[k]); return m; };
+  const fromRow = row => ({ ...row.weights, games_played: row.games_played, wins: row.wins, losses: row.losses, draws: row.draws });
   const cleanRecent = arr => (Array.isArray(arr) ? arr.filter(x => x === 'W' || x === 'L' || x === 'D').slice(-config.CURVE_WINDOW_GAMES) : []);
 
+  function payload() {
+    const s = policy.getState();
+    return {
+      weights: modelOf(s), games_played: s.games_played, wins: s.wins, losses: s.losses, draws: s.draws,
+      generation: store.generation,
+      total_games: store.totals.games, total_wins: store.totals.wins, total_losses: store.totals.losses, total_draws: store.totals.draws,
+      recent_results: store.recent.slice(), updated_at: new Date().toISOString()
+    };
+  }
+
+  // Échauffement d'un cerveau NEUF. N'échoue jamais : en cas d'erreur le cerveau reste neuf (jouable, simplement moins bon).
+  function runWarmup() {
+    store.warmupResult = null;
+    if (!warmup || !(config.WARMUP_GAMES > 0)) return;
+    try {
+      store.warmupResult = warmup(policy) || { games: config.WARMUP_GAMES };
+      logger.log(`[fly] échauffement : ${policy.getState().warmup_games} parties simulées (taux de victoire moyen pendant l'échauffement ≈ ${store.warmupResult.winRate == null ? '?' : Math.round(100 * store.warmupResult.winRate)} %).`);
+    } catch (e) {
+      logger.error('[fly] échauffement impossible, cerveau laissé vierge :', e && e.message);
+    }
+  }
+
   // ---- Chargement au démarrage ----
-  // Retourne 'memory_only' | 'loaded' | 'created' | 'invalid' | 'db_error'. Dans les deux derniers cas,
-  // la sauvegarde est DÉSACTIVÉE (on n'écrase jamais une ligne qu'on n'a pas pu lire ou comprendre).
+  // Retourne 'memory_only' | 'loaded' | 'created' | 'invalid' | 'schema_outdated' | 'db_error'.
+  // Tout statut sauf 'loaded' => cerveau neuf en mémoire => échauffement. Pour 'invalid' / 'schema_outdated' /
+  // 'db_error', la sauvegarde est DÉSACTIVÉE : on n'écrase jamais une ligne qu'on n'a pas pu lire ou comprendre.
   store.load = async function load() {
-    if (!supabase) { logger.warn('[fly] Supabase indisponible : cerveau en mémoire seule (perdu au redémarrage).'); return 'memory_only'; }
+    if (!supabase) {
+      logger.warn('[fly] Supabase indisponible : cerveau en mémoire seule (perdu au redémarrage).');
+      runWarmup();
+      return 'memory_only';
+    }
     const { data, error } = await supabase.from('fly_brain').select('*').eq('id', 1).maybeSingle();
-    if (error) { store.saveDisabled = true; logger.error('[fly] lecture fly_brain impossible, sauvegarde désactivée :', error.message); return 'db_error'; }
+    if (error) {
+      store.saveDisabled = true;
+      logger.error('[fly] lecture fly_brain impossible, sauvegarde désactivée :', error.message);
+      runWarmup();
+      return 'db_error';
+    }
     if (!data) {
+      runWarmup();
       const ins = await supabase.from('fly_brain').insert({ id: 1, ...payload() });
-      if (ins.error && ins.error.code !== '23505') { store.saveDisabled = true; logger.error('[fly] création fly_brain impossible :', ins.error.message); return 'db_error'; }
+      if (ins.error && ins.error.code !== '23505') {
+        store.saveDisabled = true;
+        logger.error(`[fly] création fly_brain impossible (${ins.error.message}). As-tu exécuté fly-brain-v2.sql ?`);
+        return 'db_error';
+      }
       store.persistent = true;
       return 'created';
+    }
+    if (!NEW_COLUMNS.every(k => k in data)) {
+      store.saveDisabled = true;
+      logger.error('[fly] schéma fly_brain obsolète (colonnes generation / total_* absentes) : exécute fly-brain-v2.sql. Sauvegarde désactivée.');
+      runWarmup();
+      return 'schema_outdated';
     }
     try {
       policy.setState(fromRow(data));
     } catch (e) {
       store.saveDisabled = true;
       logger.error('[fly] état du cerveau en base INVALIDE, sauvegarde désactivée (ligne conservée) :', e.message);
+      runWarmup();
       return 'invalid';
     }
+    store.generation = Math.max(1, data.generation | 0);
+    store.totals = { games: data.total_games | 0, wins: data.total_wins | 0, losses: data.total_losses | 0, draws: data.total_draws | 0 };
     store.recent = cleanRecent(data.recent_results);
     store.persistent = true;
     return 'loaded';
@@ -71,8 +118,9 @@ function createBrainStore({ supabase = null, config = defaultConfig, makePolicy,
     const force = forceWrite; forceWrite = false;
     const body = payload();
     let q = supabase.from('fly_brain').update(body).eq('id', 1);
-    // Garde anti-régression (2 instances pendant un déploiement) : on n'écrase jamais un cerveau plus avancé.
-    if (!force) q = q.lte('games_played', body.games_played);
+    // Garde anti-régression (2 instances pendant un déploiement) : jamais d'écrasement d'un cerveau plus avancé.
+    // total_games est monotone (il ne baisse jamais, même au reset) : c'est la bonne référence.
+    if (!force) q = q.lte('total_games', body.total_games);
     const { data, error } = await q.select('id');
     if (error) throw new Error(error.message);
     if (!data || data.length === 0) {
@@ -89,12 +137,11 @@ function createBrainStore({ supabase = null, config = defaultConfig, makePolicy,
     return savePending;
   }
 
-  function enqueueSnapshot(reason, state) {
+  function enqueueSnapshot(reason, state, generation) {
     return enqueue(async () => {
       if (!supabase || store.saveDisabled) return { ok: false, skipped: true };
-      const model = { ...state }; ['games_played', 'wins', 'losses', 'draws'].forEach(k => delete model[k]);
       const ins = await supabase.from('fly_brain_snapshots').insert({
-        reason, games_played: state.games_played, wins: state.wins, losses: state.losses, draws: state.draws, weights: model
+        reason, generation, games_played: state.games_played, wins: state.wins, losses: state.losses, draws: state.draws, weights: modelOf(state)
       });
       if (ins.error) throw new Error(ins.error.message);
       // Purge : périodiques -> SNAPSHOT_KEEP ; sécurité (pre_reset / pre_restore) -> SNAPSHOT_KEEP_SAFETY.
@@ -116,68 +163,83 @@ function createBrainStore({ supabase = null, config = defaultConfig, makePolicy,
   // ---- API de jeu ----
   store.beginGame = () => ({ epoch: store.epoch });
   store.choose = obs => policy.choose(obs);
+  store.observe = (decision, outcome) => policy.observe(decision, outcome);
 
   // Fin d'une partie COMPLÈTE uniquement (le serveur n'appelle jamais ceci sur abandon).
-  store.recordGame = function recordGame({ epoch, trajectory, reward, result }) {
+  store.recordGame = function recordGame({ epoch, trajectory, result }) {
     if (epoch !== store.epoch) return { learned: false, reason: 'stale_epoch' };
-    const r = policy.learn(trajectory, reward, { result });
+    const r = policy.learn(trajectory, 0, { result });
     if (!r.learned) return r;
+    store.totals.games += 1;
+    if (result === 'win') store.totals.wins += 1; else if (result === 'loss') store.totals.losses += 1; else store.totals.draws += 1;
     store.recent.push(RESULT_CHAR[result] || 'D');
     if (store.recent.length > config.CURVE_WINDOW_GAMES) store.recent.splice(0, store.recent.length - config.CURVE_WINDOW_GAMES);
     const gp = policy.getState().games_played;
-    if (gp % config.SNAPSHOT_EVERY_GAMES === 0) enqueueSnapshot('periodic', policy.getState());
+    if (gp % config.SNAPSHOT_EVERY_GAMES === 0) enqueueSnapshot('periodic', policy.getState(), store.generation);
     requestSave();
     return { ...r, games_played: gp };
   };
 
   // ---- Admin ----
+  // Reset : l'ancien cerveau est ARCHIVÉ, un cerveau neuf (+ échauffement) repart de zéro, la génération augmente.
+  // Les compteurs globaux « Humanité X – Mouche Y » et la courbe ne bougent pas.
   store.reset = async function reset() {
     const before = policy.getState();
+    const oldGeneration = store.generation;
     store.epoch++;
-    policy.setState(makePolicy ? makePolicy().getState() : LinearPolicy.freshBrain());
-    store.recent = [];
-    enqueueSnapshot('pre_reset', before);
+    store.generation++;
+    policy.setState(freshState());
+    runWarmup();
+    enqueueSnapshot('pre_reset', before, oldGeneration);
     forceWrite = true;
     const res = await requestSave();
-    return { ok: !!(res && res.ok) || !supabase, previousGames: before.games_played, epoch: store.epoch };
+    return { ok: !!(res && res.ok) || !supabase, previousGames: before.games_played, previousGeneration: oldGeneration, generation: store.generation, epoch: store.epoch };
   };
 
   store.listSnapshots = async function listSnapshots(limit = 100) {
     if (!supabase) return [];
     const { data, error } = await supabase.from('fly_brain_snapshots')
-      .select('id, reason, games_played, wins, losses, draws, created_at').order('id', { ascending: false }).limit(limit);
+      .select('id, reason, generation, games_played, wins, losses, draws, created_at').order('id', { ascending: false }).limit(limit);
     if (error) throw new Error(error.message);
     return data || [];
   };
 
+  // Restauration : le cerveau archivé redevient le cerveau courant ; la génération augmente aussi (nouveau cerveau en service).
   store.restoreSnapshot = async function restoreSnapshot(id) {
     if (!supabase) throw new Error('Supabase indisponible');
     const { data, error } = await supabase.from('fly_brain_snapshots').select('*').eq('id', id).maybeSingle();
     if (error) throw new Error(error.message);
     if (!data) return { ok: false, reason: 'not_found' };
     const state = fromRow(data);
-    (makePolicy ? makePolicy() : new LinearPolicy({ config })).setState(state);   // valide AVANT toute modification (lève si invalide)
+    (makePolicy ? makePolicy() : new ValuePolicy({ config })).setState(state);   // valide AVANT toute modification (lève si invalide)
     const before = policy.getState();
+    const oldGeneration = store.generation;
     store.epoch++;
+    store.generation++;
     policy.setState(state);
-    store.recent = [];
-    enqueueSnapshot('pre_restore', before);
+    enqueueSnapshot('pre_restore', before, oldGeneration);
     forceWrite = true;
     const res = await requestSave();
-    return { ok: !!(res && res.ok), restoredGames: state.games_played, epoch: store.epoch };
+    return { ok: !!(res && res.ok), restoredGames: state.games_played, generation: store.generation, epoch: store.epoch };
   };
 
   store.flush = () => tail;
 
-  // ---- Stats publiques (jamais de poids ni de baseline) ----
+  // ---- Stats publiques (jamais de valeurs apprises ni de table de Pokémon) ----
   store.getPublicStats = function getPublicStats() {
     const s = policy.getState();
+    const rate = (w, n) => (n ? w / n : null);
     return {
       name: config.AGENT_NAME,
-      gamesPlayed: s.games_played,
-      flyWins: s.wins, humanityWins: s.losses, draws: s.draws,
-      winRate: s.games_played ? s.wins / s.games_played : null,
-      generation: 1 + Math.floor(s.games_played / config.GENERATION_EVERY_GAMES),
+      generation: store.generation,
+      brain: {                                   // cerveau courant (repart de zéro au reset) : parties VÉCUES uniquement
+        gamesPlayed: s.games_played, flyWins: s.wins, humanityWins: s.losses, draws: s.draws,
+        winRate: rate(s.wins, s.games_played), warmupGames: s.warmup_games
+      },
+      global: {                                  // « Humanité X – Mouche Y » : toutes générations, jamais remis à zéro
+        gamesPlayed: store.totals.games, flyWins: store.totals.wins, humanityWins: store.totals.losses, draws: store.totals.draws,
+        winRate: rate(store.totals.wins, store.totals.games)
+      },
       recent: store.recent.slice()
     };
   };

@@ -1,234 +1,112 @@
 #!/usr/bin/env node
 'use strict';
-// Tests du mode 'fly'.  node test-fly.js
-// ÉTAPE 1 : agent (décisions, apprentissage, récompense, observation, config, non-régression boss).
-// ÉTAPE 2 : persistance, snapshots, reset/restauration, admin (faux Supabase). À ajouter à l'étape 3 : plafond XP,
-// abandon côté serveur, aucun accès client aux décisions, branchement server.js.
+// Tests du mode 'fly' (v2 : la Mouche n'observe que identité + shiny + types).  node test-fly.js
+// Aucun réseau : faux Supabase, faux io, faux timers. server.js n'est jamais exécuté (lecture statique + extraction
+// des fonctions de tirage dans un bac à sable). Voir aussi : test-fly-value.js (politique), test-fly-client.js (client).
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const cfg = require('./fly-config');
 const bossConfig = require('./boss-mechanics-config');
 const { createBossMechanics } = require('./boss-mechanics');
-const { LinearPolicy, extractFeatures, outcomeFor, bestPossibleScore, computeReward, mulberry32, FEATURE_NAMES } = require('./fly-agent');
-const { createEnv, RARITY_TABLE, EFFECTS, SHINY_CHANCE, SHINY_POINTS_MULTIPLIER } = require('./fly-env');
+const { ValuePolicy, mulberry32 } = require('./fly-value-policy');
+const { createBrainStore } = require('./fly-brain-store');
+const { registerFlyAdminRoutes } = require('./fly-admin-routes');
+const { createFlyGame, HUMAN_RESULT } = require('./fly-game');
+const { createFlyXp } = require('./fly-xp');
+const { runWarmup, playSimulatedGame, simulatedHumanPick } = require('./fly-warmup');
+const { createRealDraws } = require('./fly-real-env');
+const { FakeSupabase, fakeApp, silentLogger } = require('./fly-test-utils');
 
 let pass = 0, fail = 0;
 function test(name, fn) {
   try { fn(); pass++; console.log(`  ✔ ${name}`); }
   catch (e) { fail++; console.log(`  ✘ ${name}\n      ${e.message}`); }
 }
-const opt = (basePoints, rarity = 'commun', shiny = false) => ({ basePoints, rarity, shiny });
-const mkObs = (o = {}) => ({ turn: 1, ownScore: 0, oppScore: 0, options: [opt(400), opt(800, 'epique')], ...o });
-// Trajectoire de TURNS décisions où la Mouche choisit toujours l'option la plus chère (index 1 si BAS plus chère).
-function mkTraj(policy, pickIndex = 1) {
-  return Array.from({ length: cfg.TURNS }, (_, i) => {
-    const d = policy.evaluate(mkObs({ turn: i + 1 }));
-    return { index: pickIndex, probs: d.probs, phis: d.phis, temperature: d.temperature };
-  });
-}
-const withGames = (policy, n, baseline) => { const s = policy.getState(); s.games_played = n; s.baseline = baseline; policy.setState(s); return policy; };
+const asyncTests = [];
+const atest = (name, fn) => asyncTests.push({ name, fn });
 
-console.log('A) Configuration');
-test('Valeurs numériques valides', () => {
-  ['TURNS', 'BASEPOINTS_SCALE', 'GAP_SCALE', 'SCORE_WEIGHT', 'LEARNING_RATE', 'BASELINE_RATE', 'ADVANTAGE_CLIP', 'MAX_STEP_NORM',
-    'WEIGHT_DECAY', 'WEIGHT_CLAMP', 'TEMP_START', 'TEMP_FLOOR', 'TEMP_TAU_GAMES', 'SNAPSHOT_EVERY_GAMES', 'SNAPSHOT_KEEP',
-    'CURVE_WINDOW_GAMES', 'XP_CAP_PER_24H', 'HESITATION_MS_MIN', 'HESITATION_MS_MAX'].forEach(k =>
-    assert.ok(Number.isFinite(cfg[k]) && cfg[k] >= 0, `${k} invalide`));
-  assert.ok(cfg.TEMP_FLOOR > 0 && cfg.TEMP_START >= cfg.TEMP_FLOOR);
-  assert.ok(cfg.HESITATION_MS_MAX >= cfg.HESITATION_MS_MIN);
-  assert.ok(cfg.RESULT_REWARD.win > cfg.RESULT_REWARD.draw && cfg.RESULT_REWARD.draw > cfg.RESULT_REWARD.loss);
-});
-test("Aucune clé 'fly' dans ENABLED_BY_MODE (mécaniques de boss inactives en fly)", () => {
-  assert.ok(!('fly' in bossConfig.ENABLED_BY_MODE));
-});
-test('Constantes alignées sur server.js (TURNS, shiny, RARITY_TABLE, EFFECTS)', () => {
+const readServer = () => {
   const file = path.join(__dirname, 'server.js');
-  if (!fs.existsSync(file)) return console.log('      (ignoré : server.js absent)');
-  const src = fs.readFileSync(file, 'utf8');
+  return fs.existsSync(file) ? fs.readFileSync(file, 'utf8').replace(/\r\n?/g, '\n') : null;
+};
+
+// ---------- Fixtures ----------
+const POKES = Array.from({ length: 60 }, (_, i) => ({ id: i + 1, name: `P${i + 1}`, rarity: ['commun', 'rare', 'epique'][i % 3], base: 200 + ((i * 137) % 700) }));
+const EFFECTS_FIX = [['Neutre', 1], ['Motivé', 1.1], ['Sub-5', 0.75], ['Beauty privilege', 1.3]];
+const bstFix = Object.fromEntries(POKES.map(p => [p.id, p.base]));
+function fakeOption(rng) {
+  const p = POKES[Math.floor(rng() * POKES.length)];
+  const [effectName, multiplier] = EFFECTS_FIX[Math.floor(rng() * EFFECTS_FIX.length)];
+  const shiny = rng() < 0.05;
+  return {
+    pokemonId: p.id, name: p.name, sprite: `s${p.id}.png`, shiny, shinySprite: shiny ? `sh${p.id}.png` : null, rarity: p.rarity,
+    basePoints: p.base, effectName, multiplier, finalPoints: Math.round(p.base * multiplier * (shiny ? 1.5 : 1))
+  };
+}
+function fakePair(rng) {
+  const a = fakeOption(rng); let b = fakeOption(rng);
+  while (b.pokemonId === a.pokemonId) b = fakeOption(rng);
+  return [a, b];
+}
+const mkObs = (turn = 1, a = 1, b = 2) => ({ turn, ownScore: 0, oppScore: 0, options: [{ pokemonId: a, shiny: false, types: ['fire'] }, { pokemonId: b, shiny: false, types: ['water'] }] });
+
+const tcfg = { ...cfg, SNAPSHOT_EVERY_GAMES: 5, SNAPSHOT_KEEP: 3, SNAPSHOT_KEEP_SAFETY: 5, CURVE_WINDOW_GAMES: 10, WARMUP_GAMES: 20 };
+const cleanDb = () => new FakeSupabase();
+const makePolicyFor = c => () => new ValuePolicy({ config: c, seed: 11 });
+function warmupFor(c, calls) {
+  return policy => {
+    if (calls) calls.n++;
+    const rng = mulberry32(5);
+    return runWarmup({ policy, draw: () => fakePair(rng), bst: bstFix, typesById: {}, games: c.WARMUP_GAMES, seed: 3, config: c });
+  };
+}
+const newStore = (db, c = tcfg, { warmup = true, calls } = {}) =>
+  createBrainStore({ supabase: db, config: c, logger: silentLogger, makePolicy: makePolicyFor(c), warmup: warmup ? warmupFor(c, calls) : null });
+// Partie complète synthétique via l'API du store : choix, résultat observé, fin de partie.
+function playOne(store, result = 'win', { epoch } = {}) {
+  const g = store.beginGame();
+  const trajectory = [];
+  for (let t = 1; t <= cfg.TURNS; t++) {
+    const d = store.choose(mkObs(t, 10 + t, 20 + t));
+    store.observe(d, { basePoints: 300 + t * 10, finalPoints: 300 });
+    trajectory.push(d);
+  }
+  return store.recordGame({ epoch: epoch === undefined ? g.epoch : epoch, trajectory, result });
+}
+
+console.log('A) Configuration et alignement sur server.js');
+test('Valeurs valides', () => {
+  ['TURNS', 'SHINY_POINTS_MULTIPLIER', 'BASEPOINTS_SCALE', 'VALUE_PRIOR_STRENGTH', 'VALUE_MIN_RATE', 'VALUE_TEMP_START', 'VALUE_TEMP_FLOOR',
+    'VALUE_TEMP_TAU', 'WARMUP_GAMES', 'WARMUP_HUMAN_NOISE', 'HESITATION_MS_MIN', 'HESITATION_MS_MAX', 'SNAPSHOT_EVERY_GAMES', 'SNAPSHOT_KEEP',
+    'SNAPSHOT_KEEP_SAFETY', 'CURVE_WINDOW_GAMES', 'XP_CAP_PER_24H', 'ADMIN_KEY_MIN_LENGTH', 'ADMIN_MAX_FAILS', 'ADMIN_FAIL_WINDOW_MS'].forEach(k =>
+    assert.ok(Number.isFinite(cfg[k]) && cfg[k] >= 0, `${k} invalide`));
+  assert.ok(cfg.VALUE_TEMP_FLOOR > 0 && cfg.VALUE_TEMP_START >= cfg.VALUE_TEMP_FLOOR);
+  assert.ok(cfg.HESITATION_MS_MAX >= cfg.HESITATION_MS_MIN);
+  assert.ok(['base', 'final'].includes(cfg.VALUE_OBSERVE));
+  assert.strictEqual(cfg.VALUE_USE_TYPES, false);          // validé par fly-validate.js : aucun gain après échauffement
+  assert.strictEqual(cfg.WARMUP_GAMES, 210);
+});
+test("Aucune clé 'fly' dans ENABLED_BY_MODE (mécaniques de boss inactives en fly)", () => assert.ok(!('fly' in bossConfig.ENABLED_BY_MODE)));
+test('TURNS et SHINY_POINTS_MULTIPLIER alignés sur server.js', () => {
+  const src = readServer(); if (!src) return console.log('      (ignoré : server.js absent)');
   assert.strictEqual(Number(src.match(/const MAX_TURNS = (\d+)/)[1]), cfg.TURNS);
   assert.strictEqual(Number(src.match(/const SHINY_POINTS_MULTIPLIER = ([\d.]+)/)[1]), cfg.SHINY_POINTS_MULTIPLIER);
-  assert.strictEqual(Number(src.match(/const SHINY_CHANCE = ([\d.]+)/)[1]), SHINY_CHANCE);
-  assert.strictEqual(SHINY_POINTS_MULTIPLIER, cfg.SHINY_POINTS_MULTIPLIER);
-  const eff = [...src.match(/const EFFECTS = \[([\s\S]*?)\];/)[1].matchAll(/name: '([^']+)', multiplier: ([\d.]+), weight: ([\d.]+)/g)]
-    .map(m => ({ name: m[1], multiplier: Number(m[2]), weight: Number(m[3]) }));
-  assert.deepStrictEqual(eff, EFFECTS);
-  const table = src.match(/const RARITY_TABLE = \[([\s\S]*?)\];/)[1];
-  const fixed = [...table.matchAll(/\{ rarity: '(\w+)', weight: ([\d.]+) \}/g)].map(m => ({ rarity: m[1], weight: Number(m[2]) }));
-  assert.deepStrictEqual(fixed, RARITY_TABLE.slice(0, fixed.length));
-  assert.ok(/\.\.\.LEGENDARY_GROUP\.map\(rarity => \(\{ rarity, weight: 0\.01 \}\)\)/.test(table));
-  assert.deepStrictEqual(RARITY_TABLE.slice(fixed.length).map(r => r.weight), [0.01, 0.01, 0.01]);
-  assert.ok(Math.abs(RARITY_TABLE.reduce((s, r) => s + r.weight, 0) - 1) < 1e-9);
-  assert.deepStrictEqual(RARITY_TABLE.map(r => r.rarity), cfg.RARITIES);
 });
-
-console.log('\nB) Observation');
-test('Features : whitelist stricte (finalPoints, multiplicateur, effet, choix adverse ignorés)', () => {
-  const clean = mkObs();
-  const dirty = mkObs();
-  dirty.options = dirty.options.map((o, i) => ({ ...o, finalPoints: 99999 - i, multiplier: 1.3, effectName: 'Beauty privilege', pokemonId: 7 }));
-  dirty.humanChoice = 0; dirty.boss = { id: 1 }; dirty.types = ['fire'];
-  assert.deepStrictEqual(extractFeatures(dirty), extractFeatures(clean));
-  const p = new LinearPolicy({ seed: 1 });
-  assert.deepStrictEqual(p.evaluate(dirty).probs, p.evaluate(clean).probs);
-});
-test('Observation invalide -> erreur explicite', () => {
-  assert.throws(() => extractFeatures(mkObs({ turn: 0 })));
-  assert.throws(() => extractFeatures(mkObs({ turn: cfg.TURNS + 1 })));
-  assert.throws(() => extractFeatures(mkObs({ options: [opt(1)] })));
-  assert.throws(() => extractFeatures(mkObs({ options: [opt(1), opt(1, 'mega')] })), /rarity/);
-  assert.throws(() => extractFeatures(mkObs({ ownScore: NaN })));
-});
-test('Shiny : points visibles × SHINY_POINTS_MULTIPLIER', () => {
-  const [a, b] = extractFeatures(mkObs({ options: [opt(600), opt(600, 'commun', true)] }));
-  assert.ok(Math.abs(b[0] / a[0] - cfg.SHINY_POINTS_MULTIPLIER) < 1e-9);
-});
-
-console.log('\nC) Décisions');
-test('Déterministe avec seed', () => {
-  const seq = seed => { const p = new LinearPolicy({ seed }); return Array.from({ length: 50 }, (_, i) => p.choose(mkObs({ turn: (i % 6) + 1 })).index).join(''); };
-  assert.strictEqual(seq(42), seq(42));
-  assert.notStrictEqual(seq(42), seq(43));
-});
-test('Probabilités valides, politique initiale uniforme', () => {
-  const p = new LinearPolicy({ seed: 1 });
-  const { probs } = p.evaluate(mkObs());
-  assert.ok(Math.abs(probs[0] + probs[1] - 1) < 1e-12);
-  assert.ok(Math.abs(probs[0] - 0.5) < 1e-12);
-});
-test('Température : T(0)=START, décroissante, plancher FLOOR', () => {
-  const p = new LinearPolicy({ seed: 1 });
-  assert.ok(Math.abs(p.temperature(0) - cfg.TEMP_START) < 1e-12);
-  assert.ok(p.temperature(500) < p.temperature(100));
-  assert.ok(p.temperature(1e9) >= cfg.TEMP_FLOOR && p.temperature(1e9) < cfg.TEMP_FLOOR + 1e-6);
-});
-test('Distribution empirique = probabilités (tirage, pas argmax)', () => {
-  const p = new LinearPolicy({ seed: 7 });
-  const s = p.getState(); s.weights[0] = 1; p.setState(s);
-  const { probs } = p.evaluate(mkObs());
-  let n1 = 0; const N = 20000;
-  for (let i = 0; i < N; i++) n1 += p.choose(mkObs()).index;
-  assert.ok(Math.abs(n1 / N - probs[1]) < 0.015, `${n1 / N} vs ${probs[1]}`);
-});
-test('Décision prise sans le choix humain : choose() ne lit que obs', () => {
-  assert.strictEqual(LinearPolicy.prototype.choose.length, 1);
-});
-
-console.log('\nD) Récompense');
-test('Résultat : victoire / défaite / nul', () => {
-  assert.strictEqual(outcomeFor(10, 5), 'win'); assert.strictEqual(outcomeFor(5, 10), 'loss'); assert.strictEqual(outcomeFor(7, 7), 'draw');
-});
-test('Meilleur score possible = somme des max par tour', () => {
-  assert.strictEqual(bestPossibleScore([[1, 5], [9, 2], [3, 3]]), 17);
-});
-test('Récompense = résultat + SCORE_WEIGHT × score/meilleur', () => {
-  const w = computeReward({ flyScore: 800, humanScore: 500, bestPossible: 1000 });
-  assert.strictEqual(w.result, 'win');
-  assert.ok(Math.abs(w.reward - (cfg.RESULT_REWARD.win + cfg.SCORE_WEIGHT * 0.8)) < 1e-12);
-  assert.ok(Math.abs(computeReward({ flyScore: 400, humanScore: 400, bestPossible: 800 }).reward - (cfg.RESULT_REWARD.draw + cfg.SCORE_WEIGHT * 0.5)) < 1e-12);
-  assert.strictEqual(computeReward({ flyScore: 5, humanScore: 9, bestPossible: 0 }).ratio, 0);
-  assert.strictEqual(computeReward({ flyScore: 2000, humanScore: 9, bestPossible: 1000 }).ratio, 1);
-});
-test('Anti-empoisonnement : à score égal, un humain nul ne rend pas la victoire plus rentable pour la qualité de jeu', () => {
-  const good = computeReward({ flyScore: 900, humanScore: 100, bestPossible: 1000 }).reward;
-  const bad = computeReward({ flyScore: 500, humanScore: 100, bestPossible: 1000 }).reward;
-  assert.ok(good > bad); // même résultat (victoire) : le meilleur jeu reste mieux récompensé
-});
-
-console.log('\nE) Apprentissage');
-test('Première partie : baseline initialisée, poids inchangés', () => {
-  const p = new LinearPolicy({ seed: 1 });
-  const r = p.learn(mkTraj(p), 1.3, { result: 'win' });
-  assert.ok(r.learned);
-  assert.deepStrictEqual(p.getState().weights, FEATURE_NAMES.map(() => 0));
-  assert.strictEqual(p.getState().baseline, 1.3);
-  assert.strictEqual(p.getState().games_played, 1);
-  assert.strictEqual(p.getState().wins, 1);
-});
-test('Avantage positif : choisir la grosse option renforce bp (et rar)', () => {
-  const p = withGames(new LinearPolicy({ seed: 1 }), 5, 0);
-  p.learn(mkTraj(p, 1), 1.5, { result: 'win' });
-  const w = p.getState().weights;
-  assert.ok(w[0] > 0 && w[1] > 0, `bp=${w[0]} rar=${w[1]}`);
-});
-test('Avantage négatif : même choix puni -> bp diminue', () => {
-  const p = withGames(new LinearPolicy({ seed: 1 }), 5, 0);
-  p.learn(mkTraj(p, 1), -1.5, { result: 'loss' });
-  assert.ok(p.getState().weights[0] < 0);
-});
-test('Choisir la petite option avec avantage positif -> bp diminue (symétrie)', () => {
-  const p = withGames(new LinearPolicy({ seed: 1 }), 5, 0);
-  p.learn(mkTraj(p, 0), 1.5, { result: 'win' });
-  assert.ok(p.getState().weights[0] < 0);
-});
-test('Avantage nul (récompense = baseline) : poids ~ inchangés', () => {
-  const p = withGames(new LinearPolicy({ seed: 1 }), 5, 0.7);
-  p.learn(mkTraj(p, 1), 0.7);
-  assert.ok(p.getState().weights.every(w => Math.abs(w) < 1e-12));
-});
-test('Mise à jour bornée : norme <= MAX_STEP_NORM, |poids| <= WEIGHT_CLAMP, avantage plafonné', () => {
-  const p = withGames(new LinearPolicy({ seed: 1 }), 5, 0);
-  const r = p.learn(mkTraj(p, 1), 1e6);
-  assert.ok(r.stepNorm <= cfg.MAX_STEP_NORM + 1e-12);
-  assert.ok(r.advantage <= cfg.ADVANTAGE_CLIP);
-  const s = p.getState(); s.weights = s.weights.map(() => cfg.WEIGHT_CLAMP); p.setState(s);
-  p.learn(mkTraj(p, 1), 10);
-  assert.ok(p.getState().weights.every(w => Math.abs(w) <= cfg.WEIGHT_CLAMP));
-});
-test('Partie incomplète / mal formée : AUCUN apprentissage (poids, baseline, compteurs)', () => {
-  const p = withGames(new LinearPolicy({ seed: 1 }), 5, 0.2);
-  const before = JSON.stringify(p.getState());
-  const t = mkTraj(p, 1);
-  assert.deepStrictEqual(p.learn(t.slice(0, cfg.TURNS - 1), 1, { result: 'win' }), { learned: false, reason: 'incomplete' });
-  assert.strictEqual(p.learn([], 1).reason, 'incomplete');
-  assert.strictEqual(p.learn(null, 1).reason, 'malformed');
-  assert.strictEqual(p.learn(t.map(d => ({ ...d, index: 2 })), 1).reason, 'malformed');
-  assert.strictEqual(p.learn(t, NaN).reason, 'bad_reward');
-  assert.strictEqual(JSON.stringify(p.getState()), before);
-});
-test('Compteurs victoires / défaites / nuls', () => {
-  const p = new LinearPolicy({ seed: 1 });
-  ['win', 'win', 'loss', 'draw'].forEach(r => p.learn(mkTraj(p), 0, { result: r }));
-  const s = p.getState();
-  assert.deepStrictEqual([s.games_played, s.wins, s.losses, s.draws], [4, 2, 1, 1]);
-});
-test('getState / setState : aller-retour exact ; état invalide rejeté', () => {
-  const p = new LinearPolicy({ seed: 1 });
-  for (let i = 0; i < 20; i++) p.learn(mkTraj(p, i % 2), (i % 3) - 1, { result: 'win' });
-  const q = new LinearPolicy({ seed: 2, state: JSON.parse(JSON.stringify(p.getState())) });
-  assert.deepStrictEqual(q.getState(), p.getState());
-  assert.deepStrictEqual(q.evaluate(mkObs()).probs, p.evaluate(mkObs()).probs);
-  const bad = x => assert.throws(() => new LinearPolicy({ state: x }), /invalide/);
-  bad({ ...p.getState(), weights: [1, 2] });
-  bad({ ...p.getState(), weights: p.getState().weights.map(() => NaN) });
-  bad({ ...p.getState(), featureNames: p.getState().featureNames.slice().reverse() });
-  bad({ ...p.getState(), games_played: -1 });
-  bad({ ...p.getState(), kind: 'neural' });
-  bad(null === undefined ? null : { kind: 'linear' });
-});
-test('getState retourne une copie (modification externe sans effet)', () => {
-  const p = new LinearPolicy({ seed: 1 });
-  p.getState().weights[0] = 99;
-  assert.strictEqual(p.getState().weights[0], 0);
-});
-test('Convergence : 2500 parties contre aléatoire -> victoire > 85 %', () => {
-  const envRng = mulberry32(5), humanRng = mulberry32(6);
-  const env = createEnv({ rng: envRng, rarities: cfg.RARITIES, useReal: false });
-  const p = new LinearPolicy({ seed: 3 });
-  const play = learn => {
-    let fly = 0, hum = 0; const traj = [], fin = [];
-    for (let turn = 1; turn <= cfg.TURNS; turn++) {
-      const o = env.drawOptions(); fin.push([o[0].finalPoints, o[1].finalPoints]);
-      const d = p.choose({ turn, ownScore: fly, oppScore: hum, options: o.map(x => ({ basePoints: x.basePoints, rarity: x.rarity, shiny: x.shiny })) });
-      traj.push(d); fly += o[d.index].finalPoints; hum += o[humanRng() < 0.5 ? 0 : 1].finalPoints;
-    }
-    const { reward, result } = computeReward({ flyScore: fly, humanScore: hum, bestPossible: bestPossibleScore(fin) });
-    if (learn) p.learn(traj, reward, { result });
-    return result;
-  };
-  for (let i = 0; i < 2500; i++) play(true);
-  let w = 0; for (let i = 0; i < 1000; i++) w += play(false) === 'win';
-  assert.ok(w / 1000 > 0.85, `victoire ${w / 1000}`);
+test('VRAIES fonctions de tirage de server.js : mode fly = table normale, jamais de Méga, deux Pokémon différents', () => {
+  const file = path.join(__dirname, 'server.js'); if (!fs.existsSync(file)) return console.log('      (ignoré : server.js absent)');
+  const order = ['commun', 'peu_commun', 'rare', 'epique', 'pseudo_legendaire', 'mega', 'legendaire', 'fabuleux', 'ultra_chimere'];
+  const entries = []; let id = 1;
+  order.forEach(r => { for (let k = 0; k < 4; k++) entries.push({ id: id++, name: `${r}${k}`, rarity: r, bst: 400, basePoints: 500 + k }); });
+  const draws = createRealDraws({ serverFile: file, entries, rng: mulberry32(4), categoryOrder: order });
+  const count = {}; let n = 0;
+  for (let i = 0; i < 6000; i++) {
+    const [a, b] = draws.drawOptions();
+    assert.notStrictEqual(a.pokemonId, b.pokemonId);
+    [a, b].forEach(o => { count[o.rarity] = (count[o.rarity] || 0) + 1; n++; assert.ok(Number.isInteger(o.pokemonId) && Number.isFinite(o.finalPoints)); });
+  }
+  assert.ok(!count.mega, 'Méga tirée en mode fly');
+  draws.rarityTable.filter(r => r.rarity !== 'mega').forEach(r => assert.ok(Math.abs((count[r.rarity] || 0) / n - r.weight) < 0.02, `${r.rarity}`));
 });
 
 console.log('\nF) Non-régression : mécaniques de boss inactives en mode fly');
@@ -255,44 +133,66 @@ console.log('\nF) Non-régression : mécaniques de boss inactives en mode fly');
   });
 }
 
-console.log('\nG) Persistance, snapshots, reset, admin (faux Supabase, aucun réseau)');
-const { createBrainStore } = require('./fly-brain-store');
-const { registerFlyAdminRoutes } = require('./fly-admin-routes');
-const { FakeSupabase, fakeApp, silentLogger } = require('./fly-test-utils');
 
-const asyncTests = [];
-const atest = (name, fn) => asyncTests.push({ name, fn });
-const tcfg = { ...cfg, SNAPSHOT_EVERY_GAMES: 5, SNAPSHOT_KEEP: 3, SNAPSHOT_KEEP_SAFETY: 5, CURVE_WINDOW_GAMES: 10 };
-const newStore = (db, c = tcfg) => createBrainStore({ supabase: db, config: c, logger: silentLogger, makePolicy: () => new LinearPolicy({ config: c, seed: 11 }) });
-// Joue une partie complète synthétique via l'API du store (choix + récompense).
-function playOne(store, result = 'win', { epoch } = {}) {
-  const g = store.beginGame();
-  const trajectory = [];
-  for (let t = 1; t <= cfg.TURNS; t++) trajectory.push(store.choose(mkObs({ turn: t, ownScore: t * 100, oppScore: t * 90 })));
-  return store.recordGame({ epoch: epoch === undefined ? g.epoch : epoch, trajectory, reward: result === 'win' ? 1.5 : result === 'loss' ? -0.5 : 0.4, result });
-}
-const cleanDb = () => new FakeSupabase();
-
-atest('Démarrage sur base vide : ligne créée, cerveau vierge', async () => {
-  const db = cleanDb(), s = newStore(db);
-  assert.strictEqual(await s.load(), 'created');
-  assert.strictEqual(db.tables.fly_brain.length, 1);
-  assert.strictEqual(db.tables.fly_brain[0].games_played, 0);
+console.log('\nB) Échauffement simulé');
+test('Joueur simulé : sans bruit il prend le plus gros BST (shiny ×1.5), « random » ne dépend pas du BST', () => {
+  const rng = mulberry32(1);
+  const o = [{ pokemonId: 1, shiny: false }, { pokemonId: 2, shiny: false }];
+  assert.strictEqual(simulatedHumanPick(o, { 1: 300, 2: 500 }, rng, { noise: 0 }), 1);
+  assert.strictEqual(simulatedHumanPick(o, { 1: 500, 2: 300 }, rng, { noise: 0 }), 0);
+  assert.strictEqual(simulatedHumanPick([{ pokemonId: 1, shiny: true }, { pokemonId: 2, shiny: false }], { 1: 400, 2: 500 }, rng, { noise: 0 }), 0);
+  let ones = 0; for (let i = 0; i < 4000; i++) ones += simulatedHumanPick(o, { 1: 300, 2: 900 }, rng, { kind: 'random' });
+  assert.ok(Math.abs(ones / 4000 - 0.5) < 0.03);
 });
-atest('Sauvegarde après partie + rechargement identique (poids, baseline, compteurs, courbe)', async () => {
+test('runWarmup : N parties comptées À PART (warmup_games), aucune partie vécue ni victoire enregistrée', () => {
+  const p = new ValuePolicy({ config: tcfg, seed: 1 }), rng = mulberry32(2);
+  const r = runWarmup({ policy: p, draw: () => fakePair(rng), bst: bstFix, typesById: {}, games: 30, seed: 4, config: tcfg });
+  const s = p.getState();
+  assert.strictEqual(r.games, 30);
+  assert.deepStrictEqual([s.warmup_games, s.games_played, s.wins, s.losses, s.draws], [30, 0, 0, 0, 0]);
+  assert.ok(Object.keys(s.ids).length > 10);
+});
+test('Échauffement déterministe avec seed ; évaluation figée (learn=false) ne change rien', () => {
+  const run = () => { const p = new ValuePolicy({ config: tcfg, seed: 1 }), rng = mulberry32(2); runWarmup({ policy: p, draw: () => fakePair(rng), bst: bstFix, typesById: {}, games: 25, seed: 4, config: tcfg }); return JSON.stringify(p.getState()); };
+  assert.strictEqual(run(), run());
+  const p = new ValuePolicy({ config: tcfg, seed: 1 }), rng = mulberry32(2), before = JSON.stringify(p.getState());
+  playSimulatedGame({ policy: p, draw: () => fakePair(rng), bst: bstFix, rng: mulberry32(3), config: tcfg, learn: false });
+  assert.strictEqual(JSON.stringify(p.getState()), before);
+});
+test('L\'échauffement apprend : 300 parties -> bien meilleure que le hasard contre le joueur simulé', () => {
+  const p = new ValuePolicy({ config: tcfg, seed: 1 }), rng = mulberry32(2);
+  runWarmup({ policy: p, draw: () => fakePair(rng), bst: bstFix, typesById: {}, games: 300, seed: 4, config: tcfg });
+  const evalRate = pol => { const r = mulberry32(77), h = mulberry32(78); let w = 0; for (let g = 0; g < 600; g++) w += playSimulatedGame({ policy: pol, draw: () => fakePair(r), bst: bstFix, rng: h, config: tcfg, learn: false }) === 'win'; return w / 600; };
+  assert.ok(evalRate(p) > evalRate(new ValuePolicy({ config: tcfg, seed: 1 })) + 0.15);
+});
+
+
+console.log('\nC) Cerveau : persistance, échauffement, génération, archivage (faux Supabase)');
+atest('Base vide : ligne créée, échauffement exécuté UNE fois, génération 1, compteurs à 0', async () => {
+  const db = cleanDb(), calls = { n: 0 }, s = newStore(db, tcfg, { calls });
+  assert.strictEqual(await s.load(), 'created');
+  assert.strictEqual(calls.n, 1);
+  const row = db.tables.fly_brain[0];
+  assert.deepStrictEqual([row.generation, row.total_games, row.games_played], [1, 0, 0]);
+  assert.strictEqual(row.weights.warmup_games, tcfg.WARMUP_GAMES);
+  assert.strictEqual(s.getPublicStats().brain.warmupGames, tcfg.WARMUP_GAMES);
+});
+atest('Redémarrage : cerveau rechargé identique, PAS de nouvel échauffement', async () => {
   const db = cleanDb(), s = newStore(db); await s.load();
   ['win', 'loss', 'draw', 'win', 'win', 'loss', 'win'].forEach(r => playOne(s, r));
   await s.flush();
   const row = db.tables.fly_brain[0];
-  assert.strictEqual(row.games_played, 7);
-  assert.deepStrictEqual([row.wins, row.losses, row.draws], [4, 2, 1]);
+  assert.deepStrictEqual([row.games_played, row.wins, row.losses, row.draws], [7, 4, 2, 1]);
+  assert.deepStrictEqual([row.total_games, row.total_wins, row.total_losses, row.total_draws], [7, 4, 2, 1]);
   assert.deepStrictEqual(row.recent_results, ['W', 'L', 'D', 'W', 'W', 'L', 'W']);
-  const s2 = newStore(db); assert.strictEqual(await s2.load(), 'loaded');
+  const calls = { n: 0 }, s2 = newStore(db, tcfg, { calls });
+  assert.strictEqual(await s2.load(), 'loaded');
+  assert.strictEqual(calls.n, 0);
   assert.deepStrictEqual(s2.policy.getState(), s.policy.getState());
   assert.deepStrictEqual(s2.policy.evaluate(mkObs()).probs, s.policy.evaluate(mkObs()).probs);
-  assert.deepStrictEqual(s2.recent, s.recent);
+  assert.deepStrictEqual(s2.getPublicStats(), s.getPublicStats());
 });
-atest('Une partie ne déclenche qu\'une écriture coalescée (50 parties synchrones)', async () => {
+atest('Une seule écriture coalescée pour 50 parties synchrones', async () => {
   const db = cleanDb(), s = newStore(db, { ...tcfg, SNAPSHOT_EVERY_GAMES: 1000 }); await s.load();
   const before = db.writes.fly_brain;
   for (let i = 0; i < 50; i++) playOne(s, 'win');
@@ -300,55 +200,86 @@ atest('Une partie ne déclenche qu\'une écriture coalescée (50 parties synchro
   assert.ok(db.writes.fly_brain - before <= 2, `écritures : ${db.writes.fly_brain - before}`);
   assert.strictEqual(db.tables.fly_brain[0].games_played, 50);
 });
-atest('Snapshots tous les N parties, seuls les SNAPSHOT_KEEP derniers sont conservés', async () => {
+atest('Snapshots tous les N parties VÉCUES (échauffement exclu), seuls les SNAPSHOT_KEEP derniers conservés', async () => {
   const db = cleanDb(), s = newStore(db); await s.load();
   for (let i = 0; i < 12; i++) playOne(s, 'win');
   await s.flush();
   assert.deepStrictEqual(db.tables.fly_brain_snapshots.map(r => r.games_played), [5, 10]);
+  assert.ok(db.tables.fly_brain_snapshots.every(r => r.generation === 1));
   for (let i = 0; i < 13; i++) playOne(s, 'loss');
   await s.flush();
   assert.deepStrictEqual(db.tables.fly_brain_snapshots.map(r => r.games_played).sort((a, b) => a - b), [15, 20, 25]);
   assert.ok(db.tables.fly_brain_snapshots.every(r => r.reason === 'periodic'));
 });
-atest('Abandon / partie incomplète : aucun apprentissage, aucune écriture', async () => {
-  const db = cleanDb(), s = newStore(db); await s.load();
-  const w0 = db.writes.fly_brain, st0 = JSON.stringify(s.policy.getState());
-  // L'abandon = le serveur n'appelle PAS recordGame. Et si on l'appelait avec une trajectoire partielle :
+atest('Abandon / partie incomplète : AUCUN apprentissage, AUCUNE écriture, aucun compteur', async () => {
+  const db = cleanDb(), s = newStore(db); await s.load(); await s.flush();
+  const w0 = db.writes.fly_brain, st0 = JSON.stringify(s.policy.getState()), pub0 = JSON.stringify(s.getPublicStats());
   const g = s.beginGame();
-  const partial = [s.choose(mkObs({ turn: 1 })), s.choose(mkObs({ turn: 2 }))];
-  assert.strictEqual(s.recordGame({ epoch: g.epoch, trajectory: partial, reward: 1, result: 'win' }).reason, 'incomplete');
+  const partial = [s.choose(mkObs(1)), s.choose(mkObs(2))];
+  partial.forEach(d => s.observe(d, { basePoints: 300 }));
+  assert.strictEqual(s.recordGame({ epoch: g.epoch, trajectory: partial, result: 'win' }).reason, 'incomplete');
   await s.flush();
   assert.strictEqual(JSON.stringify(s.policy.getState()), st0);
+  assert.strictEqual(JSON.stringify(s.getPublicStats()), pub0);
   assert.strictEqual(db.writes.fly_brain, w0);
-  assert.deepStrictEqual(s.recent, []);
 });
 atest('Parties simultanées : un seul cerveau partagé', async () => {
   const db = cleanDb(), s = newStore(db); await s.load();
   const g1 = s.beginGame(), g2 = s.beginGame(), t1 = [], t2 = [];
-  for (let t = 1; t <= cfg.TURNS; t++) { t1.push(s.choose(mkObs({ turn: t }))); t2.push(s.choose(mkObs({ turn: t }))); }
-  assert.ok(s.recordGame({ epoch: g1.epoch, trajectory: t1, reward: 1, result: 'win' }).learned);
-  assert.ok(s.recordGame({ epoch: g2.epoch, trajectory: t2, reward: -1, result: 'loss' }).learned);
-  assert.strictEqual(s.policy.getState().games_played, 2);
+  for (let t = 1; t <= cfg.TURNS; t++) {
+    const a = s.choose(mkObs(t, 10 + t, 20 + t)), b = s.choose(mkObs(t, 30 + t, 40 + t));
+    s.observe(a, { basePoints: 100 }); s.observe(b, { basePoints: 900 }); t1.push(a); t2.push(b);
+  }
+  assert.ok(s.recordGame({ epoch: g1.epoch, trajectory: t1, result: 'win' }).learned);
+  assert.ok(s.recordGame({ epoch: g2.epoch, trajectory: t2, result: 'loss' }).learned);
+  assert.strictEqual(s.getPublicStats().brain.gamesPlayed, 2);
+  assert.strictEqual(s.getPublicStats().global.gamesPlayed, 2);
 });
-atest('Reset : snapshot de sécurité, cerveau vierge en mémoire ET en base, parties en cours ignorées', async () => {
+atest('RESET : ancien cerveau archivé, génération +1, cerveau neuf + échauffement ; score global ET courbe inchangés', async () => {
+  const db = cleanDb(), calls = { n: 0 }, s = newStore(db, tcfg, { calls }); await s.load();
+  ['win', 'win', 'loss', 'draw', 'win', 'win', 'loss'].forEach(r => playOne(s, r));
+  await s.flush();
+  const beforeStats = s.getPublicStats(), beforeState = s.policy.getState();
+  assert.strictEqual(beforeStats.generation, 1);
+  const inFlight = s.beginGame(), traj = Array.from({ length: cfg.TURNS }, (_, i) => { const d = s.choose(mkObs(i + 1)); s.observe(d, { basePoints: 400 }); return d; });
+  const r = await s.reset(); await s.flush();
+  assert.ok(r.ok); assert.deepStrictEqual([r.previousGeneration, r.generation, r.previousGames], [1, 2, 7]);
+  const after = s.getPublicStats();
+  // le score global « Humanité X – Mouche Y » et la courbe ne bougent pas
+  assert.deepStrictEqual(after.global, beforeStats.global);
+  assert.deepStrictEqual(after.recent, beforeStats.recent);
+  assert.strictEqual(after.global.flyWins, 4); assert.strictEqual(after.global.humanityWins, 2);
+  // seul le cerveau repart de zéro : parties vécues = 0, valeurs neuves, échauffement refait
+  assert.strictEqual(after.generation, 2);
+  assert.deepStrictEqual([after.brain.gamesPlayed, after.brain.flyWins, after.brain.humanityWins, after.brain.draws], [0, 0, 0, 0]);
+  assert.strictEqual(after.brain.warmupGames, tcfg.WARMUP_GAMES);
+  assert.strictEqual(calls.n, 2);
+  assert.notDeepStrictEqual(s.policy.getState().ids, beforeState.ids);
+  // en base
+  const row = db.tables.fly_brain[0];
+  assert.deepStrictEqual([row.generation, row.games_played, row.total_games, row.total_wins, row.total_losses, row.total_draws], [2, 0, 7, 4, 2, 1]);
+  assert.deepStrictEqual(row.recent_results, beforeStats.recent);
+  // archive : l'ancien cerveau complet, étiqueté génération 1
+  const arch = db.tables.fly_brain_snapshots.filter(x => x.reason === 'pre_reset');
+  assert.strictEqual(arch.length, 1);
+  assert.deepStrictEqual([arch[0].generation, arch[0].games_played, arch[0].wins, arch[0].losses, arch[0].draws], [1, 7, 4, 2, 1]);
+  assert.deepStrictEqual(arch[0].weights.ids, beforeState.ids);
+  // partie en cours pendant le reset : ignorée ; nouvelle partie : apprend
+  assert.strictEqual(s.recordGame({ epoch: inFlight.epoch, trajectory: traj, result: 'win' }).reason, 'stale_epoch');
+  assert.strictEqual(s.getPublicStats().global.gamesPlayed, 7);
+  assert.ok(playOne(s, 'win').learned);
+  const final = s.getPublicStats();
+  assert.deepStrictEqual([final.brain.gamesPlayed, final.global.gamesPlayed, final.global.flyWins], [1, 8, 5]);
+});
+atest('Génération monotone : plusieurs resets, compteurs globaux cumulés sur toutes les générations', async () => {
   const db = cleanDb(), s = newStore(db); await s.load();
-  for (let i = 0; i < 7; i++) playOne(s, 'win');
+  for (let g = 1; g <= 3; g++) { playOne(s, 'win'); playOne(s, 'loss'); await s.reset(); }
   await s.flush();
-  const inFlight = s.beginGame(), traj = Array.from({ length: cfg.TURNS }, (_, i) => s.choose(mkObs({ turn: i + 1 })));
-  const r = await s.reset();
-  await s.flush();
-  assert.ok(r.ok); assert.strictEqual(r.previousGames, 7);
-  assert.strictEqual(s.policy.getState().games_played, 0);
-  assert.ok(s.policy.getState().weights.every(w => w === 0));
-  assert.strictEqual(db.tables.fly_brain[0].games_played, 0);
-  assert.deepStrictEqual(db.tables.fly_brain[0].recent_results, []);
-  const safety = db.tables.fly_brain_snapshots.filter(x => x.reason === 'pre_reset');
-  assert.strictEqual(safety.length, 1); assert.strictEqual(safety[0].games_played, 7);
-  assert.strictEqual(s.recordGame({ epoch: inFlight.epoch, trajectory: traj, reward: 1, result: 'win' }).reason, 'stale_epoch');
-  assert.strictEqual(s.policy.getState().games_played, 0);
-  assert.ok(playOne(s, 'win').learned);                         // une nouvelle partie apprend normalement
+  const st = s.getPublicStats();
+  assert.deepStrictEqual([st.generation, st.global.gamesPlayed, st.global.flyWins, st.global.humanityWins, st.brain.gamesPlayed], [4, 6, 3, 3, 0]);
+  assert.deepStrictEqual(db.tables.fly_brain_snapshots.filter(x => x.reason === 'pre_reset').map(x => x.generation).sort(), [1, 2, 3]);
 });
-atest('Restauration : état exact du snapshot, sauvegarde de sécurité, id inconnu, état invalide refusé', async () => {
+atest('Restauration : cerveau archivé redevient courant, génération +1, score global inchangé, archive de sécurité', async () => {
   const db = cleanDb(), s = newStore(db); await s.load();
   for (let i = 0; i < 5; i++) playOne(s, i % 2 ? 'loss' : 'win');
   await s.flush();
@@ -356,25 +287,25 @@ atest('Restauration : état exact du snapshot, sauvegarde de sécurité, id inco
   const at5 = s.policy.getState();
   for (let i = 0; i < 4; i++) playOne(s, 'win');
   await s.flush();
-  const r = await s.restoreSnapshot(snap.id);
-  await s.flush();
-  assert.ok(r.ok); assert.strictEqual(r.restoredGames, 5);
+  const globalBefore = s.getPublicStats().global;
+  const r = await s.restoreSnapshot(snap.id); await s.flush();
+  assert.ok(r.ok); assert.deepStrictEqual([r.restoredGames, r.generation], [5, 2]);
   assert.deepStrictEqual(s.policy.getState(), at5);
+  assert.deepStrictEqual(s.getPublicStats().global, globalBefore);
   assert.strictEqual(db.tables.fly_brain[0].games_played, 5);
-  assert.ok(db.tables.fly_brain_snapshots.some(x => x.reason === 'pre_restore' && x.games_played === 9));
+  assert.ok(db.tables.fly_brain_snapshots.some(x => x.reason === 'pre_restore' && x.games_played === 9 && x.generation === 1));
   assert.strictEqual((await s.restoreSnapshot(99999)).reason, 'not_found');
-  db.tables.fly_brain_snapshots.find(x => x.id === snap.id).weights.weights = [1, 2];
+  db.tables.fly_brain_snapshots.find(x => x.id === snap.id).weights.ids = { 1: [NaN, 'x'] };
   const keep = JSON.stringify(s.policy.getState());
   await assert.rejects(() => s.restoreSnapshot(snap.id), /invalide/);
   assert.strictEqual(JSON.stringify(s.policy.getState()), keep);
 });
-atest('Snapshots de sécurité : SNAPSHOT_KEEP_SAFETY conservés, périodiques intacts', async () => {
+atest('Archives de sécurité : SNAPSHOT_KEEP_SAFETY conservées, périodiques intactes', async () => {
   const db = cleanDb(), s = newStore(db); await s.load();
   for (let i = 0; i < 5; i++) playOne(s, 'win');
   for (let i = 0; i < 8; i++) { await s.reset(); playOne(s, 'win'); }
   await s.flush();
-  const safety = db.tables.fly_brain_snapshots.filter(x => x.reason !== 'periodic');
-  assert.strictEqual(safety.length, tcfg.SNAPSHOT_KEEP_SAFETY);
+  assert.strictEqual(db.tables.fly_brain_snapshots.filter(x => x.reason !== 'periodic').length, tcfg.SNAPSHOT_KEEP_SAFETY);
   assert.ok(db.tables.fly_brain_snapshots.some(x => x.reason === 'periodic' && x.games_played === 5));
 });
 atest('Panne DB : l\'apprentissage continue en mémoire, la sauvegarde suivante rattrape tout', async () => {
@@ -382,50 +313,74 @@ atest('Panne DB : l\'apprentissage continue en mémoire, la sauvegarde suivante 
   playOne(s, 'win'); await s.flush();
   db.failing.add('fly_brain:update');
   playOne(s, 'loss'); await s.flush();
-  assert.strictEqual(s.policy.getState().games_played, 2);
-  assert.strictEqual(db.tables.fly_brain[0].games_played, 1);
+  assert.strictEqual(s.getPublicStats().global.gamesPlayed, 2);
+  assert.strictEqual(db.tables.fly_brain[0].total_games, 1);
   db.failing.clear();
   playOne(s, 'win'); await s.flush();
-  assert.strictEqual(db.tables.fly_brain[0].games_played, 3);
+  assert.strictEqual(db.tables.fly_brain[0].total_games, 3);
 });
-atest('Garde anti-régression : un cerveau en base plus avancé n\'est jamais écrasé (reset = écriture forcée)', async () => {
+atest('Garde anti-régression (total_games monotone) : une base plus avancée n\'est jamais écrasée ; le reset (forcé) reste possible', async () => {
   const db = cleanDb(), s = newStore(db); await s.load();
-  db.tables.fly_brain[0].games_played = 999;
+  db.tables.fly_brain[0].total_games = 999;
   playOne(s, 'win'); await s.flush();
-  assert.strictEqual(db.tables.fly_brain[0].games_played, 999);
+  assert.strictEqual(db.tables.fly_brain[0].total_games, 999);
   assert.strictEqual(s.conflicts, 1);
   await s.reset(); await s.flush();
-  assert.strictEqual(db.tables.fly_brain[0].games_played, 0);
+  assert.strictEqual(db.tables.fly_brain[0].generation, 2);
 });
-atest('Ligne invalide / lecture impossible : sauvegarde désactivée, ligne jamais écrasée', async () => {
-  const db = cleanDb(); db.tables.fly_brain.push({ id: 1, weights: { kind: 'linear', weights: [1] }, games_played: 3, wins: 1, losses: 1, draws: 1, recent_results: [] });
-  const s = newStore(db); assert.strictEqual(await s.load(), 'invalid');
-  const snap = JSON.stringify(db.tables.fly_brain[0]);
-  playOne(s, 'win'); await s.flush();
-  assert.strictEqual(JSON.stringify(db.tables.fly_brain[0]), snap);
-  const db2 = cleanDb(); db2.failing.add('fly_brain:select');
-  assert.strictEqual(await newStore(db2).load(), 'db_error');
+atest('Ligne illisible / schéma obsolète / lecture impossible : sauvegarde désactivée, ligne jamais écrasée', async () => {
+  const valid = () => ({ id: 1, weights: { kind: 'value', version: 1, ids: {}, types: {}, global: [0, 0], warmup_games: 0 }, games_played: 0, wins: 0, losses: 0, draws: 0, recent_results: [], generation: 1, total_games: 0, total_wins: 0, total_losses: 0, total_draws: 0 });
+  // 1. modèle inconnu (ex. ancien format)
+  const db1 = cleanDb(); db1.tables.fly_brain.push({ ...valid(), weights: { kind: 'linear', weights: [1] }, games_played: 3 });
+  const s1 = newStore(db1); assert.strictEqual(await s1.load(), 'invalid');
+  const snap = JSON.stringify(db1.tables.fly_brain[0]);
+  playOne(s1, 'win'); await s1.flush();
+  assert.strictEqual(JSON.stringify(db1.tables.fly_brain[0]), snap);
+  assert.ok(s1.policy.getState().warmup_games > 0);            // le jeu reste jouable (cerveau neuf en mémoire)
+  // 2. colonnes v2 absentes (SQL non exécuté)
+  const db2 = cleanDb(); const old = valid(); ['generation', 'total_games', 'total_wins', 'total_losses', 'total_draws'].forEach(k => delete old[k]); db2.tables.fly_brain.push(old);
+  const s2 = newStore(db2); assert.strictEqual(await s2.load(), 'schema_outdated');
+  const snap2 = JSON.stringify(db2.tables.fly_brain[0]);
+  playOne(s2, 'win'); await s2.flush();
+  assert.strictEqual(JSON.stringify(db2.tables.fly_brain[0]), snap2);
+  // 3. lecture impossible
+  const db3 = cleanDb(); db3.failing.add('fly_brain:select');
+  assert.strictEqual(await newStore(db3).load(), 'db_error');
 });
-atest('Mémoire seule (pas de Supabase) : fonctionne sans erreur', async () => {
-  const s = createBrainStore({ supabase: null, config: tcfg, logger: silentLogger });
+atest('Mémoire seule (pas de Supabase) : échauffement + parties + reset sans erreur', async () => {
+  const calls = { n: 0 }, s = createBrainStore({ supabase: null, config: tcfg, logger: silentLogger, makePolicy: makePolicyFor(tcfg), warmup: warmupFor(tcfg, calls) });
   assert.strictEqual(await s.load(), 'memory_only');
+  assert.strictEqual(calls.n, 1);
   assert.ok(playOne(s, 'win').learned);
   assert.ok((await s.reset()).ok);
+  assert.strictEqual(calls.n, 2);
   await s.flush();
 });
-atest('Stats publiques : aucun poids / baseline / features ; courbe plafonnée', async () => {
+atest('Échauffement qui échoue : le serveur démarre quand même (cerveau vierge, erreur loggée)', async () => {
+  const errs = [];
+  const s = createBrainStore({ supabase: null, config: tcfg, logger: { log() {}, warn() {}, error: m => errs.push(m) }, makePolicy: makePolicyFor(tcfg), warmup: () => { throw new Error('boum'); } });
+  assert.strictEqual(await s.load(), 'memory_only');
+  assert.ok(errs.some(m => /échauffement impossible/.test(m)));
+  assert.strictEqual(s.getPublicStats().brain.warmupGames, 0);
+  assert.ok(playOne(s, 'win').learned);
+});
+atest('Stats publiques : forme exacte, chiffres réels, aucune valeur apprise ni table de Pokémon', async () => {
   const db = cleanDb(), s = newStore(db); await s.load();
   for (let i = 0; i < 25; i++) playOne(s, i % 3 === 0 ? 'loss' : 'win');
   const st = s.getPublicStats();
-  assert.deepStrictEqual(Object.keys(st).sort(), ['draws', 'flyWins', 'gamesPlayed', 'generation', 'humanityWins', 'name', 'recent', 'winRate']);
+  assert.deepStrictEqual(Object.keys(st).sort(), ['brain', 'generation', 'global', 'name', 'recent']);
+  assert.deepStrictEqual(Object.keys(st.brain).sort(), ['draws', 'flyWins', 'gamesPlayed', 'humanityWins', 'warmupGames', 'winRate']);
+  assert.deepStrictEqual(Object.keys(st.global).sort(), ['draws', 'flyWins', 'gamesPlayed', 'humanityWins', 'winRate']);
   assert.strictEqual(st.recent.length, tcfg.CURVE_WINDOW_GAMES);
-  assert.strictEqual(st.gamesPlayed, 25); assert.strictEqual(st.flyWins + st.humanityWins + st.draws, 25);
-  assert.ok(Math.abs(st.winRate - st.flyWins / 25) < 1e-12);
-  assert.strictEqual(st.generation, 1 + Math.floor(25 / tcfg.GENERATION_EVERY_GAMES));
-  assert.ok(!/weights|baseline|phis|probs/.test(JSON.stringify(st)));
-  assert.strictEqual(createBrainStore({ config: tcfg, logger: silentLogger }).getPublicStats().winRate, null);
+  assert.strictEqual(st.brain.gamesPlayed, 25);
+  assert.strictEqual(st.brain.flyWins + st.brain.humanityWins + st.brain.draws, 25);
+  assert.ok(Math.abs(st.brain.winRate - st.brain.flyWins / 25) < 1e-12);
+  assert.ok(!/"ids"|"types"|"global":\[|weights|baseline|probs|values/.test(JSON.stringify(st)));
+  assert.strictEqual(createBrainStore({ config: tcfg, logger: silentLogger }).getPublicStats().brain.winRate, null);
 });
 
+
+console.log('\nD) Routes admin (reset / restauration / limiteur)');
 const KEY = 'cle-admin-de-test-0123456789';
 const H = (k = KEY) => ({ 'x-fly-admin-key': k });
 atest('Admin : clé absente ou trop courte -> routes désactivées (404)', async () => {
@@ -453,6 +408,8 @@ atest('Admin : authentification, confirmations, reset et restauration', async ()
   assert.strictEqual(rs.code, 200); assert.strictEqual(s.policy.getState().games_played, 5);
   const rr = await app.call('POST', '/api/fly/admin/reset', { headers: H(), body: { confirm: 'RESET' } });
   assert.strictEqual(rr.code, 200); assert.strictEqual(s.policy.getState().games_played, 0);
+  assert.ok(rr.body.generation > rr.body.previousGeneration);
+  assert.strictEqual(s.getPublicStats().global.gamesPlayed, 6);   // le score global ne bouge pas
 });
 atest('Admin : limiteur d\'échecs par IP (429), levé après la fenêtre, autres IP non affectées', async () => {
   let t = 1000; const s = newStore(cleanDb()); await s.load();
@@ -464,42 +421,38 @@ atest('Admin : limiteur d\'échecs par IP (429), levé après la fenêtre, autre
   assert.strictEqual((await app.call('GET', '/api/fly/admin/snapshots', { headers: H(), ip: '9.9.9.9' })).code, 200);
 });
 
-console.log('\nH) Déroulement d\'une partie fly (fake io / timers, aucun réseau)');
-const { createFlyGame, HUMAN_RESULT } = require('./fly-game');
-const { createFlyXp } = require('./fly-xp');
 
-function harness({ storeCfg = tcfg, optionsFn, recordFlyResult = null } = {}) {
+console.log('\nE) Déroulement d\'une partie fly (faux io / faux timers)');
+function harness({ optionsFn, recordFlyResult = null, storeCfg = tcfg, warmup = false } = {}) {
   const emits = [], timers = [];
   const io = { to: room => ({ emit: (event, payload) => emits.push({ room, event, payload: JSON.parse(JSON.stringify(payload === undefined ? null : payload)) }) }) };
   const fakeTimers = {
     set: (fn, ms) => { const t = { fn, ms, cleared: false }; timers.push(t); return t; },
     clear: t => { if (t) t.cleared = true; }
   };
-  const db = cleanDb(), store = newStore(db, storeCfg);
-  const env = createEnv({ rng: mulberry32(99), rarities: cfg.RARITIES, useReal: false });
-  const mk = o => ({ ...o, name: `P${o.pokemonId}`, sprite: `s${o.pokemonId}.png`, shinySprite: o.shiny ? `sh${o.pokemonId}.png` : null, effectName: o.effectName });
-  const state = { transitionReady: false, transitions: 0 };
+  const db = cleanDb(), store = newStore(db, storeCfg, { warmup });
+  const rng = mulberry32(99);
+  const state = { transitions: 0, lastPickArgs: null, typeCalls: 0 };
   const deps = {
-    pickPlayerTurnOptions: (...args) => { state.lastPickArgs = args; if (optionsFn) return optionsFn(); const [h, b] = env.drawOptions(); return { haut: mk(h), bas: mk(b) }; },
+    pickPlayerTurnOptions: (...args) => { state.lastPickArgs = args; if (optionsFn) return optionsFn(); const [h, b] = fakePair(rng); return { haut: h, bas: b }; },
     teamMonFromReward: r => ({ id: r.pokemonId, name: r.name, rarity: r.rarity, basePoints: r.basePoints }),
     buildRoute: () => Array.from({ length: cfg.TURNS }, (_, i) => ({ turn: i + 1, status: i === 0 ? 'current' : 'upcoming' })),
     getPublicPlayers: g => g.players.map(p => ({ id: p.id, name: p.name, score: p.score, team: p.team })),
-    maybeScheduleTurnTransition: g => { if (g.fly && g.fly.revealed && g.players[0].currentChoice !== null) { state.transitionReady = true; state.transitions++; } }
+    maybeScheduleTurnTransition: g => { if (g.fly && g.fly.revealed && g.players[0].currentChoice !== null) state.transitions++; },
+    getTypes: id => { state.typeCalls++; return id % 2 ? ['fire'] : ['water', 'flying']; }
   };
   const xpCalls = [];
   const FLY = createFlyGame({ io, store, deps, timers: fakeTimers, random: mulberry32(5), logger: silentLogger, config: storeCfg,
     recordFlyResult: recordFlyResult || (async (p, d) => { xpCalls.push(d); }) });
   const human = { id: 'sock1', name: 'Humain', avatar: null, score: 0, team: [], currentChoice: null, currentOptions: null };
   const game = { id: 'ABCD', gameMode: 'fly', status: 'playing', turn: 0, maxTurns: cfg.TURNS, players: [human], boss: null, route: null };
-  // Imite player_choice + finalizePlayerTurn + resolveTurnTransition de server.js.
-  const humanPlay = choice => {
+  const humanPlay = choice => {                 // imite player_choice + finalizePlayerTurn de server.js
     const r = human.currentOptions[choice === 'HAUT' ? 'haut' : 'bas'];
     human.currentChoice = choice; human.score += r.finalPoints; human.team.push({ id: r.pokemonId });
     FLY.onHumanChose(game);
-    state.transitionReady = false;
   };
   const fireReveal = () => { const t = timers.filter(x => !x.cleared).pop(); t.cleared = true; t.fn(); };
-  const nextTurn = () => {
+  const nextTurn = () => {                      // imite resolveTurnTransition
     if (game.turn >= game.maxTurns) { game.status = 'finished'; FLY.finish(game); return; }
     game.turn += 1; human.currentChoice = null; human.currentOptions = null; FLY.startTurn(game);
   };
@@ -508,7 +461,7 @@ function harness({ storeCfg = tcfg, optionsFn, recordFlyResult = null } = {}) {
   return { emits, timers, store, db, FLY, game, human, state, xpCalls, humanPlay, fireReveal, nextTurn, playTurn, finishedPayload };
 }
 
-atest('Partie complète : 6 tours, résultat cohérent, cerveau entraîné une fois, XP demandée une fois', async () => {
+atest('Partie complète : 6 tours, résultat cohérent, cerveau mis à jour UNE fois, XP demandée une fois', async () => {
   const h = harness(); h.FLY.begin(h.game);
   for (let t = 1; t <= cfg.TURNS; t++) h.playTurn(t % 2 ? 'HAUT' : 'BAS');
   const fin = h.finishedPayload();
@@ -518,13 +471,26 @@ atest('Partie complète : 6 tours, résultat cohérent, cerveau entraîné une f
   const expected = fin.fly.score > h.human.score ? 'win' : fin.fly.score < h.human.score ? 'loss' : 'draw';
   assert.strictEqual(fin.fly.result, expected);
   assert.strictEqual(fin.players[0].result, HUMAN_RESULT[expected]);
-  assert.strictEqual(fin.fly.learned, true);
+  assert.strictEqual(fin.fly.counted, true);
   assert.strictEqual(h.store.policy.getState().games_played, 1);
   assert.strictEqual(h.xpCalls.length, 1);
   assert.strictEqual(h.xpCalls[0].result, HUMAN_RESULT[expected]);
-  assert.strictEqual(fin.fly.stats.gamesPlayed, 1);
 });
-atest('Tirage : table du mode normal sans pity/Charme/plancher, même tirage pour les deux', async () => {
+atest('Fin de partie : statistiques RÉELLES (parties vécues, taux de victoire), pas de message « elle a appris »', async () => {
+  const h = harness();
+  h.store.policy.setState({ ...h.store.policy.getState(), games_played: 9, wins: 3, losses: 5, draws: 1 });   // 9 parties vécues avant celle-ci
+  h.store.totals = { games: 9, wins: 3, losses: 5, draws: 1 };
+  h.FLY.begin(h.game);
+  for (let t = 1; t <= cfg.TURNS; t++) h.playTurn('HAUT');
+  const f = h.finishedPayload().fly;
+  assert.strictEqual(f.stats.brain.gamesPlayed, 10);                       // chiffres APRÈS cette partie
+  assert.strictEqual(f.stats.brain.flyWins + f.stats.brain.humanityWins + f.stats.brain.draws, 10);
+  assert.strictEqual(f.stats.brain.flyWins, 3 + (f.result === 'win' ? 1 : 0));
+  assert.ok(Math.abs(f.stats.brain.winRate - f.stats.brain.flyWins / 10) < 1e-12);
+  assert.ok(!('learned' in f));
+  assert.ok(!/appris|learn/i.test(JSON.stringify(h.emits)));
+});
+atest('Tirage : table du mode normal sans pity / Charme / plancher ; même tirage pour les deux', async () => {
   const h = harness(); h.FLY.begin(h.game);
   assert.deepStrictEqual(h.state.lastPickArgs, [false, 0, undefined, undefined, 'fly']);
   const opts = h.human.currentOptions;
@@ -533,31 +499,54 @@ atest('Tirage : table du mode normal sans pity/Charme/plancher, même tirage pou
   assert.ok([opts.haut.name, opts.bas.name].includes(rev.pokemon.name));
   assert.strictEqual(rev.basePoints, (rev.pokemon.name === opts.haut.name ? opts.haut : opts.bas).basePoints);
 });
-atest('La Mouche décide AVANT le choix humain et ne reçoit que l\'observation visible', async () => {
+atest('OBSERVATION : seulement identité + shiny + types ; décision prise AVANT le choix humain', async () => {
   const h = harness(); const seen = [];
   const orig = h.store.choose; h.store.choose = obs => { seen.push(JSON.parse(JSON.stringify(obs))); return orig(obs); };
   h.FLY.begin(h.game);
   const decided = h.game.fly.decision;
-  assert.ok(decided && (decided.index === 0 || decided.index === 1));        // décision déjà prise, humain pas encore joué
+  assert.ok(decided && (decided.index === 0 || decided.index === 1));
   h.humanPlay('BAS');
-  assert.strictEqual(h.game.fly.decision, decided);                          // inchangée par le choix humain
-  h.fireReveal(); const afterTurn1 = h.human.score; h.nextTurn();
+  assert.strictEqual(h.game.fly.decision, decided);                         // inchangée par le choix humain
+  h.fireReveal(); const scoreAfter1 = h.human.score; h.nextTurn();
   assert.strictEqual(seen.length, 2);
   seen.forEach(o => {
     assert.deepStrictEqual(Object.keys(o).sort(), ['oppScore', 'options', 'ownScore', 'turn']);
-    o.options.forEach(x => assert.deepStrictEqual(Object.keys(x).sort(), ['basePoints', 'rarity', 'shiny']));
+    o.options.forEach(x => {
+      assert.deepStrictEqual(Object.keys(x).sort(), ['pokemonId', 'shiny', 'types']);   // ni points de base, ni rareté, ni effet
+      assert.ok(Array.isArray(x.types) && x.types.length >= 1);
+    });
   });
-  assert.strictEqual(seen[1].oppScore, afterTurn1);                          // score humain d'AVANT le tour courant
   assert.strictEqual(seen[0].oppScore, 0);
+  assert.strictEqual(seen[1].oppScore, scoreAfter1);                        // score humain d'AVANT le tour courant
 });
-atest('Aucune fuite avant révélation : événements sans décision, probas, poids ni points cachés', async () => {
+atest('Résultat de SON choix mémorisé (jamais l\'option non choisie) ; valeurs apprises seulement à la fin d\'une partie complète', async () => {
   const h = harness(); h.FLY.begin(h.game);
-  const before = h.emits.map(e => e.event);
-  assert.deepStrictEqual(before, ['game_started', 'your_item', 'turn_options', 'fly_thinking']);
+  const picked = [], notPicked = [];
+  for (let t = 1; t <= cfg.TURNS; t++) {
+    const o = h.human.currentOptions, d = h.game.fly.decision;
+    const mine = d.index === 0 ? o.haut : o.bas, other = d.index === 0 ? o.bas : o.haut;
+    picked.push(mine); notPicked.push(other);
+    h.humanPlay('HAUT'); h.fireReveal();
+    assert.strictEqual(h.game.fly.decision.outcome.points, mine.basePoints);        // observé à la révélation
+    if (t < cfg.TURNS) {
+      assert.strictEqual(Object.keys(h.store.policy.getState().ids).length, 0);     // rien n'est appris en cours de partie
+      h.nextTurn();
+    }
+  }
+  h.nextTurn();                                                                      // fin de partie
+  const ids = h.store.policy.getState().ids;
+  picked.forEach(p => assert.ok(ids[p.pokemonId], `valeur de ${p.pokemonId} apprise`));
+  const pickedIds = new Set(picked.map(p => p.pokemonId));
+  notPicked.filter(o => !pickedIds.has(o.pokemonId)).forEach(o => assert.ok(!ids[o.pokemonId], `option non choisie ${o.pokemonId} ne doit pas être apprise`));
+  const onePick = picked.find(p => picked.filter(q => q.pokemonId === p.pokemonId).length === 1);
+  if (onePick) assert.strictEqual(ids[onePick.pokemonId][0], onePick.basePoints);
+});
+atest('Aucune fuite avant révélation : événements sans décision, valeurs ni probabilités ; options publiques minimales', async () => {
+  const h = harness(); h.FLY.begin(h.game);
+  assert.deepStrictEqual(h.emits.map(e => e.event), ['game_started', 'your_item', 'turn_options', 'fly_thinking']);
   const txt = JSON.stringify(h.emits);
-  assert.ok(!/probs|phis|weights|baseline|temperature|decision|"index"|finalPoints|multiplier|effectName/.test(txt), txt.slice(0, 300));
-  const thinking = h.emits.find(e => e.event === 'fly_thinking').payload;
-  assert.deepStrictEqual(Object.keys(thinking), ['turn']);
+  assert.ok(!/probs|values|"ids"|weights|baseline|temperature|decision|"index"|finalPoints|multiplier|effectName|basePoints/.test(txt), txt.slice(0, 300));
+  assert.deepStrictEqual(Object.keys(h.emits.find(e => e.event === 'fly_thinking').payload), ['turn']);
   const opts = h.emits.find(e => e.event === 'turn_options').payload;
   assert.deepStrictEqual(Object.keys(opts.haut).sort(), ['name', 'shiny', 'shinySprite', 'sprite']);
 });
@@ -565,46 +554,47 @@ atest('Révélation différée : délai d\'hésitation dans [MIN, MAX] ; transit
   const h = harness(); h.FLY.begin(h.game);
   h.humanPlay('HAUT');
   assert.strictEqual(h.state.transitions, 0);
-  assert.strictEqual(h.game.fly.revealed, false);
   const t = h.timers[h.timers.length - 1];
   assert.ok(t.ms >= cfg.HESITATION_MS_MIN && t.ms <= cfg.HESITATION_MS_MAX, `${t.ms}`);
   assert.ok(!h.emits.some(e => e.event === 'fly_choice_revealed'));
   h.fireReveal();
-  assert.strictEqual(h.game.fly.revealed, true);
   assert.strictEqual(h.state.transitions, 1);
-  // une 2e révélation du même tour est sans effet
   const n = h.emits.filter(e => e.event === 'fly_choice_revealed').length;
-  t.fn(); assert.strictEqual(h.emits.filter(e => e.event === 'fly_choice_revealed').length, n);
+  t.fn(); assert.strictEqual(h.emits.filter(e => e.event === 'fly_choice_revealed').length, n);   // une seule révélation par tour
 });
-atest('Abandon : timers annulés, plus aucune révélation, AUCUN apprentissage ni XP', async () => {
+atest('Abandon : timers annulés, plus aucune révélation, AUCUN apprentissage, ni compteur, ni XP', async () => {
   const h = harness(); h.FLY.begin(h.game);
   h.playTurn('HAUT'); h.playTurn('BAS'); h.humanPlay('HAUT');
   const pending = h.timers.filter(x => !x.cleared).pop();
   h.FLY.dispose(h.game);
   assert.ok(pending.cleared);
   const nRev = h.emits.filter(e => e.event === 'fly_choice_revealed').length;
-  pending.fn();                                                              // même si le timer partait quand même
+  pending.fn();
   assert.strictEqual(h.emits.filter(e => e.event === 'fly_choice_revealed').length, nRev);
   h.FLY.finish(h.game);
   assert.strictEqual(h.finishedPayload(), undefined);
-  assert.strictEqual(h.store.policy.getState().games_played, 0);
+  assert.strictEqual(Object.keys(h.store.policy.getState().ids).length, 0);
+  assert.deepStrictEqual([h.store.getPublicStats().brain.gamesPlayed, h.store.getPublicStats().global.gamesPlayed], [0, 0]);
   assert.strictEqual(h.xpCalls.length, 0);
 });
 atest('Fin prématurée (partie incomplète) : ni apprentissage ni XP', async () => {
   const h = harness(); h.FLY.begin(h.game);
   h.playTurn('HAUT'); h.playTurn('HAUT'); h.playTurn('BAS');
   h.FLY.finish(h.game);
-  assert.strictEqual(h.finishedPayload().fly.learned, false);
-  assert.strictEqual(h.store.policy.getState().games_played, 0);
+  assert.strictEqual(h.finishedPayload().fly.counted, false);
+  assert.strictEqual(h.store.getPublicStats().brain.gamesPlayed, 0);
   assert.strictEqual(h.xpCalls.length, 0);
 });
-atest('Reset du cerveau pendant la partie : la partie ne l\'entraîne pas', async () => {
+atest('Reset du cerveau PENDANT la partie : la partie n\'est pas comptée, le score global ne bouge pas', async () => {
   const h = harness(); h.FLY.begin(h.game);
   for (let t = 1; t <= 3; t++) h.playTurn('HAUT');
   await h.store.reset();
   for (let t = 4; t <= cfg.TURNS; t++) h.playTurn('HAUT');
-  assert.strictEqual(h.finishedPayload().fly.learned, false);
-  assert.strictEqual(h.store.policy.getState().games_played, 0);
+  const f = h.finishedPayload().fly;
+  assert.strictEqual(f.counted, false);
+  assert.strictEqual(f.stats.global.gamesPlayed, 0);
+  assert.strictEqual(f.stats.brain.gamesPlayed, 0);
+  assert.strictEqual(f.stats.generation, 2);
 });
 atest('Mapping des résultats : victoire Mouche = défaite humain, nul = participation', async () => {
   assert.deepStrictEqual(HUMAN_RESULT, { win: 'defeat', loss: 'victory', draw: 'participation' });
@@ -617,7 +607,7 @@ atest('Mapping des résultats : victoire Mouche = défaite humain, nul = partici
     assert.strictEqual(h.finishedPayload().players[0].result, humanResult);
   }
 });
-atest('Aucune mécanique de boss / type en fly : pas de boss, pas de bonus, aucun champ de type', async () => {
+atest('Aucune mécanique de boss / type en fly : pas de boss, pas de bonus, aucun champ de type dans les payloads', async () => {
   const h = harness(); h.FLY.begin(h.game);
   for (let t = 1; t <= cfg.TURNS; t++) h.playTurn('HAUT');
   assert.strictEqual(h.game.boss, null);
@@ -625,28 +615,48 @@ atest('Aucune mécanique de boss / type en fly : pas de boss, pas de bonus, aucu
   const fin = h.finishedPayload();
   assert.strictEqual(fin.boss, null); assert.strictEqual(fin.players[0].typeBonus, null);
   assert.ok(!/weakness|counterType|affinity|typeMult|requiredPoints/.test(JSON.stringify(h.emits)));
+  assert.ok(h.state.typeCalls > 0);                                          // les types sont lus (observation) sans être appliqués
 });
-atest('Décision impossible (observation invalide) : choix aléatoire, partie non entraînante', async () => {
-  const mkBad = () => { const o = { pokemonId: 1, name: 'X', sprite: 'x', shiny: false, shinySprite: null, rarity: 'mega', basePoints: 900, effectName: 'Neutre', multiplier: 1, finalPoints: 900 };
-    return { haut: o, bas: { ...o, pokemonId: 2, name: 'Y' } }; };
-  const h = harness({ optionsFn: mkBad }); h.FLY.begin(h.game);
-  for (let t = 1; t <= cfg.TURNS; t++) h.playTurn('HAUT');
-  assert.strictEqual(h.finishedPayload().fly.learned, false);
-  assert.strictEqual(h.store.policy.getState().games_played, 0);
-  assert.strictEqual(h.xpCalls.length, 0);
+atest('Types illisibles : la partie continue avec types [] ; décision impossible : choix aléatoire, partie non comptée', async () => {
+  const h = harness(); h.FLY.begin(h.game);
+  const g2 = harness();
+  const g2deps = g2.FLY; assert.ok(g2deps);
+  // 1. getTypes qui lève : types [] (la Mouche ne s'en sert pas : VALUE_USE_TYPES=false)
+  const seen = [];
+  const io = { to: () => ({ emit() {} }) };
+  const rng = mulberry32(8), db = cleanDb(), store = newStore(db, tcfg, { warmup: false }), o0 = store.choose;
+  store.choose = obs => { seen.push(obs); return o0(obs); };
+  const FLY = createFlyGame({ io, store, config: tcfg, logger: silentLogger, timers: { set() {}, clear() {} }, deps: {
+    pickPlayerTurnOptions: () => { const [a, b] = fakePair(rng); return { haut: a, bas: b }; }, teamMonFromReward: r => r, buildRoute: () => [], getPublicPlayers: () => [],
+    maybeScheduleTurnTransition() {}, getTypes: () => { throw new Error('types introuvables'); } } });
+  const game = { id: 'X', gameMode: 'fly', status: 'playing', turn: 0, maxTurns: 6, players: [{ id: 's', name: 'H', score: 0, team: [] }] };
+  FLY.begin(game);
+  assert.deepStrictEqual(seen[0].options.map(o => o.types), [[], []]);
+  // 2. observation invalide (identifiant absent) : choix aléatoire, partie non utilisable
+  const bad = harness({ optionsFn: () => { const [a, b] = fakePair(mulberry32(3)); return { haut: { ...a, pokemonId: 0 }, bas: b }; } });
+  bad.FLY.begin(bad.game);
+  for (let t = 1; t <= cfg.TURNS; t++) bad.playTurn('HAUT');
+  assert.strictEqual(bad.finishedPayload().fly.counted, false);
+  assert.strictEqual(bad.store.getPublicStats().brain.gamesPlayed, 0);
+  assert.strictEqual(bad.xpCalls.length, 0);
 });
-atest('Resynchronisation après reconnexion : état public sans décision en attente', async () => {
+atest('Reconnexion : état public sans décision en attente ni valeurs apprises', async () => {
   const h = harness(); h.FLY.begin(h.game);
   h.playTurn('HAUT'); h.humanPlay('BAS');
   h.FLY.resyncTurn(h.game, 'newSock');
   const st = h.emits.filter(e => e.event === 'fly_state').pop();
   assert.strictEqual(st.room, 'newSock');
-  assert.strictEqual(st.payload.history.length, 1);            // seul le tour 1 est révélé
+  assert.strictEqual(st.payload.history.length, 1);                          // seul le tour 1 est révélé
   assert.strictEqual(st.payload.thinking, true);
-  assert.ok(!/probs|phis|weights|decision|"index"/.test(JSON.stringify(st.payload)));
+  assert.ok(!/probs|values|"ids"|weights|decision|"index"/.test(JSON.stringify(st.payload)));
+});
+atest('game_started annonce l\'échauffement et la génération (stats publiques)', async () => {
+  const h = harness({ warmup: true }); await h.store.load(); h.FLY.begin(h.game);
+  const st = h.emits.find(e => e.event === 'game_started').payload.fly;
+  assert.deepStrictEqual([st.generation, st.brain.warmupGames, st.brain.gamesPlayed], [1, tcfg.WARMUP_GAMES, 0]);
 });
 
-console.log('\nI) XP contre la Mouche : plafond glissant 24 h');
+console.log('\nG) XP contre la Mouche : plafond glissant 24 h');
 const authFor = (valid = true) => () => ({ auth: { getUser: async token => (valid ? { data: { user: { id: token } }, error: null } : { data: { user: null }, error: { message: 'bad' } }) } });
 const xpSetup = (extra = {}) => {
   const db = cleanDb(); db.tables.profiles.push({ id: 'u1', xp: 0 }, { id: 'u2', xp: 0 });
@@ -701,13 +711,13 @@ atest('XP : panne DB -> échec silencieux côté serveur, aucun XP accordé, fil
   assert.strictEqual((await rec(acct('u1'), det('victory'))).xp, 30);
 });
 
-console.log('\nJ) Branchement de server.js (python3 patch-server-fly.py)');
+
+console.log('\nH) Branchement de server.js (node patch-server-fly.js)');
 {
-  const file = path.join(__dirname, 'server.js');
-  const src = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
-  const patched = src.includes('FLY.begin(game)');
+  const src = readServer() || '';
+  const patched = src.includes('FLY.begin(game)') && src.includes("require('./fly-warmup')");
   const fnBody = name => { const i = src.indexOf(`function ${name}(`); return src.slice(i, src.indexOf('\n}\n', i)); };
-  test('server.js patché', () => assert.ok(patched, "lance : python3 patch-server-fly.py"));
+  test('server.js patché (version courante)', () => assert.ok(patched, 'lance : node patch-server-fly.js'));
   if (patched) {
     test("GAME_MODES contient 'fly'", () => assert.ok(/const GAME_MODES = \[[^\]]*'fly'[^\]]*\]/.test(src)));
     test('finishGame : branche fly AVANT tout bonus de type / boss', () => {
@@ -725,38 +735,49 @@ console.log('\nJ) Branchement de server.js (python3 patch-server-fly.py)');
       assert.ok(fnBody('buildAchievementContext').includes("r.game_mode !== 'fly'"));
       assert.ok(/transform_metamorph[\s\S]{0,300}gameMode === 'fly'/.test(src));
     });
-    test('Abandon : dispose avant suppression de la partie, jamais d\'apprentissage hors finish', () => {
+    test('Abandon : dispose avant suppression de la partie ; seul fly-game.finish() met le cerveau à jour', () => {
       assert.ok(/FLY\.dispose\(game\);[^\n]*\n\s*delete games\[gameId\]/.test(src));
       assert.ok(/FLY\.dispose\(oldGame\)/.test(src));
-      assert.strictEqual((src.match(/flyBrain\.recordGame|\.recordGame\(/g) || []).length, 0);   // seul fly-game.finish() entraîne
+      assert.strictEqual((src.match(/\.recordGame\(/g) || []).length, 0);
     });
-    test('Le client ne peut envoyer aucun événement lié à la Mouche (aucun socket.on fly*)', () => {
+    test('Le client ne peut rien demander sur la Mouche ; le serveur n\'expose ni décision ni valeurs', () => {
       assert.ok(!/socket\.on\('fly/.test(src));
       assert.ok(!/fly\.decision|flyBrain\.choose|\.policy\b/.test(src));
     });
-    test('GET /api/fly/stats : ne renvoie que getPublicStats (si patch-server-fly-stats.py appliqué)', () => {
-      const m = src.match(/app\.get\('\/api\/fly\/stats', \(req, res\) => \{([\s\S]*?)\n\}\);/);
-      if (!m) return console.log('      (ignoré : patch-server-fly-stats.py non appliqué)');
-      assert.ok(/res\.json\(flyBrain\.getPublicStats\(\)\)/.test(m[1]) && !/policy|weights|getState/.test(m[1]));
-    });
-    test('Cerveau : chargé au démarrage, flush au SIGTERM, routes admin enregistrées', () => {
+    test('Bloc d\'initialisation : cerveau chargé, échauffement sur les VRAIS tirages, flush au SIGTERM, routes admin et stats', () => {
       assert.ok(src.includes('flyBrain.load()') && src.includes('flyBrain.flush()') && src.includes('registerFlyAdminRoutes(app'));
+      assert.ok(/const flyDraw = \(\) => \{ const o = pickPlayerTurnOptions\(false, 0, undefined, undefined, 'fly'\)/.test(src));
+      assert.ok(/warmup: policy => runWarmup\(\{ policy, draw: flyDraw, bst: flyBst, typesById: flyTypes \}\)/.test(src));
+      const m = src.match(/app\.get\('\/api\/fly\/stats', \(req, res\) => \{([\s\S]*?)\n\}\);/);
+      assert.ok(m && /res\.json\(flyBrain\.getPublicStats\(\)\)/.test(m[1]) && !/policy|weights|getState/.test(m[1]));
+    });
+    test('Identifiants du bloc d\'initialisation tous déclarés dans server.js', () => {
+      ['app', 'io', 'supabase', 'createAuthClient', 'XP_PARTICIPATION', 'XP_VICTORY_BONUS', 'BOSS_MECHANICS', 'POKEMON_POOLS', 'pickPlayerTurnOptions',
+        'teamMonFromReward', 'buildRoute', 'getPublicPlayers', 'maybeScheduleTurnTransition'].forEach(n =>
+        assert.ok(new RegExp(`^(const|let|var|function|async function)\\s+${n}\\b`, 'm').test(src), `${n} non déclaré`));
+    });
+    test('Types : simple lecture (getTypes), jamais syncTypeBonus dans le bloc fly', () => {
+      const i = src.indexOf("// ---- MODE 'fly'"), j = src.indexOf('const PORT = process.env.PORT');
+      assert.ok(i > 0 && j > i);
+      assert.ok(!/syncTypeBonus|applyBossMechanics|beginRouteGameplay/.test(src.slice(i, j)));
     });
   }
-  test('debug-fly.js : s\'exécute, affiche poids / features / probabilités ; jamais importé par le serveur ni le client', () => {
-    const dbg = path.join(__dirname, 'debug-fly.js');
-    if (!fs.existsSync(dbg)) return console.log('      (ignoré : debug-fly.js absent)');
-    const out = require('child_process').execFileSync(process.execPath, [dbg, '--draws', '2', '--train', '300', '--synthetic'], { encoding: 'utf8' });
-    assert.ok(/POIDS/.test(out) && /features:/.test(out) && /p=\s*\d/.test(out) && /bp\*left/.test(out));
-    assert.ok(!/debug-fly/.test(src));
-    const cl = path.join(__dirname, 'public', 'client.js');
-    if (fs.existsSync(cl)) assert.ok(!/debug-fly/.test(fs.readFileSync(cl, 'utf8')));
-  });
   test('fly-game.js : seuls les événements autorisés sont émis, aucun champ interne dans les payloads', () => {
     const g = fs.readFileSync(path.join(__dirname, 'fly-game.js'), 'utf8');
     const events = [...g.matchAll(/\.emit\('([a-z_]+)'/g)].map(m => m[1]);
     assert.deepStrictEqual([...new Set(events)].sort(), ['fly_choice_revealed', 'fly_state', 'fly_thinking', 'game_finished', 'game_started', 'turn_options', 'your_item']);
-    g.split('\n').filter(l => l.includes('.emit(')).forEach(l => assert.ok(!/probs|phis|weights|baseline|decision|trajectory|reward/.test(l), l));
+    g.split('\n').filter(l => l.includes('.emit(')).forEach(l => assert.ok(!/probs|values|weights|baseline|decision|trajectory|reward\b/.test(l), l));
+  });
+  test('debug-fly.js : jamais importé par le serveur ni le client ; s\'exécute si les données du projet sont présentes', () => {
+    const dbg = path.join(__dirname, 'debug-fly.js');
+    if (!fs.existsSync(dbg)) return console.log('      (ignoré : debug-fly.js absent)');
+    assert.ok(!/debug-fly/.test(src));
+    const cl = path.join(__dirname, 'public', 'client.js');
+    if (fs.existsSync(cl)) assert.ok(!/debug-fly/.test(fs.readFileSync(cl, 'utf8')));
+    const proxy = process.env.FLY_TEST_PROXY === '1';
+    if (!proxy && !(fs.existsSync(path.join(__dirname, 'stats.js')) && src)) return console.log('      (exécution ignorée : stats.js ou server.js absent)');
+    const out = require('child_process').execFileSync(process.execPath, [dbg, '--warmup', '40', '--draws', '2', '--top', '2', ...(proxy ? ['--proxy'] : [])], { encoding: 'utf8', cwd: __dirname });
+    assert.ok(/CERVEAU/.test(out) && /Tirage 1/.test(out) && /valeur estimée/.test(out) && /caché/.test(out));
   });
 }
 
@@ -768,3 +789,4 @@ console.log('\nJ) Branchement de server.js (python3 patch-server-fly.py)');
   console.log(`\n${pass} réussi(s), ${fail} échec(s)`);
   process.exit(fail ? 1 : 0);
 })();
+

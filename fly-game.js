@@ -6,18 +6,21 @@
 // au client autrement que via les événements ci-dessous.
 //
 // Par tour : tirage UNIQUE (pickPlayerTurnOptions, table du mode normal, sans pity / Charme / plancher)
-// -> la Mouche DÉCIDE immédiatement (avant tout choix humain, sur l'observation « visible » seulement)
-// -> l'humain choisit -> délai d'hésitation -> choix de la Mouche RÉVÉLÉ -> transition standard (4 s).
+// -> la Mouche DÉCIDE immédiatement (avant tout choix humain) sur ce qu'un humain voit : identité du Pokémon,
+//    shiny, types (jamais points de base, rareté, effet ni points finaux)
+// -> l'humain choisit -> délai d'hésitation -> choix de la Mouche RÉVÉLÉ ; elle voit alors le résultat de SON
+//    choix (base, effet, points) — comme l'humain voit le sien — et le mémorise pour apprendre en fin de partie
+// -> transition standard (4 s).
 //
 // Événements émis au client (room de la partie) :
 //   fly_thinking {turn}                       début de tour : « la Mouche hésite… » (aucune info de décision)
 //   fly_choice_revealed {turn, choice, pokemon, rarity, basePoints, effect, pointsGained, score}
 //   fly_state {…publicState}                  resynchronisation après reconnexion (rejoin_game)
 //   game_started / game_finished              mêmes événements que les autres modes + champ `fly`
-// Le serveur n'envoie JAMAIS : probabilités, features, poids, décision en attente, récompense d'entraînement.
+// Le serveur n'envoie JAMAIS : valeurs apprises, probabilités de choix, décision en attente.
 // =====================================================================
 const defaultConfig = require('./fly-config');
-const { bestPossibleScore, computeReward, CHOICES } = require('./fly-agent');
+const { outcomeFor, CHOICES } = require('./fly-value-policy');
 
 const HUMAN_RESULT = { win: 'defeat', loss: 'victory', draw: 'participation' };   // résultat de la Mouche -> de l'humain
 const pub = o => ({ name: o.name, sprite: o.sprite, shiny: !!o.shiny, shinySprite: o.shinySprite || null });
@@ -26,12 +29,9 @@ function createFlyGame({
   io, store, deps, recordFlyResult = null, config = defaultConfig,
   timers = { set: setTimeout, clear: clearTimeout }, random = Math.random, logger = console
 }) {
-  // deps : { pickPlayerTurnOptions, teamMonFromReward, buildRoute, getPublicPlayers, maybeScheduleTurnTransition }
+  // deps : { pickPlayerTurnOptions, teamMonFromReward, buildRoute, getPublicPlayers, maybeScheduleTurnTransition, getTypes }
   const api = {};
-
-  function revealedHistory(f) {
-    return f.history.map(h => ({ ...h }));
-  }
+  const typesOf = id => { try { return (deps.getTypes && deps.getTypes(id)) || []; } catch (e) { return []; } };
 
   api.publicState = function publicState(game) {
     const f = game.fly;
@@ -40,7 +40,7 @@ function createFlyGame({
       stats: store.getPublicStats(),
       score: f.score,
       team: f.team.slice(),
-      history: revealedHistory(f),
+      history: f.history.map(h => ({ ...h })),
       thinking: game.status === 'playing' && !f.revealed,
       finished: f.finished
     };
@@ -76,11 +76,10 @@ function createFlyGame({
     human.currentOptions = options;
     io.to(human.id).emit('turn_options', { haut: pub(options.haut), bas: pub(options.bas) });
 
-    // DÉCISION PRISE ICI, avant tout choix humain. Observation = ce que verrait un humain (jamais
-    // finalPoints, multiplicateur d'effet, ni le choix de l'adversaire).
+    // DÉCISION PRISE ICI, avant tout choix humain. Observation = ce que verrait un humain : identité, shiny, types.
     const obs = {
       turn: game.turn, ownScore: f.score, oppScore: human.score,
-      options: [options.haut, options.bas].map(o => ({ basePoints: o.basePoints, rarity: o.rarity, shiny: !!o.shiny }))
+      options: [options.haut, options.bas].map(o => ({ pokemonId: o.pokemonId, shiny: !!o.shiny, types: typesOf(o.pokemonId) }))
     };
     let decision;
     try { decision = store.choose(obs); }
@@ -90,7 +89,7 @@ function createFlyGame({
       decision = { index, choice: CHOICES[index] };
       f.untrainable = true;
     }
-    if (decision.phis) f.trajectory.push(decision);
+    if (decision.picked) f.trajectory.push(decision);
     f.decision = decision;
     f.revealed = false;
     f.hesitationMs = config.HESITATION_MS_MIN + random() * (config.HESITATION_MS_MAX - config.HESITATION_MS_MIN);
@@ -117,6 +116,11 @@ function createFlyGame({
     const reward = f.turnOptions[turn - 1][key];
     f.score += reward.finalPoints;
     if (f.team.length < config.TURNS) f.team.push(deps.teamMonFromReward(reward));
+    // La Mouche voit le résultat de SON choix (jamais l'option non choisie) : mémorisé pour l'apprentissage de fin de partie.
+    if (f.decision.picked) {
+      try { store.observe(f.decision, { basePoints: reward.basePoints, finalPoints: reward.finalPoints }); }
+      catch (e) { logger.error('[fly] résultat du choix inutilisable (partie non utilisée pour l\'apprentissage) :', e.message); f.untrainable = true; }
+    }
     const entry = {
       turn, choice: CHOICES[f.decision.index], pokemon: pub(reward), rarity: reward.rarity, basePoints: reward.basePoints,
       effect: { name: reward.effectName, multiplier: reward.multiplier }, pointsGained: reward.finalPoints
@@ -127,7 +131,7 @@ function createFlyGame({
     deps.maybeScheduleTurnTransition(game);
   }
 
-  // Fin de partie NORMALE (6 tours joués jusqu'au bout). Entraîne le cerveau et attribue l'XP
+  // Fin de partie NORMALE (6 tours joués jusqu'au bout). Met à jour le cerveau et attribue l'XP
   // UNIQUEMENT si la partie est complète. Aucun bonus de type, aucun boss, aucun objectif.
   api.finish = function finish(game) {
     const f = game.fly;
@@ -139,14 +143,13 @@ function createFlyGame({
     const complete = f.history.length === T && f.humanHistory.length === T && f.turnOptions.length === T &&
       f.trajectory.length === T && !f.untrainable;
 
-    const best = bestPossibleScore(f.turnOptions.map(o => [o.haut.finalPoints, o.bas.finalPoints]));
-    const { result, reward } = computeReward({ flyScore: f.score, humanScore: human.score, bestPossible: best }, config);
+    const result = outcomeFor(f.score, human.score);
     const humanResult = HUMAN_RESULT[result];
 
-    let learned = false;
+    let counted = false;
     if (complete) {
-      try { learned = !!store.recordGame({ epoch: f.epoch, trajectory: f.trajectory, reward, result }).learned; }
-      catch (e) { logger.error('[fly] apprentissage impossible :', e.message); }
+      try { counted = !!store.recordGame({ epoch: f.epoch, trajectory: f.trajectory, result }).learned; }
+      catch (e) { logger.error('[fly] mise à jour du cerveau impossible :', e.message); }
       if (recordFlyResult) {
         Promise.resolve(recordFlyResult(human, { result: humanResult, score: human.score, opponentName: config.AGENT_NAME, team: human.team }))
           .catch(e => logger.error('[fly] XP/historique :', e && e.message));
@@ -162,7 +165,7 @@ function createFlyGame({
       fly: {
         name: config.AGENT_NAME, score: f.score, team: f.team.slice(), result, humanResult,
         turns: f.history.map((h, i) => ({ ...h, humanChoice: f.humanHistory[i] && f.humanHistory[i].choice, humanPointsGained: f.humanHistory[i] && f.humanHistory[i].pointsGained })),
-        learned, stats: store.getPublicStats()
+        counted, stats: store.getPublicStats()      // chiffres RÉELS, après cette partie
       }
     });
   };

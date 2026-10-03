@@ -58,27 +58,37 @@
     return e;
   }
 
-  // Encart « Humanité X – Mouche Y » + taux + génération + courbe.
+  const plural = (n, one, many) => `${n} ${n > 1 ? many : one}`;
+  // « N parties vécues, taux de victoire X % » : cerveau COURANT (repart de zéro au reset), parties réellement jouées.
+  function lifeText(stats) {
+    const b = stats.brain;
+    return b.gamesPlayed ? `${plural(b.gamesPlayed, 'partie vécue', 'parties vécues')}, taux de victoire ${pct(b.winRate)}` : 'aucune partie vécue';
+  }
+
+  // Encart : « Humanité X – Mouche Y » (score GLOBAL, jamais remis à zéro), génération courante, échauffement, courbe.
   function renderStats(container, stats) {
     container.innerHTML = '';
-    if (!stats) { container.classList.add('screen--hidden'); return; }
+    if (!stats || !stats.global || !stats.brain) { container.classList.add('screen--hidden'); return; }
     container.classList.remove('screen--hidden');
-    if (!stats.gamesPlayed) {
+    const g = stats.global;
+    if (!g.gamesPlayed) {
       container.appendChild(el('p', 'fly-stats__line', 'Aucune partie jouée : la Mouche débute.'));
-      return;
+    } else {
+      const score = el('p', 'fly-stats__score');
+      score.appendChild(el('span', 'fly-stats__humanity', `Humanité ${g.humanityWins}`));
+      score.appendChild(el('span', 'fly-stats__dash', ' – '));
+      score.appendChild(el('span', 'fly-stats__fly', `Mouche ${g.flyWins}`));
+      container.appendChild(score);
+      if (g.draws) container.appendChild(el('p', 'fly-stats__line', plural(g.draws, 'nul', 'nuls')));
     }
-    const score = el('p', 'fly-stats__score');
-    score.appendChild(el('span', 'fly-stats__humanity', `Humanité ${stats.humanityWins}`));
-    score.appendChild(el('span', 'fly-stats__dash', ' – '));
-    score.appendChild(el('span', 'fly-stats__fly', `Mouche ${stats.flyWins}`));
-    container.appendChild(score);
-    const nul = stats.draws ? ` · ${stats.draws} nul${stats.draws > 1 ? 's' : ''}` : '';
-    container.appendChild(el('p', 'fly-stats__line',
-      `Victoires de la Mouche : ${pct(stats.winRate)} (${stats.gamesPlayed} partie${stats.gamesPlayed > 1 ? 's' : ''}${nul}) · Génération ${stats.generation}`));
+    container.appendChild(el('p', 'fly-stats__line', `Génération ${stats.generation} : ${lifeText(stats)}.`));
+    if (stats.brain.warmupGames > 0) {
+      container.appendChild(el('p', 'fly-stats__line', `Échauffement : ${plural(stats.brain.warmupGames, 'partie simulée', 'parties simulées')} avant ses premiers adversaires.`));
+    }
     const recent = Array.isArray(stats.recent) ? stats.recent : [];
     if (recent.length >= MIN_POINTS) {
       container.appendChild(buildCurve(recent));
-      container.appendChild(el('p', 'fly-stats__caption', `Taux de victoire de la Mouche — ${recent.length} dernières parties`));
+      container.appendChild(el('p', 'fly-stats__caption', `Taux de victoire de la Mouche — ${recent.length} dernières parties (toutes générations)`));
     }
   }
 
@@ -103,10 +113,7 @@
     flyStatus.classList.toggle('fly-card__status--thinking', kind === 'thinking');
   }
   function setMeta(stats) {
-    flyMeta.textContent = stats
-      ? `Génération ${stats.generation} · ${stats.gamesPlayed} partie${stats.gamesPlayed > 1 ? 's' : ''}` +
-        (stats.winRate === null ? '' : ` · ${pct(stats.winRate)} de victoires`)
-      : '';
+    flyMeta.textContent = stats && stats.brain ? `Génération ${stats.generation} · ${lifeText(stats)}` : '';
   }
   function setScore(score, delta) {
     if (delta) {
@@ -245,10 +252,10 @@
 
     const stats = (fly && fly.stats) || lastStats;
     lastStats = stats;
-    const learned = $('fly-finished-learned');
-    if (!fly) learned.textContent = '';
-    else if (fly.learned) learned.textContent = `🪰 Elle a appris de cette partie. Génération ${stats.generation} · ${stats.gamesPlayed} partie${stats.gamesPlayed > 1 ? 's' : ''} jouée${stats.gamesPlayed > 1 ? 's' : ''}.`;
-    else learned.textContent = 'Partie non comptée pour l\'apprentissage de la Mouche.';
+    const lived = $('fly-finished-learned');           // (id historique de l'élément) : chiffres réels de la Mouche
+    if (!fly || !stats || !stats.brain) lived.textContent = '';
+    else lived.textContent = `La Mouche — génération ${stats.generation} : ${lifeText(stats)}.` +
+      (fly.counted === false ? ' Cette partie n\'est pas comptée dans ses statistiques.' : '');
     renderStats($('fly-finished-stats'), stats);
     if (!fly) refreshLobbyStats($('fly-finished-stats'));   // reprise après coup : stats globales via l'API
 

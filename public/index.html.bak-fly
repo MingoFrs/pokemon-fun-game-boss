@@ -173,10 +173,12 @@
             <button type="button" class="gamemode-btn" data-mode="guess">Devine le Pokémon</button>
             <button type="button" class="gamemode-btn" data-mode="auction">Draft/Enchères</button>
             <button type="button" class="gamemode-btn" data-mode="coop">Coop</button>
+            <button type="button" class="gamemode-btn" data-mode="fly">Humanité vs Mouche</button>
           </div>
         </div>
 
         <p id="gamemode-hint" class="gamemode-hint screen--hidden"></p>
+        <div id="fly-lobby-stats" class="fly-stats screen--hidden"></div>
 
         <!-- Visible uniquement si le mode est admin/guess ET qu'il y a plus de 2 joueurs
              dans le lobby : l'hôte choisit qui joue, les autres deviennent spectateurs
@@ -254,6 +256,28 @@
               <span id="my-score-popup" class="my-score-popup"></span>
             </span>
           </div>
+        </div>
+
+        <div id="fly-card" class="fly-card screen--hidden">
+          <p class="eyebrow">Adversaire</p>
+          <div class="fly-card__head">
+            <span class="fly-card__avatar" aria-hidden="true">🪰</span>
+            <div>
+              <h2 class="fly-card__name">LA MOUCHE</h2>
+              <p id="fly-card-meta" class="fly-card__meta"></p>
+            </div>
+          </div>
+          <p id="fly-card-status" class="fly-card__status"></p>
+          <div class="my-score-row">
+            <span class="my-score-label">Score de la Mouche</span>
+            <span class="my-score-value-wrap">
+              <span id="fly-score-value" class="my-score-value">0</span>
+              <span id="fly-score-popup" class="my-score-popup"></span>
+            </span>
+          </div>
+          <div id="fly-team" class="fly-team"></div>
+          <p class="fly-card__note">IA simple (apprentissage par renforcement) : elle apprend après chaque partie.</p>
+          <div id="fly-card-stats" class="fly-stats"></div>
         </div>
 
         <div class="route-panel">
@@ -351,6 +375,17 @@
           <p id="bonus-result-final" class="result-final"></p>
         </div>
 
+        <div id="fly-reveal-panel" class="result-panel fly-reveal fly-reveal--hidden">
+          <p class="eyebrow">Choix de la Mouche · <span id="fly-reveal-choice"></span></p>
+          <p id="fly-reveal-rarity" class="result-rarity"></p>
+          <img id="fly-reveal-sprite" class="result-sprite" src="" alt="">
+          <p id="fly-reveal-name" class="result-name"></p>
+          <div class="result-breakdown">
+            <p class="result-line">Base : <span id="fly-reveal-base">0</span> PTS</p>
+            <p class="result-line">Effet : <span id="fly-reveal-effect">—</span></p>
+            <p class="result-final">Résultat : <span id="fly-reveal-points">0</span> PTS</p>
+          </div>
+        </div>
         <button id="btn-skip" type="button" class="btn btn--ghost btn--block screen--hidden">Skip ⏩</button>
 
         <!-- Easter egg Métamorph : révélation de transformation, masquée par défaut, jamais
@@ -424,6 +459,27 @@
     <button id="btn-replay" class="btn btn--haut btn--block screen--hidden">Rejouer</button>
     <p class="lobby-status" id="finished-status"></p>
     <button id="btn-leave-finished" class="btn btn--ghost btn--block">Quitter</button>
+  </section>
+
+  <!-- ============ MODE "HUMANITÉ vs MOUCHE" : écran de fin ============ -->
+  <section id="screen-fly-finished" class="screen screen--hidden">
+    <p id="fly-finished-outcome" class="finished-outcome"></p>
+    <div class="fly-finished-scores">
+      <div class="finished-stat">
+        <p class="eyebrow">Toi</p>
+        <p id="fly-finished-me" class="finished-stat__value">0 PTS</p>
+      </div>
+      <div class="finished-stat">
+        <p class="eyebrow">La Mouche 🪰</p>
+        <p id="fly-finished-fly" class="finished-stat__value">0 PTS</p>
+      </div>
+    </div>
+    <p class="eyebrow finished-ranking-title">Tour par tour</p>
+    <div id="fly-finished-turns" class="fly-turns"></div>
+    <p id="fly-finished-learned" class="fly-learned"></p>
+    <div id="fly-finished-stats" class="fly-stats"></div>
+    <button id="fly-btn-replay" class="btn btn--haut btn--block screen--hidden">Rejouer</button>
+    <button id="fly-btn-leave" class="btn btn--ghost btn--block">Quitter</button>
   </section>
 
   <!-- ============ MODE "DEVINE LE POKÉMON" ============ -->
@@ -942,5 +998,6 @@
 
 <script src="/socket.io/socket.io.js"></script>
 <script src="client.js?v=2"></script>
+<script src="fly-client.js?v=1"></script>
 </body>
 </html>

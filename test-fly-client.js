@@ -28,7 +28,7 @@ function boot() {
     on(ev, fn) { (handlers[ev] = handlers[ev] || []).push(fn); return this; },
     emit(ev, ...a) { emitted.push({ ev, a }); }, off() {}, once() {}, io: { on() {} }
   };
-  let statsResponse = { name: 'La Mouche', gamesPlayed: 0, flyWins: 0, humanityWins: 0, draws: 0, winRate: null, generation: 1, recent: [] };
+  let statsResponse = { name: 'La Mouche', generation: 1, brain: { gamesPlayed: 0, flyWins: 0, humanityWins: 0, draws: 0, winRate: null, warmupGames: 210 }, global: { gamesPlayed: 0, flyWins: 0, humanityWins: 0, draws: 0, winRate: null }, recent: [] };
   w.io = () => socket;
   w.fetch = (url) => { fetched.push(url); return Promise.resolve({ ok: true, json: async () => statsResponse }); };
   w.matchMedia = w.matchMedia || (() => ({ matches: false, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} }));
@@ -53,7 +53,12 @@ const startedPayload = (stats) => ({
   gameId: 'ABCD', status: 'playing', turn: 1, maxTurns: 6, route, boss: null, difficulty: null, gameMode: 'fly', adminId: null,
   players: [{ id: 'sock1', name: 'Moi', score: 0, team: [] }], fly: stats
 });
-const stats = (o = {}) => ({ name: 'La Mouche', gamesPlayed: 12, flyWins: 7, humanityWins: 4, draws: 1, winRate: 7 / 12, generation: 1, recent: ['W', 'L', 'W', 'W', 'D', 'L', 'W', 'W', 'W', 'L', 'W', 'W'], ...o });
+const stats = (o = {}) => ({
+  name: 'La Mouche', generation: 1,
+  brain: { gamesPlayed: 12, flyWins: 7, humanityWins: 4, draws: 1, winRate: 7 / 12, warmupGames: 210, ...(o.brain || {}) },
+  global: { gamesPlayed: 12, flyWins: 7, humanityWins: 4, draws: 1, winRate: 7 / 12, ...(o.global || {}) },
+  recent: ['W', 'L', 'W', 'W', 'D', 'L', 'W', 'W', 'W', 'L', 'W', 'W'], ...Object.fromEntries(Object.entries(o).filter(([k]) => !['brain', 'global'].includes(k)))
+});
 const entry = (turn, o = {}) => ({
   turn, choice: 'HAUT', pokemon: mon('Pikachu'), rarity: 'rare', basePoints: 500,
   effect: { name: 'Motivé', multiplier: 1.1 }, pointsGained: 550, score: 550, ...o
@@ -62,7 +67,7 @@ const finishedPayload = (o = {}) => ({
   boss: null, difficulty: null, gameMode: 'fly', adminId: null, route,
   players: [{ id: 'sock1', name: 'Moi', score: 2000, team: [], typeBonus: null, result: 'victory' }],
   fly: {
-    name: 'La Mouche', score: 1800, team: [], result: 'loss', humanResult: 'victory', learned: true, stats: stats({ gamesPlayed: 13 }),
+    name: 'La Mouche', score: 1800, team: [], result: 'loss', humanResult: 'victory', counted: true, stats: stats({ brain: { gamesPlayed: 13, flyWins: 8, winRate: 8 / 13 }, global: { gamesPlayed: 13, flyWins: 8 } }),
     turns: Array.from({ length: 6 }, (_, i) => ({ ...entry(i + 1), humanChoice: i % 2 ? 'BAS' : 'HAUT', humanPointsGained: 300 })), ...o
   }
 });
@@ -99,7 +104,9 @@ test('game_started fly : écran de jeu, carte Mouche, boss masqué, bannière, s
   assert.ok(!c.hidden('fly-card'));
   assert.ok(/hésite/.test(c.$('fly-card-status').textContent));
   assert.strictEqual(c.$('game-matchup-opp-name').textContent, 'La Mouche 🪰');
-  assert.ok(/Génération 1/.test(c.$('fly-card-meta').textContent) && /12 parties/.test(c.$('fly-card-meta').textContent));
+  assert.ok(/Génération 1/.test(c.$('fly-card-meta').textContent) && /12 parties vécues, taux de victoire 58 %/.test(c.$('fly-card-meta').textContent), c.$('fly-card-meta').textContent);
+  assert.ok(/Échauffement : 210 parties simulées/.test(c.$('fly-card-stats').textContent));
+  assert.ok(!/appris/i.test(c.$('fly-card').textContent));
   assert.ok(/Humanité 4/.test(c.$('fly-card-stats').textContent));
   assert.strictEqual(c.$('fly-score-value').textContent, '0');
   assert.ok(c.hidden('screen-fly-finished') && c.hidden('screen-finished'));
@@ -131,7 +138,7 @@ test('Shiny : sprite shiny et mention du bonus', () => {
   assert.ok(c.$('fly-reveal-sprite').src.endsWith('/mew-shiny.png'));
   assert.ok(/Shiny/.test(c.$('fly-reveal-effect').textContent) && /✨/.test(c.$('fly-reveal-name').textContent));
 });
-test('Fin de partie : écran dédié, résultat, 6 tours, message « elle a appris », stats + courbe', () => {
+test('Fin de partie : écran dédié, résultat, 6 tours, « N parties vécues, taux de victoire X % » (chiffres réels), stats + courbe', () => {
   const c = boot(); c.fire('game_started', startedPayload(stats()));
   c.fire('game_finished', finishedPayload());
   assert.strictEqual(c.errors.length, 0, c.errors.join('|'));
@@ -141,19 +148,20 @@ test('Fin de partie : écran dédié, résultat, 6 tours, message « elle a appr
   assert.strictEqual(c.$('fly-finished-me').textContent, '2000 PTS');
   assert.strictEqual(c.$('fly-finished-fly').textContent, '1800 PTS');
   assert.strictEqual(c.$('fly-finished-turns').children.length, 6);
-  assert.ok(/appris/.test(c.$('fly-finished-learned').textContent) && /Génération 1/.test(c.$('fly-finished-learned').textContent));
-  assert.ok(/13 parties/.test(c.$('fly-finished-stats').textContent));
+  assert.strictEqual(c.$('fly-finished-learned').textContent, 'La Mouche — génération 1 : 13 parties vécues, taux de victoire 62 %.');
+  assert.ok(!/appris/i.test(c.$('screen-fly-finished').textContent));
+  assert.ok(/Humanité 4/.test(c.$('fly-finished-stats').textContent) && /Génération 1 : 13 parties vécues, taux de victoire 62 %/.test(c.$('fly-finished-stats').textContent));
   assert.ok(c.$('fly-finished-stats').querySelector('polyline'));
   assert.ok(!c.hidden('fly-btn-replay'));
   c.$('fly-btn-replay').click();
   assert.ok(c.emitted.some(e => e.ev === 'play_again'));
 });
-test('Défaite, nul et partie non apprise', () => {
+test('Défaite, nul et partie non comptée dans les statistiques', () => {
   const c = boot(); c.fire('game_started', startedPayload(stats()));
-  const p = finishedPayload({ learned: false }); p.players[0].result = 'defeat';
+  const p = finishedPayload({ counted: false }); p.players[0].result = 'defeat';
   c.fire('game_finished', p);
   assert.ok(/DÉFAITE/.test(c.$('fly-finished-outcome').textContent));
-  assert.ok(/non comptée/.test(c.$('fly-finished-learned').textContent));
+  assert.ok(/n'est pas comptée dans ses statistiques/.test(c.$('fly-finished-learned').textContent));
   const q = finishedPayload(); q.players[0].result = 'participation';
   c.fire('game_finished', q);
   assert.ok(/ÉGALITÉ/.test(c.$('fly-finished-outcome').textContent));
@@ -222,8 +230,22 @@ test('Courbe : taux lissé correct (W=1, D=0,5, L=0), pas de courbe sous 5 parti
   const box = c.w.document.createElement('div');
   c.w.FlyUI.renderStats(box, stats({ recent: ['W', 'L', 'W'] }));
   assert.ok(!box.querySelector('svg'));
-  c.w.FlyUI.renderStats(box, stats({ gamesPlayed: 0, flyWins: 0, humanityWins: 0, winRate: null, recent: [] }));
+  c.w.FlyUI.renderStats(box, stats({ brain: { gamesPlayed: 0, flyWins: 0, humanityWins: 0, draws: 0, winRate: null }, global: { gamesPlayed: 0, flyWins: 0, humanityWins: 0, draws: 0, winRate: null }, recent: [] }));
   assert.ok(/débute/.test(box.textContent));
+});
+test('Après un reset admin : génération +1 et « aucune partie vécue », « Humanité X – Mouche Y » inchangé, courbe conservée', () => {
+  const c = boot();
+  const before = stats();
+  const after = stats({ brain: { gamesPlayed: 0, flyWins: 0, humanityWins: 0, draws: 0, winRate: null } });
+  after.generation = 2;
+  c.w.FlyUI.renderStats(c.$('fly-lobby-stats'), before);
+  const scoreBefore = c.$('fly-lobby-stats').querySelector('.fly-stats__score').textContent;
+  c.w.FlyUI.renderStats(c.$('fly-lobby-stats'), after);
+  assert.strictEqual(c.$('fly-lobby-stats').querySelector('.fly-stats__score').textContent, scoreBefore);
+  assert.ok(/Génération 2 : aucune partie vécue/.test(c.$('fly-lobby-stats').textContent));
+  assert.ok(c.$('fly-lobby-stats').querySelector('polyline'));
+  c.fire('game_started', startedPayload(after));
+  assert.ok(/Génération 2 · aucune partie vécue/.test(c.$('fly-card-meta').textContent), c.$('fly-card-meta').textContent);
 });
 test('Le client n\'émet rien sur la Mouche : seulement play_again / leave_game ; aucune décision lisible', () => {
   const src = read('fly-client.js');

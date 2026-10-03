@@ -2,7 +2,8 @@
 // =====================================================================
 // Routes admin du cerveau de la Mouche. Clé UNIQUEMENT dans l'env FLY_ADMIN_KEY (jamais dans le code).
 //   GET  /api/fly/admin/snapshots                      -> liste des snapshots
-//   POST /api/fly/admin/reset    { confirm: "RESET" }   -> snapshot de sécurité puis cerveau vierge
+//   POST /api/fly/admin/reset    { confirm: "RESET" }   -> archive le cerveau, repart de zéro (+ échauffement), génération +1 ;
+//                                                          le score global Humanité – Mouche ne bouge pas
 //   POST /api/fly/admin/restore  { id, confirm: "RESTORE" }
 // Auth : header  x-fly-admin-key: <clé>   (comparaison à temps constant, limiteur d'échecs par IP).
 // Clé absente ou trop courte -> routes désactivées (404). Branchement dans server.js (étape 3) :
@@ -42,7 +43,7 @@ function registerFlyAdminRoutes(app, { store, config = defaultConfig, adminKey =
   app.post('/api/fly/admin/reset', guard, wrap(async (req, res) => {
     if (!req.body || req.body.confirm !== 'RESET') return res.status(400).json({ error: 'confirm: "RESET" requis' });
     const r = await store.reset();
-    logger.warn(`[fly] cerveau RÉINITIALISÉ (${r.previousGames} parties archivées).`);
+    logger.warn(`[fly] cerveau RÉINITIALISÉ : génération ${r.previousGeneration} archivée (${r.previousGames} parties), génération ${r.generation} en service.`);
     res.json(r);
   }));
 
@@ -51,7 +52,7 @@ function registerFlyAdminRoutes(app, { store, config = defaultConfig, adminKey =
     if (!req.body || req.body.confirm !== 'RESTORE' || !Number.isInteger(id) || id < 1) return res.status(400).json({ error: 'id (entier) et confirm: "RESTORE" requis' });
     const r = await store.restoreSnapshot(id);
     if (r.reason === 'not_found') return res.status(404).json({ error: 'Snapshot introuvable' });
-    logger.warn(`[fly] cerveau RESTAURÉ depuis le snapshot ${id}.`);
+    logger.warn(`[fly] cerveau RESTAURÉ depuis le snapshot ${id} (génération ${r.generation}).`);
     res.json(r);
   }));
 
