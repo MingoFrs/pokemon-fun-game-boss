@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 // Validation du modèle « valeur par Pokémon » (la Mouche n'observe que identité + shiny + types).
-//   node fly-validate.js [--policy value|mushroom] [--compare] [--seeds 12] [--eval 2000] [--max 6400] [--opp noisy|random|mixed] [--noise 0.15]
+//   node fly-validate.js [--seeds 12] [--eval 2000] [--max 6400] [--opp noisy|random|mixed] [--noise 0.15]
 //                        [--types] [--set CLE=val,...] [--proxy] [--thresholds 330,450,520] [--server server.js]
 // - Données : stats.loadEntries() du projet (lancé depuis la racine) ; sinon --proxy (PokeAPI, catégories approchées).
 // - Tirages : les VRAIES fonctions de server.js (effets, shiny, RARITY_TABLE) via fly-real-env.js.
@@ -10,8 +10,8 @@
 // - Calibration : nombre de parties d'échauffement pour ~50 % contre le joueur simulé -> WARMUP_GAMES.
 const path = require('path');
 const baseCfg = require('./fly-config');
-const { ValuePolicy, mulberry32 } = require('./fly-value-policy');
-const { MushroomPolicy } = require('./fly-mushroom-policy');
+const { mulberry32 } = require('./fly-value-policy');
+const { createPolicy } = require('./fly-policy');
 const { createRealDraws, loadProjectEntries } = require('./fly-real-env');
 const { playSimulatedGame, simulatedHumanPick } = require('./fly-warmup');
 
@@ -20,8 +20,6 @@ const has = n => args.includes('--' + n);
 const val = (n, d) => { const i = args.indexOf('--' + n); return i >= 0 ? args[i + 1] : d; };
 // --set CLE=valeur,CLE=valeur : surcharge de fly-config.js pour cette exécution (balayage de paramètres)
 val('set', '').split(',').filter(Boolean).forEach(kv => { const [k, v] = kv.split('='); baseCfg[k] = v === 'true' ? true : v === 'false' ? false : (Number.isNaN(Number(v)) ? v : Number(v)); });
-const POLICY = val('policy', 'value');
-const makePolicy = (name, cfg, seed) => (name === 'mushroom' ? new MushroomPolicy({ config: cfg, seed }) : new ValuePolicy({ config: cfg, seed }));
 const SEEDS = Number(val('seeds', 12)), EVAL = Number(val('eval', 2000)), MAX = Number(val('max', 6400));
 const OPP = val('opp', 'noisy'), NOISE = Number(val('noise', baseCfg.WARMUP_HUMAN_NOISE));
 const SERVER = path.resolve(val('server', 'server.js'));
@@ -48,9 +46,9 @@ function playGame(policy, draws, rng, mode, cfg) {
   return r === 'win' ? 1 : r === 'draw' ? 0.5 : 0;
 }
 
-function runSeed(seed, useTypes, policyName = POLICY) {
+function runSeed(seed, useTypes) {
   const cfg = { ...baseCfg, VALUE_USE_TYPES: useTypes };
-  const policy = makePolicy(policyName, cfg, seed * 7 + 1);
+  const policy = createPolicy({ config: cfg, seed: seed * 7 + 1 });
   const trainRng = mulberry32(seed * 1009 + 3), trainHum = mulberry32(seed * 1013 + 5);
   const trainDraws = createRealDraws({ serverFile: SERVER, entries: data.entries, rng: trainRng, categoryOrder: data.categoryOrder, legendaryGroup: data.legendaryGroup });
   const out = []; let done = 0;
@@ -95,28 +93,6 @@ console.log(`${SEEDS} graines, évaluation ${EVAL} parties/jalon, IC 95 %\n`);
 
 const refs = { random: mean(Array.from({ length: 4 }, (_, i) => reference('random', i + 1))), exact: mean(Array.from({ length: 4 }, (_, i) => reference('exact', i + 1))) };
 console.log(`Références : Mouche aléatoire ${pc(refs.random)} % | Mouche qui connaît le BST exact (plafond) ${pc(refs.exact)} %\n`);
-
-if (has('compare')) {
-  // Comparaison appariée : même graine, mêmes tirages d'entraînement et d'évaluation, même joueur simulé, même exploration.
-  const t0 = Date.now();
-  const A = Array.from({ length: SEEDS }, (_, s) => runSeed(s + 1, false, 'value'));
-  const B = Array.from({ length: SEEDS }, (_, s) => runSeed(s + 1, false, 'mushroom'));
-  console.log(`--- Comparaison valeur par Pokémon (tableau) vs corps pédonculé (${((Date.now() - t0) / 1000).toFixed(0)} s) ---`);
-  console.log('parties | tableau (±IC95)  | corps pédonculé (±IC95) | différence appariée  corps pédonculé − tableau (IC95)');
-  const diffs = [];
-  MILESTONES.forEach((m, i) => {
-    const a = A.map(r => r[i]), b = B.map(r => r[i]), d = b.map((x, k) => 100 * (x - a[k]));
-    const lo = mean(d) - 1.96 * sd(d) / Math.sqrt(d.length), hi = mean(d) + 1.96 * sd(d) / Math.sqrt(d.length);
-    diffs.push({ m, d: mean(d), lo, hi });
-    console.log(`${String(m).padStart(6)}  | ${pc(mean(a))} ± ${(100 * ci(a)).toFixed(1).padStart(3)}    | ${pc(mean(b))} ± ${(100 * ci(b)).toFixed(1).padStart(3)}           | ${mean(d).toFixed(2).padStart(6)}  [${lo.toFixed(2)} ; ${hi.toFixed(2)}] ${lo > 0 ? '← meilleur' : hi < 0 ? '← moins bon' : ''}`);
-  });
-  const cross = c => crossing(MILESTONES.map((_, i) => mean(c.map(r => r[i]))), 0.5);
-  console.log(`\nÉchauffement pour ~50 % : tableau ≈ ${cross(A)} | corps pédonculé ≈ ${cross(B)} parties`);
-  const W0 = cross(B) ?? 0;
-  const post = diffs.filter(x => x.m >= W0);
-  console.log(`Différence moyenne après ${W0} parties (régime de fonctionnement) : ${mean(post.map(x => x.d)).toFixed(2)} points ; plateau tableau ${pc(Math.max(...MILESTONES.map((_, i) => mean(A.map(r => r[i])))))} %, corps pédonculé ${pc(Math.max(...MILESTONES.map((_, i) => mean(B.map(r => r[i])))))} %.`);
-  process.exit(0);
-}
 
 const variants = has('types') ? [false, true] : [false];
 const results = {};

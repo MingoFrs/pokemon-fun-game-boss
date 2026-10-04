@@ -15,14 +15,15 @@
 // Aucun accès DB si supabase = null (mode mémoire seule). Aucune écriture si la ligne en base est illisible.
 // =====================================================================
 const defaultConfig = require('./fly-config');
-const { ValuePolicy } = require('./fly-value-policy');
+const { createPolicy, assertFlyModel } = require('./fly-policy');
 
 const RESULT_CHAR = { win: 'W', loss: 'L', draw: 'D' };   // point de vue de la Mouche
 const BRAIN_KEYS = ['games_played', 'wins', 'losses', 'draws'];
 const NEW_COLUMNS = ['generation', 'total_games', 'total_wins', 'total_losses', 'total_draws'];
 
 function createBrainStore({ supabase = null, config = defaultConfig, makePolicy, warmup = null, logger = console } = {}) {
-  const policy = makePolicy ? makePolicy() : new ValuePolicy({ config });
+  assertFlyModel(config);                       // FLY_MODEL invalide : le démarrage échoue avec un message clair
+  const policy = makePolicy ? makePolicy() : createPolicy({ config });
   const store = {
     policy, epoch: 0, generation: 1, recent: [], persistent: false, saveDisabled: false, conflicts: 0,
     totals: { games: 0, wins: 0, losses: 0, draws: 0 }, warmupResult: null
@@ -36,7 +37,7 @@ function createBrainStore({ supabase = null, config = defaultConfig, makePolicy,
     tail = run;
     return run;
   }
-  const freshState = () => (makePolicy ? makePolicy() : new ValuePolicy({ config })).getState();
+  const freshState = () => (makePolicy ? makePolicy() : createPolicy({ config })).getState();
   const modelOf = s => { const m = { ...s }; BRAIN_KEYS.forEach(k => delete m[k]); return m; };
   const fromRow = row => ({ ...row.weights, games_played: row.games_played, wins: row.wins, losses: row.losses, draws: row.draws });
   const cleanRecent = arr => (Array.isArray(arr) ? arr.filter(x => x === 'W' || x === 'L' || x === 'D').slice(-config.CURVE_WINDOW_GAMES) : []);
@@ -211,7 +212,7 @@ function createBrainStore({ supabase = null, config = defaultConfig, makePolicy,
     if (error) throw new Error(error.message);
     if (!data) return { ok: false, reason: 'not_found' };
     const state = fromRow(data);
-    (makePolicy ? makePolicy() : new ValuePolicy({ config })).setState(state);   // valide AVANT toute modification (lève si invalide)
+    (makePolicy ? makePolicy() : createPolicy({ config })).setState(state);   // valide AVANT toute modification (lève si invalide)
     const before = policy.getState();
     const oldGeneration = store.generation;
     store.epoch++;

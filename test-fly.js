@@ -10,6 +10,7 @@ const cfg = require('./fly-config');
 const bossConfig = require('./boss-mechanics-config');
 const { createBossMechanics } = require('./boss-mechanics');
 const { ValuePolicy, mulberry32 } = require('./fly-value-policy');
+const { createPolicy, assertFlyModel } = require('./fly-policy');
 const { createBrainStore } = require('./fly-brain-store');
 const { registerFlyAdminRoutes } = require('./fly-admin-routes');
 const { createFlyGame, HUMAN_RESULT } = require('./fly-game');
@@ -86,6 +87,22 @@ test('Valeurs valides', () => {
   assert.ok(['base', 'final'].includes(cfg.VALUE_OBSERVE));
   assert.strictEqual(cfg.VALUE_USE_TYPES, false);          // validé par fly-validate.js : aucun gain après échauffement
   assert.strictEqual(cfg.WARMUP_GAMES, 210);
+});
+test("FLY_MODEL : 'value' seule valeur acceptée ; toute autre fait échouer avec un message clair", () => {
+  assert.strictEqual(cfg.FLY_MODEL, 'value');
+  assert.doesNotThrow(() => assertFlyModel(cfg));
+  assert.ok(createPolicy({ config: cfg, seed: 1 }) instanceof ValuePolicy);
+  for (const bad of ['mushroom', 'linear', '', undefined, null, 'Value']) {
+    assert.throws(() => assertFlyModel({ ...cfg, FLY_MODEL: bad }), /FLY_MODEL invalide.*Seule la valeur 'value'/);
+    assert.throws(() => createPolicy({ config: { ...cfg, FLY_MODEL: bad } }), /FLY_MODEL invalide/);
+    assert.throws(() => createBrainStore({ config: { ...cfg, FLY_MODEL: bad }, logger: silentLogger }), /FLY_MODEL invalide/);
+    assert.throws(() => createBrainStore({ config: { ...cfg, FLY_MODEL: bad }, makePolicy: () => new ValuePolicy({ config: cfg }), logger: silentLogger }), /FLY_MODEL invalide/);
+  }
+});
+test('Magasin sans fabrique de politique : modèle par défaut = ValuePolicy (interface commune)', () => {
+  const s = createBrainStore({ config: tcfg, logger: silentLogger });
+  assert.ok(s.policy instanceof ValuePolicy);
+  ['choose', 'observe', 'learn', 'getState', 'setState'].forEach(m => assert.strictEqual(typeof s.policy[m], 'function', m));
 });
 test("Aucune clé 'fly' dans ENABLED_BY_MODE (mécaniques de boss inactives en fly)", () => assert.ok(!('fly' in bossConfig.ENABLED_BY_MODE)));
 test('TURNS et SHINY_POINTS_MULTIPLIER alignés sur server.js', () => {

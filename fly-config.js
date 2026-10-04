@@ -12,6 +12,11 @@ module.exports = {
   SHINY_POINTS_MULTIPLIER: 1.5,   // = SHINY_POINTS_MULTIPLIER de server.js (public) ; test-fly.js le vérifie
   BASEPOINTS_SCALE: 1000,         // valeurs / échelle avant softmax
 
+  // ---- Modèle de la Mouche ----
+  // Seule valeur acceptée pour l'instant : 'value' (valeur par Pokémon). Toute autre valeur fait échouer le démarrage
+  // avec un message clair (fly-policy.js). Interface commune des modèles : policy.choose(obs) / observe / learn(...).
+  FLY_MODEL: 'value',
+
   // ---- Modèle « valeur par Pokémon » : la Mouche n'observe que identité + shiny + types ----
   // Après CHAQUE tour, elle voit le résultat de son propre choix (base, effet, points), comme l'humain voit
   // le sien, et met à jour la valeur estimée du Pokémon choisi. Appliqué à la fin d'une partie COMPLÈTE seulement.
@@ -23,18 +28,6 @@ module.exports = {
   VALUE_TEMP_START: 0.05,         // température d'exploration (échelle : valeur / BASEPOINTS_SCALE)
   VALUE_TEMP_FLOOR: 0.015,
   VALUE_TEMP_TAU: 100,            // en parties d'expérience (réelles + échauffement)
-
-  // ---- Modèle « corps pédonculé » (étape 6a ; inspiré de la structure du corps pédonculé de la drosophile) ----
-  // Pokémon -> neurones de projection (PN) -> neurones de Kenyon (KC, code PARCIMONIEUX : seuls les plus actifs
-  // restent, inhibition de type APL) -> neurones de sortie (MBON : approche / évitement). Apprentissage : un signal
-  // « dopamine » (écart entre les points observés et la valeur attendue) modifie les synapses KC->MBON des KC actifs.
-  // Adversaire thématique INSPIRÉ d'un cerveau de mouche : ce n'est PAS un vrai cerveau de mouche.
-  MB_KC: 5000,                    // neurones de Kenyon (≈ 2 hémisphères d'une drosophile). 2000 apprend ~10 pts moins bien (interférences)
-  MB_PN: 50,                      // neurones de projection (entrées)
-  MB_CLAWS: 7,                    // PN reliés à chaque KC (≈ 7 dans la littérature)
-  MB_SPARSITY: 0.01,              // fraction de KC actifs par Pokémon (la littérature donne ≈ 5 % ; 1 % réduit les interférences)
-  MB_STRUCT_SEED: 20260604,       // graine du câblage PN->KC : DOIT rester fixe (les poids appris en dépendent)
-  MB_RATE: 1.0,                   // taux d'apprentissage dopaminergique (1 = mémorisation en un coup ; valeur validée par balayage)
 
   // ---- Échauffement simulé : parties contre un joueur simulé AVANT d'affronter des humains ----
   // Exécuté sur tout cerveau neuf (premier démarrage, reset admin). Annoncé dans l'UI.
