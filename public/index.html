@@ -11,7 +11,7 @@
 <link rel="preconnect" href="https://raw.githubusercontent.com" crossorigin>
 <link rel="dns-prefetch" href="https://raw.githubusercontent.com">
 <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=2">
+<link rel="stylesheet" href="style.css?v=3">
 <!-- Applique thème de fond + réduction d'animations AVANT le premier rendu, pour
      éviter un flash visuel (contenu défini par le panneau Réglages, cf. client.js). -->
 <script>
@@ -25,6 +25,13 @@
 </script>
 </head>
 <body data-screen="home">
+
+<!-- Écran de chargement : visible au boot, puis à chaque réception de sprites non encore
+     chargés (cf. bloc "Écran de chargement" en tête de client.js). -->
+<div id="loading-overlay" class="loading-overlay" role="status" aria-live="polite">
+  <div class="loading-overlay__spinner" aria-hidden="true"></div>
+  <p id="loading-text" class="loading-overlay__text">Chargement…</p>
+</div>
 
 <div class="bg-glow" aria-hidden="true"></div>
 
@@ -997,7 +1004,7 @@
 <div id="friend-invite-toast-container" class="achievement-toast-container" aria-live="polite"></div>
 
 <script src="/socket.io/socket.io.js"></script>
-<script src="client.js?v=2"></script>
-<script src="fly-client.js?v=2"></script>
+<script src="client.js?v=3"></script>
+<script src="fly-client.js?v=3"></script>
 </body>
 </html>

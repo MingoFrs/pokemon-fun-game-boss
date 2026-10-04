@@ -1,5 +1,112 @@
 const socket = io();
 
+// ---------- Écran de chargement ----------
+// Overlay tant que des sprites reçus du serveur ne sont pas chargés (tous modes :
+// normal/admin/coop/fly, guess, auction, spectateur, reconnexion). Hook générique sur TOUS les
+// événements socket : tout champ `sprite` / `shinySprite` (profondeur quelconque) est
+// préchargé. Overlay affiché après 150 ms seulement (aucun flash si déjà en cache), jamais
+// bloquant plus de 8 s (une image en erreur compte comme terminée : les handlers existants
+// ont déjà leurs replis onerror). Au boot : attend polices + connexion socket (max 5 s).
+const loadingOverlayEl = document.getElementById('loading-overlay');
+const loadingTextEl = document.getElementById('loading-text');
+const LOADING_SHOW_DELAY_MS = 150;
+const LOADING_MAX_WAIT_MS = 8000;
+const LOADING_BOOT_MAX_MS = 5000;
+const preloadedSprites = new Set();
+const preloadingSprites = new Set();
+let loadingPending = 0;
+let loadingTotal = 0;
+let loadingShowTimer = null;
+let loadingBootPending = true;
+
+function refreshLoadingOverlay() {
+  const busy = loadingBootPending || loadingPending > 0;
+  if (!busy) {
+    clearTimeout(loadingShowTimer);
+    loadingShowTimer = null;
+    loadingTotal = 0;
+    loadingOverlayEl.classList.add('is-hidden');
+    return;
+  }
+  loadingTextEl.textContent = loadingPending > 0 && loadingTotal > 1
+    ? `Chargement… ${loadingTotal - loadingPending}/${loadingTotal}`
+    : 'Chargement…';
+  if (loadingOverlayEl.classList.contains('is-hidden') && !loadingShowTimer) {
+    loadingShowTimer = setTimeout(() => {
+      loadingShowTimer = null;
+      if (loadingBootPending || loadingPending > 0) loadingOverlayEl.classList.remove('is-hidden');
+    }, LOADING_SHOW_DELAY_MS);
+  }
+}
+
+function preloadSprite(url) {
+  if (typeof url !== 'string' || !url || preloadedSprites.has(url) || preloadingSprites.has(url)) return;
+  preloadingSprites.add(url);
+  loadingPending++;
+  loadingTotal++;
+  let settled = false;
+  const img = new Image();
+  const finish = () => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(timer);
+    preloadingSprites.delete(url);
+    preloadedSprites.add(url);
+    loadingPending--;
+    refreshLoadingOverlay();
+  };
+  const timer = setTimeout(finish, LOADING_MAX_WAIT_MS);
+  img.onload = finish;
+  img.onerror = finish;
+  img.src = url;
+}
+
+function collectSprites(value, depth) {
+  if (!value || typeof value !== 'object' || depth > 6) return;
+  if (Array.isArray(value)) {
+    value.forEach(v => collectSprites(v, depth + 1));
+    return;
+  }
+  for (const key of Object.keys(value)) {
+    const v = value[key];
+    if ((key === 'sprite' || key === 'shinySprite') && typeof v === 'string') preloadSprite(v);
+    else if (v && typeof v === 'object') collectSprites(v, depth + 1);
+  }
+}
+
+function onIncomingSocketEvent(args) {
+  try { collectSprites(args, 0); } catch (e) {}
+  refreshLoadingOverlay();
+}
+
+if (typeof socket.onAny === 'function') {
+  socket.onAny((event, ...args) => onIncomingSocketEvent(args)); // socket.io v3+ : appelé avant les handlers
+} else {
+  const originalOnEvent = socket.onevent; // socket.io v2
+  socket.onevent = function (packet) {
+    onIncomingSocketEvent((packet && packet.data ? packet.data.slice(1) : []));
+    return originalOnEvent.apply(this, arguments);
+  };
+}
+
+(function bootLoading() {
+  const waits = [];
+  if (document.fonts && document.fonts.ready) waits.push(document.fonts.ready.catch(() => {}));
+  if (document.readyState !== 'complete') {
+    waits.push(new Promise(res => window.addEventListener('load', res, { once: true })));
+  }
+  if (!socket.connected) {
+    waits.push(new Promise(res => socket.once('connect', res)));
+  }
+  const end = () => {
+    if (!loadingBootPending) return;
+    loadingBootPending = false;
+    refreshLoadingOverlay();
+  };
+  setTimeout(end, LOADING_BOOT_MAX_MS);
+  Promise.all(waits).then(end);
+})();
+
 // Easter egg : dex id de Métamorph (cf. socket.on('transform_metamorph') côté serveur).
 const METAMORPH_DEX_ID = 132;
 
