@@ -5570,6 +5570,18 @@ const FLY = createFlyGame({
   }
 });
 
+// ---- DÉFI QUOTIDIEN : même boss + mêmes 6 tours pour tous (RNG à graine, jour Europe/Paris), classement du jour ----
+const { registerDaily } = require('./daily-game');
+registerDaily({
+  io, app, supabase, createAuthClient,
+  deps: {
+    pickRandomBoss: g => pickRandomBoss(g),
+    pickPlayerTurnOptions: (...a) => pickPlayerTurnOptions(...a),
+    xpParticipation: XP_PARTICIPATION,
+    xpVictoryBonus: XP_VICTORY_BONUS
+  }
+});
+
 const PORT = process.env.PORT || 3000;
 // Restaure les parties persistées AVANT d'accepter des connexions : sinon un client qui
 // se reconnecte dans la fraction de seconde suivant le démarrage pourrait arriver avant

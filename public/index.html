@@ -19,7 +19,7 @@
 <link rel="preconnect" href="https://raw.githubusercontent.com" crossorigin>
 <link rel="dns-prefetch" href="https://raw.githubusercontent.com">
 <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=3">
+<link rel="stylesheet" href="style.css?v=4">
 <!-- Applique thème de fond + réduction d'animations AVANT le premier rendu, pour
      éviter un flash visuel (contenu défini par le panneau Réglages, cf. client.js). -->
 <script>
@@ -129,11 +129,89 @@
             <input id="code-input" type="text" maxlength="6" placeholder="CODE" class="input-code" autocomplete="off">
             <button id="btn-join" class="btn btn--bas">Rejoindre</button>
           </div>
+
+          <div id="daily-card" class="card card--daily">
+            <h2>🗓️ Défi quotidien</h2>
+            <p id="daily-card-boss" class="card__hint">Même boss, mêmes Pokémon pour tous. 1 essai par jour.</p>
+            <p id="daily-card-status" class="daily-status"></p>
+            <div class="daily-card__actions">
+              <button id="btn-daily-play" type="button" class="btn btn--haut">Jouer</button>
+              <button id="btn-daily-board" type="button" class="btn btn--ghost">Classement du jour</button>
+            </div>
+          </div>
         </div>
 
         <p id="error-message" class="error-message" role="alert"></p>
       </div>
 
+    </div>
+  </section>
+
+  <!-- ============ DÉFI QUOTIDIEN ============ -->
+
+  <section id="screen-daily" class="screen screen--hidden">
+    <div class="daily-shell">
+      <div class="daily-head">
+        <button id="daily-btn-back" type="button" class="btn btn--ghost">← Retour</button>
+        <p id="daily-date" class="eyebrow">Défi du jour</p>
+      </div>
+      <p id="daily-error" class="error-message" role="alert"></p>
+
+      <div class="boss-panel">
+        <p class="eyebrow">Boss du jour · <span id="daily-difficulty"></span></p>
+        <img id="daily-boss-sprite" class="boss-sprite" src="" alt="">
+        <h2 id="daily-boss-name" class="boss-name"></h2>
+        <p class="boss-target">Objectif : <span id="daily-target">0</span> PTS</p>
+      </div>
+
+      <div id="daily-play" class="screen--hidden">
+        <p class="turn-label">TOUR <span id="daily-turn">1</span> / <span id="daily-turn-max">6</span> · <span id="daily-score">0</span> PTS</p>
+        <div id="daily-choices" class="choice-cards">
+          <button id="daily-btn-haut" type="button" class="choice-card choice-card--haut">
+            <img id="daily-haut-sprite" class="choice-card__sprite" src="" alt="">
+            <p id="daily-haut-name" class="choice-card__name">???</p>
+            <span class="choice-card__label">🔼 HAUT</span>
+          </button>
+          <button id="daily-btn-bas" type="button" class="choice-card choice-card--bas">
+            <img id="daily-bas-sprite" class="choice-card__sprite" src="" alt="">
+            <p id="daily-bas-name" class="choice-card__name">???</p>
+            <span class="choice-card__label">🔽 BAS</span>
+          </button>
+        </div>
+
+        <div id="daily-result" class="result-panel result-panel--hidden">
+          <p class="eyebrow">Résultat</p>
+          <p id="daily-res-rarity" class="result-rarity"></p>
+          <img id="daily-res-sprite" class="result-sprite" src="" alt="">
+          <p id="daily-res-name" class="result-name"></p>
+          <div class="result-breakdown">
+            <p class="result-line">Base : <span id="daily-res-base">0</span> PTS</p>
+            <p class="result-line">Effet : <span id="daily-res-effect">—</span></p>
+            <p class="result-final">Résultat : <span id="daily-res-points">0</span> PTS</p>
+          </div>
+          <button id="daily-btn-next" type="button" class="btn btn--haut btn--block">Tour suivant</button>
+        </div>
+
+        <button id="daily-btn-quit" type="button" class="link-btn">Abandonner</button>
+      </div>
+
+      <div id="daily-final" class="screen--hidden">
+        <p id="daily-final-outcome" class="finished-outcome"></p>
+        <p id="daily-final-score" class="finished-stat__value"></p>
+        <p id="daily-final-rank" class="daily-line"></p>
+        <p id="daily-final-xp" class="daily-line daily-line--xp screen--hidden"></p>
+        <div id="daily-final-team" class="daily-team"></div>
+        <p id="daily-final-best" class="daily-line daily-line--muted"></p>
+        <p id="daily-final-next" class="daily-line daily-line--muted"></p>
+        <button id="daily-btn-final-board" type="button" class="btn btn--bas btn--block">Classement du jour</button>
+        <button id="daily-btn-final-home" type="button" class="btn btn--ghost btn--block">Retour à l'accueil</button>
+      </div>
+
+      <div id="daily-board" class="screen--hidden">
+        <p id="daily-board-me" class="daily-line"></p>
+        <ol id="daily-board-list" class="leaderboard-list"></ol>
+        <button id="daily-btn-board-back" type="button" class="btn btn--ghost btn--block">Retour</button>
+      </div>
     </div>
   </section>
 
@@ -1019,5 +1097,6 @@
 <script src="/socket.io/socket.io.js"></script>
 <script src="client.js?v=4"></script>
 <script src="fly-client.js?v=3"></script>
+<script src="daily-client.js?v=1"></script>
 </body>
 </html>
