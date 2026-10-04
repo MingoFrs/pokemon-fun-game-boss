@@ -4,6 +4,14 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Route du Boss</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#070a10">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Route du Boss">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <!-- Sprites Pokémon servis depuis GitHub : établir la connexion (DNS+TLS) tôt, avant même
      de savoir quelles images seront demandées, réduit le délai visible sur la toute
@@ -979,6 +987,11 @@
 
       <!-- ---------- Page : Infos ---------- -->
       <div class="settings-page screen--hidden" data-settings-page="info">
+        <div id="pwa-install-block" class="settings-block screen--hidden">
+          <p class="settings-section__title">📲 Application</p>
+          <button id="btn-pwa-install" type="button" class="btn btn--haut btn--block screen--hidden">Installer l'application</button>
+          <p id="pwa-install-hint" class="account-history-hint screen--hidden">Sur iPhone/iPad : touche Partager puis « Sur l'écran d'accueil ».</p>
+        </div>
         <div class="settings-block">
           <p class="settings-section__title">✦ Crédits</p>
           <ul class="settings-credits">
@@ -1004,7 +1017,7 @@
 <div id="friend-invite-toast-container" class="achievement-toast-container" aria-live="polite"></div>
 
 <script src="/socket.io/socket.io.js"></script>
-<script src="client.js?v=3"></script>
+<script src="client.js?v=4"></script>
 <script src="fly-client.js?v=3"></script>
 </body>
 </html>

@@ -5262,3 +5262,44 @@ accountFrameButtons.forEach(btn => {
       // le comportement précédent (chargement à la demande), jamais bloquant.
     });
 })();
+
+// ---------- PWA : service worker + bouton d'installation ----------
+// sw.js (racine) : cache des sprites/polices/shell, cf. commentaire en tête du fichier.
+// Le SW n'est actif qu'en HTTPS ou sur localhost.
+(function setupPwa() {
+  if ('serviceWorker' in navigator) {
+    const register = () => navigator.serviceWorker.register('/sw.js').catch(() => {});
+    if (document.readyState === 'complete') register();
+    else window.addEventListener('load', register, { once: true });
+  }
+
+  const block = document.getElementById('pwa-install-block');
+  const btn = document.getElementById('btn-pwa-install');
+  const hint = document.getElementById('pwa-install-hint');
+  if (!block || !btn || !hint) return;
+
+  const standalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+  if (standalone) return; // déjà installée : rien à proposer
+
+  let deferredPrompt = null;
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferredPrompt = e;
+    block.classList.remove('screen--hidden');
+    btn.classList.remove('screen--hidden');
+  });
+  btn.addEventListener('click', async () => {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    try { await deferredPrompt.userChoice; } catch (e) {}
+    deferredPrompt = null;
+    block.classList.add('screen--hidden');
+  });
+  window.addEventListener('appinstalled', () => block.classList.add('screen--hidden'));
+
+  // iOS Safari : pas d'événement d'installation, seulement l'indication manuelle.
+  if (/iphone|ipad|ipod/i.test(navigator.userAgent)) {
+    block.classList.remove('screen--hidden');
+    hint.classList.remove('screen--hidden');
+  }
+})();
