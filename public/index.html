@@ -959,6 +959,7 @@
             <img id="account-avatar-current" class="account-profile-card__avatar" src="" alt="Avatar actuel">
             <div class="account-profile-card__info">
               <strong id="account-logged-pseudo" class="account-profile-card__pseudo"></strong>
+              <p id="account-logged-title" class="account-profile-card__title screen--hidden"></p>
               <p class="account-level-label">Niveau <strong id="account-level-value">1</strong></p>
               <div class="account-xp-bar"><div id="account-xp-bar-fill" class="account-xp-bar__fill"></div></div>
               <p id="account-xp-text" class="account-xp-text"></p>
@@ -969,6 +970,7 @@
           <div id="account-subtabs" class="settings-subtabs" role="tablist">
             <button type="button" class="settings-subtab settings-subtab--selected" data-account-subpage="history" role="tab" aria-selected="true">Historique</button>
             <button type="button" class="settings-subtab" data-account-subpage="achievements" role="tab" aria-selected="false">Succès</button>
+            <button type="button" class="settings-subtab" data-account-subpage="titles" role="tab" aria-selected="false">Titres</button>
             <button type="button" class="settings-subtab" data-account-subpage="pokedex" role="tab" aria-selected="false">Pokédex</button>
             <button type="button" class="settings-subtab" data-account-subpage="stats" role="tab" aria-selected="false">Stats</button>
             <button type="button" class="settings-subtab" data-account-subpage="friends" role="tab" aria-selected="false">Amis</button>
@@ -982,6 +984,11 @@
 
           <div class="account-subpage screen--hidden" data-account-subpage="achievements">
             <div id="account-achievements-list" class="account-achievements-list"></div>
+          </div>
+
+          <div class="account-subpage screen--hidden" data-account-subpage="titles">
+            <p class="account-history-hint">Débloque des titres via les succès, puis équipe-en un.</p>
+            <div id="account-titles-list" class="account-titles-list"></div>
           </div>
 
           <div class="account-subpage screen--hidden" data-account-subpage="pokedex">

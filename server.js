@@ -192,33 +192,42 @@ async function recordGameResult(player, xpAmount, details) {
 // l'historique COMPLET stocké en base (jamais de compteur séparé qui pourrait diverger de
 // la réalité) : source de vérité unique, cf. buildAchievementContext.
 // -----------------------------------------------------------------
+// TITRES : chaque succès débloque UN titre cosmétique (champ `title`), équipable sur le
+// compte (profiles.title = clé du succès, '' = aucun). Pas de table à part : le droit
+// d'équiper un titre = succès débloqué en base, revalidé dans /api/profile/title.
 const ACHIEVEMENTS = [
-  { key: 'first_game', category: 'facile', label: 'Premiers pas', description: 'Termine ta première partie.', check: ctx => ctx.gamesPlayed >= 1 },
-  { key: 'first_win', category: 'facile', label: 'Première victoire', description: 'Remporte ta première partie.', check: ctx => ctx.wins >= 1 },
-  { key: 'first_legendary', category: 'facile', label: 'Rencontre légendaire', description: 'Obtiens un Pokémon légendaire dans ton équipe.', check: ctx => ctx.hasLegendary },
-  { key: 'first_epic', category: 'facile', label: 'Coup de chance', description: 'Obtiens un Pokémon épique dans ton équipe.', check: ctx => ctx.hasEpic },
-  { key: 'first_shiny', category: 'facile', label: 'Reflet chromatique', description: 'Obtiens un Pokémon shiny.', check: ctx => ctx.hasShiny },
-  { key: 'games_5', category: 'facile', label: 'Habitué', description: 'Termine 5 parties.', check: ctx => ctx.gamesPlayed >= 5 },
-  { key: 'guess_win', category: 'facile', label: 'Détective', description: 'Remporte une partie de Devine le Pokémon.', check: ctx => ctx.winModes.has('guess') },
-  { key: 'admin_win', category: 'facile', label: "Face à l'IA", description: 'Remporte une partie en mode Admin vs Joueur.', check: ctx => ctx.winModes.has('admin') },
-  { key: 'score_6000', category: 'difficile', label: 'Score légendaire', description: 'Atteins un score de 6000 en une seule partie.', check: ctx => ctx.bestScore >= 6000 },
-  { key: 'wins_10', category: 'difficile', label: 'Vétéran', description: 'Remporte 10 parties.', check: ctx => ctx.wins >= 10 },
-  { key: 'beat_extreme', category: 'difficile', label: "Chasseur d'Arceus", description: 'Bats un boss de difficulté extrême.', check: ctx => ctx.beatExtreme },
-  { key: 'full_legendary_team', category: 'difficile', label: 'Équipe de légende', description: 'Termine avec 6 Pokémon légendaires ou pseudo-légendaires.', check: ctx => ctx.fullLegendaryTeam },
-  { key: 'auction_full_team', category: 'difficile', label: 'Collectionneur', description: 'Termine un Draft/Enchères avec une équipe complète de 6.', check: ctx => ctx.auctionFullTeam },
-  { key: 'three_modes_win', category: 'difficile', label: 'Polyvalent', description: 'Remporte au moins une partie en Route du Boss, Admin vs Joueur ET Devine le Pokémon.', check: ctx => ['normal', 'admin', 'guess'].every(m => ctx.winModes.has(m)) },
-  { key: 'win_streak_3', category: 'difficile', label: 'Sur une lancée', description: 'Enchaîne 3 victoires d\'affilée.', check: ctx => ctx.maxWinStreak >= 3 },
-  { key: 'first_mega', category: 'facile', label: 'Éveil de Méga-Pierre', description: 'Obtiens un Pokémon en méga-évolution dans ton équipe.', check: ctx => ctx.hasMega },
-  { key: 'auction_win', category: 'facile', label: 'Grand enchérisseur', description: 'Remporte une partie de Draft/Enchères.', check: ctx => ctx.winModes.has('auction') },
-  { key: 'coop_win', category: 'facile', label: 'Travail d\'équipe', description: 'Remporte une partie en mode Coop.', check: ctx => ctx.winModes.has('coop') },
-  { key: 'games_25', category: 'facile', label: 'Habitué confirmé', description: 'Termine 25 parties.', check: ctx => ctx.gamesPlayed >= 25 },
-  { key: 'double_shiny', category: 'difficile', label: 'Duo chromatique', description: 'Termine une partie avec 2 Pokémon shiny ou plus dans la même équipe.', check: ctx => ctx.doubleShiny },
-  { key: 'rainbow_team', category: 'difficile', label: 'Équipe arc-en-ciel', description: 'Termine avec une équipe couvrant au moins 5 raretés différentes.', check: ctx => ctx.rainbowTeam },
-  { key: 'wins_25', category: 'difficile', label: 'Increvable', description: 'Remporte 25 parties.', check: ctx => ctx.wins >= 25 },
-  { key: 'win_streak_5', category: 'difficile', label: 'Série parfaite', description: 'Enchaîne 5 victoires d\'affilée.', check: ctx => ctx.maxWinStreak >= 5 },
-  { key: 'four_modes_win', category: 'difficile', label: 'Maître absolu', description: 'Remporte au moins une partie dans les 4 modes de jeu (Route du Boss, Admin vs Joueur, Devine le Pokémon, Draft/Enchères).', check: ctx => ['normal', 'admin', 'guess', 'auction'].every(m => ctx.winModes.has(m)) },
-  { key: 'score_10000', category: 'difficile', label: 'Score astronomique', description: 'Atteins un score de 10000 en une seule partie.', check: ctx => ctx.bestScore >= 10000 }
+  { key: 'first_game', category: 'facile', title: 'Dresseur Novice', label: 'Premiers pas', description: 'Termine ta première partie.', check: ctx => ctx.gamesPlayed >= 1 },
+  { key: 'first_win', category: 'facile', title: 'Vainqueur', label: 'Première victoire', description: 'Remporte ta première partie.', check: ctx => ctx.wins >= 1 },
+  { key: 'first_legendary', category: 'facile', title: 'Témoin de Légende', label: 'Rencontre légendaire', description: 'Obtiens un Pokémon légendaire dans ton équipe.', check: ctx => ctx.hasLegendary },
+  { key: 'first_epic', category: 'facile', title: 'Veinard', label: 'Coup de chance', description: 'Obtiens un Pokémon épique dans ton équipe.', check: ctx => ctx.hasEpic },
+  { key: 'first_shiny', category: 'facile', title: 'Chasseur de Chromatiques', label: 'Reflet chromatique', description: 'Obtiens un Pokémon shiny.', check: ctx => ctx.hasShiny },
+  { key: 'games_5', category: 'facile', title: 'Dresseur Assidu', label: 'Habitué', description: 'Termine 5 parties.', check: ctx => ctx.gamesPlayed >= 5 },
+  { key: 'guess_win', category: 'facile', title: 'Fin Limier', label: 'Détective', description: 'Remporte une partie de Devine le Pokémon.', check: ctx => ctx.winModes.has('guess') },
+  { key: 'admin_win', category: 'facile', title: "Briseur d'IA", label: "Face à l'IA", description: 'Remporte une partie en mode Admin vs Joueur.', check: ctx => ctx.winModes.has('admin') },
+  { key: 'score_6000', category: 'difficile', title: 'Maître du Score', label: 'Score légendaire', description: 'Atteins un score de 6000 en une seule partie.', check: ctx => ctx.bestScore >= 6000 },
+  { key: 'wins_10', category: 'difficile', title: 'Champion Vétéran', label: 'Vétéran', description: 'Remporte 10 parties.', check: ctx => ctx.wins >= 10 },
+  { key: 'beat_extreme', category: 'difficile', title: "Terreur d'Arceus", label: "Chasseur d'Arceus", description: 'Bats un boss de difficulté extrême.', check: ctx => ctx.beatExtreme },
+  { key: 'full_legendary_team', category: 'difficile', title: 'Roi des Légendes', label: 'Équipe de légende', description: 'Termine avec 6 Pokémon légendaires ou pseudo-légendaires.', check: ctx => ctx.fullLegendaryTeam },
+  { key: 'auction_full_team', category: 'difficile', title: 'Grand Collectionneur', label: 'Collectionneur', description: 'Termine un Draft/Enchères avec une équipe complète de 6.', check: ctx => ctx.auctionFullTeam },
+  { key: 'three_modes_win', category: 'difficile', title: 'Touche-à-tout', label: 'Polyvalent', description: 'Remporte au moins une partie en Route du Boss, Admin vs Joueur ET Devine le Pokémon.', check: ctx => ['normal', 'admin', 'guess'].every(m => ctx.winModes.has(m)) },
+  { key: 'win_streak_3', category: 'difficile', title: 'Imparable', label: 'Sur une lancée', description: 'Enchaîne 3 victoires d\'affilée.', check: ctx => ctx.maxWinStreak >= 3 },
+  { key: 'first_mega', category: 'facile', title: 'Porteur de Méga-Pierre', label: 'Éveil de Méga-Pierre', description: 'Obtiens un Pokémon en méga-évolution dans ton équipe.', check: ctx => ctx.hasMega },
+  { key: 'auction_win', category: 'facile', title: 'Roi des Enchères', label: 'Grand enchérisseur', description: 'Remporte une partie de Draft/Enchères.', check: ctx => ctx.winModes.has('auction') },
+  { key: 'coop_win', category: 'facile', title: "Âme d'Équipe", label: 'Travail d\'équipe', description: 'Remporte une partie en mode Coop.', check: ctx => ctx.winModes.has('coop') },
+  { key: 'games_25', category: 'facile', title: "Pilier de l'Arène", label: 'Habitué confirmé', description: 'Termine 25 parties.', check: ctx => ctx.gamesPlayed >= 25 },
+  { key: 'double_shiny', category: 'difficile', title: 'Double Éclat', label: 'Duo chromatique', description: 'Termine une partie avec 2 Pokémon shiny ou plus dans la même équipe.', check: ctx => ctx.doubleShiny },
+  { key: 'rainbow_team', category: 'difficile', title: 'Arc-en-ciel Vivant', label: 'Équipe arc-en-ciel', description: 'Termine avec une équipe couvrant au moins 5 raretés différentes.', check: ctx => ctx.rainbowTeam },
+  { key: 'wins_25', category: 'difficile', title: 'Légende Vivante', label: 'Increvable', description: 'Remporte 25 parties.', check: ctx => ctx.wins >= 25 },
+  { key: 'win_streak_5', category: 'difficile', title: 'Invaincu', label: 'Série parfaite', description: 'Enchaîne 5 victoires d\'affilée.', check: ctx => ctx.maxWinStreak >= 5 },
+  { key: 'four_modes_win', category: 'difficile', title: 'Maître Absolu', label: 'Maître absolu', description: 'Remporte au moins une partie dans les 4 modes de jeu (Route du Boss, Admin vs Joueur, Devine le Pokémon, Draft/Enchères).', check: ctx => ['normal', 'admin', 'guess', 'auction'].every(m => ctx.winModes.has(m)) },
+  { key: 'score_10000', category: 'difficile', title: 'Astre du Score', label: 'Score astronomique', description: 'Atteins un score de 10000 en une seule partie.', check: ctx => ctx.bestScore >= 10000 }
 ];
+
+// Libellé du titre équipé à partir de la clé stockée ('' si aucun / clé inconnue).
+function titleLabelFor(key) {
+  const a = key ? ACHIEVEMENTS.find(x => x.key === key) : null;
+  return a ? a.title : '';
+}
 
 // Agrège toutes les lignes d'historique d'un joueur (déjà chargées, triées du plus ancien
 // au plus récent — cf. l'ORDER BY de l'appelant, nécessaire pour maxWinStreak) en un
@@ -310,7 +319,7 @@ async function checkAndUnlockAchievements(userId, socketId) {
 
     if (socketId) {
       io.to(socketId).emit('achievements_unlocked', {
-        achievements: newlyUnlocked.map(a => ({ key: a.key, label: a.label, description: a.description, category: a.category }))
+        achievements: newlyUnlocked.map(a => ({ key: a.key, label: a.label, description: a.description, category: a.category, title: a.title }))
       });
     }
   } catch (err) {
@@ -432,6 +441,8 @@ app.post('/api/register', async (req, res) => {
     pseudo: cleanPseudo,
     avatar: startingAvatar,
     frame: '',
+    title: '',
+    titleLabel: '',
     xp: 0,
     level: levelForXp(0)
   });
@@ -453,7 +464,7 @@ app.post('/api/login', async (req, res) => {
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('pseudo, avatar, frame, xp')
+    .select('pseudo, avatar, frame, xp, title')
     .eq('id', data.user.id)
     .single();
 
@@ -464,6 +475,8 @@ app.post('/api/login', async (req, res) => {
     pseudo: profile ? profile.pseudo : '',
     avatar: profile ? profile.avatar : null,
     frame: profile ? (profile.frame || '') : '',
+    title: profile ? (profile.title || '') : '',
+    titleLabel: profile ? titleLabelFor(profile.title) : '',
     xp,
     level: levelForXp(xp)
   });
@@ -489,7 +502,7 @@ app.post('/api/session', async (req, res) => {
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('pseudo, avatar, frame, xp')
+    .select('pseudo, avatar, frame, xp, title')
     .eq('id', data.user.id)
     .single();
 
@@ -500,6 +513,8 @@ app.post('/api/session', async (req, res) => {
     pseudo: profile ? profile.pseudo : '',
     avatar: profile ? profile.avatar : null,
     frame: profile ? (profile.frame || '') : '',
+    title: profile ? (profile.title || '') : '',
+    titleLabel: profile ? titleLabelFor(profile.title) : '',
     xp,
     level: levelForXp(xp)
   });
@@ -584,6 +599,55 @@ app.post('/api/profile/frame', async (req, res) => {
   res.json({ frame });
 });
 
+// Équipe / retire un titre. `title` = clé d'un succès ('' = aucun titre). Revalidé ICI :
+// la clé doit exister ET le succès correspondant doit être débloqué pour ce compte.
+app.post('/api/profile/title', async (req, res) => {
+  if (!requireSupabase(res)) return;
+  const { accessToken, title } = req.body || {};
+  if (!accessToken || typeof title !== 'string') {
+    res.status(400).json({ error: 'accessToken et title requis.' });
+    return;
+  }
+  if (title !== '' && !ACHIEVEMENTS.some(a => a.key === title)) {
+    res.status(400).json({ error: 'Titre inconnu.' });
+    return;
+  }
+
+  const { data: { user }, error: userError } = await createAuthClient().auth.getUser(accessToken);
+  if (userError || !user) {
+    res.status(401).json({ error: 'Session invalide.' });
+    return;
+  }
+
+  if (title !== '') {
+    await checkAndUnlockAchievements(user.id, null); // réconcilie avant de vérifier
+    const { data: owned, error: ownedError } = await supabase
+      .from('achievements')
+      .select('achievement_key')
+      .eq('user_id', user.id)
+      .eq('achievement_key', title);
+    if (ownedError) {
+      res.status(400).json({ error: 'Vérification du titre impossible.' });
+      return;
+    }
+    if (!owned || owned.length === 0) {
+      res.status(403).json({ error: "Ce titre n'est pas encore débloqué." });
+      return;
+    }
+  }
+
+  const { error: updateError } = await supabase
+    .from('profiles')
+    .update({ title })
+    .eq('id', user.id);
+  if (updateError) {
+    res.status(400).json({ error: "Le titre n'a pas pu être enregistré : " + updateError.message });
+    return;
+  }
+
+  res.json({ title, titleLabel: titleLabelFor(title) });
+});
+
 // Historique des 10 dernières parties terminées (cf. recordGameResult, appelé à chaque
 // fin de partie). Identité vérifiée via accessToken, comme /api/profile/avatar.
 app.post('/api/profile/history', async (req, res) => {
@@ -646,12 +710,16 @@ app.post('/api/profile/achievements', async (req, res) => {
   }
 
   const unlockedKeys = new Set((data || []).map(a => a.achievement_key));
+  const { data: titleRow } = await supabase.from('profiles').select('title').eq('id', user.id).single();
+  const selectedTitle = titleRow && unlockedKeys.has(titleRow.title) ? titleRow.title : '';
   res.json({
+    selectedTitle,
     achievements: ACHIEVEMENTS.map(a => ({
       key: a.key,
       category: a.category,
       label: a.label,
       description: a.description,
+      title: a.title,
       unlocked: unlockedKeys.has(a.key)
     }))
   });
@@ -785,7 +853,7 @@ app.post('/api/friends/search', async (req, res) => {
 
   const { data: profiles, error } = await supabase
     .from('profiles')
-    .select('id, pseudo, avatar, frame')
+    .select('id, pseudo, avatar, frame, title')
     .ilike('pseudo', `%${trimmed}%`)
     .neq('id', user.id)
     .limit(10);
@@ -807,7 +875,7 @@ app.post('/api/friends/search', async (req, res) => {
       else if (rel.user_id === user.id) relation = 'pending_sent';
       else relation = 'pending_received';
     }
-    return { id: p.id, pseudo: p.pseudo, avatar: p.avatar, frame: p.frame || '', relation };
+    return { id: p.id, pseudo: p.pseudo, avatar: p.avatar, frame: p.frame || '', titleLabel: titleLabelFor(p.title), relation };
   });
   res.json({ results });
 });
@@ -918,7 +986,7 @@ app.post('/api/friends/list', async (req, res) => {
   const otherIds = (relations || []).map(r => (r.user_id === user.id ? r.friend_id : r.user_id));
   let profilesById = {};
   if (otherIds.length > 0) {
-    const { data: profiles } = await supabase.from('profiles').select('id, pseudo, avatar, frame').in('id', otherIds);
+    const { data: profiles } = await supabase.from('profiles').select('id, pseudo, avatar, frame, title').in('id', otherIds);
     profilesById = Object.fromEntries((profiles || []).map(p => [p.id, p]));
   }
 
@@ -929,7 +997,7 @@ app.post('/api/friends/list', async (req, res) => {
     const otherId = r.user_id === user.id ? r.friend_id : r.user_id;
     const profile = profilesById[otherId];
     if (!profile) return;
-    const entry = { id: otherId, pseudo: profile.pseudo, avatar: profile.avatar, frame: profile.frame || '' };
+    const entry = { id: otherId, pseudo: profile.pseudo, avatar: profile.avatar, frame: profile.frame || '', titleLabel: titleLabelFor(profile.title) };
     if (r.status === 'accepted') {
       entry.online = isAccountOnline(otherId);
       friends.push(entry);
@@ -960,7 +1028,7 @@ app.post('/api/leaderboard', async (req, res) => {
 
   const { data, error } = await supabase
     .from('profiles')
-    .select('id, pseudo, avatar, xp')
+    .select('id, pseudo, avatar, xp, title')
     .order('xp', { ascending: false })
     .limit(50);
   if (error) {
@@ -972,6 +1040,7 @@ app.post('/api/leaderboard', async (req, res) => {
     leaderboard: (data || []).map(p => ({
       pseudo: p.pseudo,
       avatar: p.avatar,
+      titleLabel: titleLabelFor(p.title),
       xp: p.xp || 0,
       level: levelForXp(p.xp || 0),
       isSelf: !!selfId && p.id === selfId

@@ -207,6 +207,8 @@ const btnAccountRegister = document.getElementById('btn-account-register');
 const accountLoggedPanelEl = document.getElementById('account-logged-panel');
 const accountAvatarCurrentEl = document.getElementById('account-avatar-current');
 const accountLoggedPseudoEl = document.getElementById('account-logged-pseudo');
+const accountLoggedTitleEl = document.getElementById('account-logged-title');
+const accountTitlesListEl = document.getElementById('account-titles-list');
 const accountLevelValueEl = document.getElementById('account-level-value');
 const accountXpBarFillEl = document.getElementById('account-xp-bar-fill');
 const accountXpTextEl = document.getElementById('account-xp-text');
@@ -405,6 +407,7 @@ const ACHIEVEMENT_ICONS = {
 
 async function fetchAndRenderAccountAchievements(account) {
   accountAchievementsListEl.innerHTML = '';
+  accountTitlesListEl.innerHTML = '';
   try {
     const res = await fetch('/api/profile/achievements', {
       method: 'POST',
@@ -417,6 +420,7 @@ async function fetchAndRenderAccountAchievements(account) {
       empty.className = 'account-history-empty';
       empty.textContent = 'Succès indisponibles pour le moment.';
       accountAchievementsListEl.appendChild(empty);
+      accountTitlesListEl.appendChild(empty.cloneNode(true));
       return;
     }
 
@@ -454,11 +458,104 @@ async function fetchAndRenderAccountAchievements(account) {
       block.appendChild(grid);
       accountAchievementsListEl.appendChild(block);
     });
+
+    accountTitlesCache = { achievements: data.achievements, selected: data.selectedTitle || '' };
+    renderAccountTitles();
   } catch (err) {
     const empty = document.createElement('p');
     empty.className = 'account-history-empty';
     empty.textContent = 'Succès indisponibles pour le moment.';
     accountAchievementsListEl.appendChild(empty);
+    accountTitlesListEl.appendChild(empty.cloneNode(true));
+  }
+}
+
+// ---------- Titres (1 par succès, équipables une fois le succès débloqué) ----------
+let accountTitlesCache = { achievements: [], selected: '' };
+
+// Ligne "titre équipé" sous le pseudo dans la carte profil (masquée si aucun).
+function renderAccountTitleLine(account) {
+  const label = account && account.titleLabel ? account.titleLabel : '';
+  accountLoggedTitleEl.textContent = label;
+  accountLoggedTitleEl.classList.toggle('screen--hidden', !label);
+}
+
+function buildTitleOption({ icon, name, hint, selected, locked, onClick }) {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'account-title-option' + (selected ? ' account-title-option--selected' : '');
+  btn.disabled = !!locked;
+
+  const iconEl = document.createElement('span');
+  iconEl.className = 'account-title-option__icon';
+  iconEl.textContent = icon;
+
+  const text = document.createElement('span');
+  text.className = 'account-title-option__text';
+  const nameEl = document.createElement('span');
+  nameEl.className = 'account-title-option__name';
+  nameEl.textContent = name;
+  const hintEl = document.createElement('span');
+  hintEl.className = 'account-title-option__hint';
+  hintEl.textContent = hint;
+  text.appendChild(nameEl);
+  text.appendChild(hintEl);
+
+  btn.appendChild(iconEl);
+  btn.appendChild(text);
+  if (!locked) btn.addEventListener('click', onClick);
+  return btn;
+}
+
+function renderAccountTitles() {
+  accountTitlesListEl.innerHTML = '';
+  const { achievements, selected } = accountTitlesCache;
+
+  accountTitlesListEl.appendChild(buildTitleOption({
+    icon: '∅',
+    name: 'Aucun titre',
+    hint: 'Ne rien afficher sous ton pseudo.',
+    selected: selected === '',
+    locked: false,
+    onClick: () => equipAccountTitle('')
+  }));
+
+  // Débloqués d'abord, puis verrouillés (ordre serveur conservé à l'intérieur de chaque groupe).
+  const ordered = achievements.filter(a => a.unlocked).concat(achievements.filter(a => !a.unlocked));
+  ordered.forEach(a => {
+    accountTitlesListEl.appendChild(buildTitleOption({
+      icon: ACHIEVEMENT_ICONS[a.key] || '🏆',
+      name: a.unlocked ? a.title : '???',
+      hint: a.unlocked ? `Succès : ${a.label}` : `Succès requis : ${a.description}`,
+      selected: a.unlocked && selected === a.key,
+      locked: !a.unlocked,
+      onClick: () => equipAccountTitle(a.key)
+    }));
+  });
+}
+
+async function equipAccountTitle(key) {
+  const account = getStoredAccount();
+  if (!account) return;
+  try {
+    const res = await fetch('/api/profile/title', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ accessToken: account.accessToken, title: key })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      accountErrorEl.textContent = data.error || "Le titre n'a pas pu être changé.";
+      return;
+    }
+    accountErrorEl.textContent = '';
+    const updated = Object.assign({}, account, { title: data.title, titleLabel: data.titleLabel });
+    setStoredAccount(updated);
+    renderAccountTitleLine(updated);
+    accountTitlesCache.selected = data.title;
+    renderAccountTitles();
+  } catch (err) {
+    accountErrorEl.textContent = 'Connexion au serveur impossible.';
   }
 }
 
@@ -720,6 +817,12 @@ function buildFriendRow(entry, actions) {
   const name = document.createElement('span');
   name.textContent = entry.pseudo;
   info.appendChild(name);
+  if (entry.titleLabel) {
+    const title = document.createElement('span');
+    title.className = 'friend-row__title';
+    title.textContent = entry.titleLabel;
+    info.appendChild(title);
+  }
   if (entry.online !== undefined) {
     const status = document.createElement('span');
     status.className = 'friend-row__status' + (entry.online ? ' friend-row__status--online' : '');
@@ -872,6 +975,12 @@ function showAchievementToast(achievement) {
   body.appendChild(eyebrow);
   body.appendChild(label);
   body.appendChild(description);
+  if (achievement.title) {
+    const titleLine = document.createElement('p');
+    titleLine.className = 'achievement-toast__description';
+    titleLine.textContent = `Titre débloqué : ${achievement.title}`;
+    body.appendChild(titleLine);
+  }
 
   toast.appendChild(icon);
   toast.appendChild(body);
@@ -922,6 +1031,12 @@ async function fetchAndRenderLeaderboard() {
       const pseudo = document.createElement('span');
       pseudo.className = 'leaderboard-item__pseudo';
       pseudo.textContent = entry.pseudo;
+      if (entry.titleLabel) {
+        const titleEl = document.createElement('small');
+        titleEl.className = 'leaderboard-item__title';
+        titleEl.textContent = entry.titleLabel;
+        pseudo.appendChild(titleEl);
+      }
 
       const level = document.createElement('span');
       level.className = 'leaderboard-item__level';
@@ -1029,7 +1144,7 @@ async function refreshAccountFromServer() {
       applyAccountUI(null);
       return;
     }
-    const account = { accessToken: data.accessToken, refreshToken: data.refreshToken, pseudo: data.pseudo, avatar: data.avatar, frame: data.frame || '', xp: data.xp, level: data.level };
+    const account = { accessToken: data.accessToken, refreshToken: data.refreshToken, pseudo: data.pseudo, avatar: data.avatar, frame: data.frame || '', title: data.title || '', titleLabel: data.titleLabel || '', xp: data.xp, level: data.level };
     setStoredAccount(account);
     applyAccountUI(account);
   } catch (err) {
@@ -1101,6 +1216,7 @@ function refreshAccountSettingsSection() {
     accountFormLoginEl.classList.add('screen--hidden');
     accountFormRegisterEl.classList.add('screen--hidden');
     accountLoggedPseudoEl.textContent = account.pseudo;
+    renderAccountTitleLine(account);
     accountAvatarCurrentEl.src = account.avatar ? avatarUrl(account.avatar) : '';
     applyAvatarFrame(accountAvatarCurrentEl, account.frame);
     renderAccountLevel(account);
@@ -1210,7 +1326,7 @@ btnAccountLogin.addEventListener('click', async () => {
       accountErrorEl.textContent = data.error || 'Connexion impossible.';
       return;
     }
-    const account = { accessToken: data.accessToken, refreshToken: data.refreshToken, pseudo: data.pseudo, avatar: data.avatar, frame: data.frame || '', xp: data.xp, level: data.level };
+    const account = { accessToken: data.accessToken, refreshToken: data.refreshToken, pseudo: data.pseudo, avatar: data.avatar, frame: data.frame || '', title: data.title || '', titleLabel: data.titleLabel || '', xp: data.xp, level: data.level };
     setStoredAccount(account);
     applyAccountUI(account);
     refreshAccountSettingsSection();
@@ -1245,7 +1361,7 @@ btnAccountRegister.addEventListener('click', async () => {
       accountErrorEl.textContent = 'Compte créé : vérifie tes emails avant de te connecter.';
       return;
     }
-    const account = { accessToken: data.accessToken, refreshToken: data.refreshToken, pseudo: data.pseudo, avatar: data.avatar, frame: data.frame || '', xp: data.xp, level: data.level };
+    const account = { accessToken: data.accessToken, refreshToken: data.refreshToken, pseudo: data.pseudo, avatar: data.avatar, frame: data.frame || '', title: data.title || '', titleLabel: data.titleLabel || '', xp: data.xp, level: data.level };
     setStoredAccount(account);
     applyAccountUI(account);
     refreshAccountSettingsSection();

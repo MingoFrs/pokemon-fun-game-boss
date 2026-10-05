@@ -1291,6 +1291,86 @@ input:focus {
   border-color: var(--accent-haut);
 }
 
+/* ---------- Titres (débloqués via les succès) ---------- */
+.account-profile-card__title {
+  margin: 0 0 4px;
+  font-size: 11px;
+  color: var(--accent-haut, #f5a623);
+  font-style: italic;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-titles-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+.account-title-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--bg-panel-alt);
+  border: 1px solid var(--border);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+
+.account-title-option__icon {
+  font-size: 18px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.account-title-option__text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.account-title-option__name {
+  font-size: 12px;
+}
+
+.account-title-option__hint {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.account-title-option:hover:not(:disabled) {
+  border-color: var(--accent-haut, #f5a623);
+}
+
+.account-title-option--selected {
+  border-color: var(--accent-haut, #f5a623);
+  box-shadow: 0 0 0 1px var(--accent-haut, #f5a623);
+}
+
+.account-title-option:disabled {
+  opacity: 0.45;
+  filter: grayscale(1);
+  cursor: not-allowed;
+}
+
+.friend-row__title,
+.leaderboard-item__title {
+  font-size: 10px;
+  font-style: italic;
+  color: var(--accent-haut, #f5a623);
+}
+
+.leaderboard-item__title {
+  margin-left: 6px;
+}
+
 /* ---------- Pokédex personnel ---------- */
 .account-pokedex-grid {
   display: grid;
