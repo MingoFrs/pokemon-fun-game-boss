@@ -16658,5 +16658,779 @@
       "bug",
       "poison"
     ]
+  },
+  "10278": {
+    "id": 10278,
+    "name": "Méga-Mélodelfe",
+    "apiName": "clefable-mega",
+    "hp": 95,
+    "attack": 80,
+    "defense": 93,
+    "specialAttack": 135,
+    "specialDefense": 110,
+    "speed": 70,
+    "bst": 583,
+    "types": [
+      "fairy",
+      "flying"
+    ]
+  },
+  "10279": {
+    "id": 10279,
+    "name": "Méga-Empiflor",
+    "apiName": "victreebel-mega",
+    "hp": 80,
+    "attack": 125,
+    "defense": 85,
+    "specialAttack": 135,
+    "specialDefense": 95,
+    "speed": 70,
+    "bst": 590,
+    "types": [
+      "grass",
+      "poison"
+    ]
+  },
+  "10280": {
+    "id": 10280,
+    "name": "Méga-Staross",
+    "apiName": "starmie-mega",
+    "hp": 60,
+    "attack": 100,
+    "defense": 105,
+    "specialAttack": 130,
+    "specialDefense": 105,
+    "speed": 120,
+    "bst": 620,
+    "types": [
+      "water",
+      "psychic"
+    ]
+  },
+  "10281": {
+    "id": 10281,
+    "name": "Méga-Dracolosse",
+    "apiName": "dragonite-mega",
+    "hp": 91,
+    "attack": 124,
+    "defense": 115,
+    "specialAttack": 145,
+    "specialDefense": 125,
+    "speed": 100,
+    "bst": 700,
+    "types": [
+      "dragon",
+      "flying"
+    ]
+  },
+  "10282": {
+    "id": 10282,
+    "name": "Méga-Méganium",
+    "apiName": "meganium-mega",
+    "hp": 80,
+    "attack": 92,
+    "defense": 115,
+    "specialAttack": 143,
+    "specialDefense": 115,
+    "speed": 80,
+    "bst": 625,
+    "types": [
+      "grass",
+      "fairy"
+    ]
+  },
+  "10283": {
+    "id": 10283,
+    "name": "Méga-Aligatueur",
+    "apiName": "feraligatr-mega",
+    "hp": 85,
+    "attack": 160,
+    "defense": 125,
+    "specialAttack": 89,
+    "specialDefense": 93,
+    "speed": 78,
+    "bst": 630,
+    "types": [
+      "water",
+      "dragon"
+    ]
+  },
+  "10284": {
+    "id": 10284,
+    "name": "Méga-Airmure",
+    "apiName": "skarmory-mega",
+    "hp": 65,
+    "attack": 140,
+    "defense": 110,
+    "specialAttack": 40,
+    "specialDefense": 100,
+    "speed": 110,
+    "bst": 565,
+    "types": [
+      "steel",
+      "flying"
+    ]
+  },
+  "10285": {
+    "id": 10285,
+    "name": "Méga-Momartik",
+    "apiName": "froslass-mega",
+    "hp": 70,
+    "attack": 80,
+    "defense": 70,
+    "specialAttack": 140,
+    "specialDefense": 100,
+    "speed": 120,
+    "bst": 580,
+    "types": [
+      "ice",
+      "ghost"
+    ]
+  },
+  "10286": {
+    "id": 10286,
+    "name": "Méga-Roitiflam",
+    "apiName": "emboar-mega",
+    "hp": 110,
+    "attack": 148,
+    "defense": 75,
+    "specialAttack": 110,
+    "specialDefense": 110,
+    "speed": 75,
+    "bst": 628,
+    "types": [
+      "fire",
+      "fighting"
+    ]
+  },
+  "10287": {
+    "id": 10287,
+    "name": "Méga-Minotaupe",
+    "apiName": "excadrill-mega",
+    "hp": 110,
+    "attack": 165,
+    "defense": 100,
+    "specialAttack": 65,
+    "specialDefense": 65,
+    "speed": 103,
+    "bst": 608,
+    "types": [
+      "ground",
+      "steel"
+    ]
+  },
+  "10288": {
+    "id": 10288,
+    "name": "Méga-Brutapode",
+    "apiName": "scolipede-mega",
+    "hp": 60,
+    "attack": 140,
+    "defense": 149,
+    "specialAttack": 75,
+    "specialDefense": 99,
+    "speed": 62,
+    "bst": 585,
+    "types": [
+      "bug",
+      "poison"
+    ]
+  },
+  "10289": {
+    "id": 10289,
+    "name": "Méga-Baggaïd",
+    "apiName": "scrafty-mega",
+    "hp": 65,
+    "attack": 130,
+    "defense": 135,
+    "specialAttack": 55,
+    "specialDefense": 135,
+    "speed": 68,
+    "bst": 588,
+    "types": [
+      "dark",
+      "fighting"
+    ]
+  },
+  "10290": {
+    "id": 10290,
+    "name": "Méga-Ohmassacre",
+    "apiName": "eelektross-mega",
+    "hp": 85,
+    "attack": 145,
+    "defense": 80,
+    "specialAttack": 135,
+    "specialDefense": 90,
+    "speed": 80,
+    "bst": 615,
+    "types": [
+      "electric"
+    ]
+  },
+  "10291": {
+    "id": 10291,
+    "name": "Méga-Lugulabre",
+    "apiName": "chandelure-mega",
+    "hp": 60,
+    "attack": 75,
+    "defense": 110,
+    "specialAttack": 175,
+    "specialDefense": 110,
+    "speed": 90,
+    "bst": 620,
+    "types": [
+      "ghost",
+      "fire"
+    ]
+  },
+  "10292": {
+    "id": 10292,
+    "name": "Méga-Blindépique",
+    "apiName": "chesnaught-mega",
+    "hp": 88,
+    "attack": 137,
+    "defense": 172,
+    "specialAttack": 74,
+    "specialDefense": 115,
+    "speed": 44,
+    "bst": 630,
+    "types": [
+      "grass",
+      "fighting"
+    ]
+  },
+  "10293": {
+    "id": 10293,
+    "name": "Méga-Goupelin",
+    "apiName": "delphox-mega",
+    "hp": 75,
+    "attack": 69,
+    "defense": 72,
+    "specialAttack": 159,
+    "specialDefense": 125,
+    "speed": 134,
+    "bst": 634,
+    "types": [
+      "fire",
+      "psychic"
+    ]
+  },
+  "10294": {
+    "id": 10294,
+    "name": "Méga-Amphinobi",
+    "apiName": "greninja-mega",
+    "hp": 72,
+    "attack": 125,
+    "defense": 77,
+    "specialAttack": 133,
+    "specialDefense": 81,
+    "speed": 142,
+    "bst": 630,
+    "types": [
+      "water",
+      "dark"
+    ]
+  },
+  "10295": {
+    "id": 10295,
+    "name": "Méga-Néméleos",
+    "apiName": "pyroar-mega",
+    "hp": 86,
+    "attack": 88,
+    "defense": 92,
+    "specialAttack": 129,
+    "specialDefense": 86,
+    "speed": 126,
+    "bst": 607,
+    "types": [
+      "fire",
+      "normal"
+    ]
+  },
+  "10296": {
+    "id": 10296,
+    "name": "Méga-Floette",
+    "apiName": "floette-mega",
+    "hp": 74,
+    "attack": 85,
+    "defense": 87,
+    "specialAttack": 155,
+    "specialDefense": 148,
+    "speed": 102,
+    "bst": 651,
+    "types": [
+      "fairy"
+    ]
+  },
+  "10297": {
+    "id": 10297,
+    "name": "Méga-Sepiatroce",
+    "apiName": "malamar-mega",
+    "hp": 86,
+    "attack": 102,
+    "defense": 88,
+    "specialAttack": 98,
+    "specialDefense": 120,
+    "speed": 88,
+    "bst": 582,
+    "types": [
+      "dark",
+      "psychic"
+    ]
+  },
+  "10298": {
+    "id": 10298,
+    "name": "Méga-Golgopathe",
+    "apiName": "barbaracle-mega",
+    "hp": 72,
+    "attack": 140,
+    "defense": 130,
+    "specialAttack": 64,
+    "specialDefense": 106,
+    "speed": 88,
+    "bst": 600,
+    "types": [
+      "rock",
+      "fighting"
+    ]
+  },
+  "10299": {
+    "id": 10299,
+    "name": "Méga-Kravarech",
+    "apiName": "dragalge-mega",
+    "hp": 65,
+    "attack": 85,
+    "defense": 105,
+    "specialAttack": 132,
+    "specialDefense": 163,
+    "speed": 44,
+    "bst": 594,
+    "types": [
+      "poison",
+      "dragon"
+    ]
+  },
+  "10300": {
+    "id": 10300,
+    "name": "Méga-Brutalibré",
+    "apiName": "hawlucha-mega",
+    "hp": 78,
+    "attack": 137,
+    "defense": 100,
+    "specialAttack": 74,
+    "specialDefense": 93,
+    "speed": 118,
+    "bst": 600,
+    "types": [
+      "fighting",
+      "flying"
+    ]
+  },
+  "10301": {
+    "id": 10301,
+    "name": "Méga-Zygarde",
+    "apiName": "zygarde-mega",
+    "hp": 216,
+    "attack": 70,
+    "defense": 91,
+    "specialAttack": 216,
+    "specialDefense": 85,
+    "speed": 100,
+    "bst": 778,
+    "types": [
+      "dragon",
+      "ground"
+    ]
+  },
+  "10302": {
+    "id": 10302,
+    "name": "Méga-Draïeul",
+    "apiName": "drampa-mega",
+    "hp": 78,
+    "attack": 85,
+    "defense": 110,
+    "specialAttack": 160,
+    "specialDefense": 116,
+    "speed": 36,
+    "bst": 585,
+    "types": [
+      "normal",
+      "dragon"
+    ]
+  },
+  "10303": {
+    "id": 10303,
+    "name": "Méga-Hexadron",
+    "apiName": "falinks-mega",
+    "hp": 65,
+    "attack": 135,
+    "defense": 135,
+    "specialAttack": 70,
+    "specialDefense": 65,
+    "speed": 100,
+    "bst": 570,
+    "types": [
+      "fighting"
+    ]
+  },
+  "10304": {
+    "id": 10304,
+    "name": "Méga-Raichu X",
+    "apiName": "raichu-mega-x",
+    "hp": 60,
+    "attack": 135,
+    "defense": 95,
+    "specialAttack": 90,
+    "specialDefense": 95,
+    "speed": 110,
+    "bst": 585,
+    "types": [
+      "electric"
+    ]
+  },
+  "10305": {
+    "id": 10305,
+    "name": "Méga-Raichu Y",
+    "apiName": "raichu-mega-y",
+    "hp": 60,
+    "attack": 100,
+    "defense": 55,
+    "specialAttack": 160,
+    "specialDefense": 80,
+    "speed": 130,
+    "bst": 585,
+    "types": [
+      "electric"
+    ]
+  },
+  "10306": {
+    "id": 10306,
+    "name": "Méga-Éoko",
+    "apiName": "chimecho-mega",
+    "hp": 75,
+    "attack": 50,
+    "defense": 110,
+    "specialAttack": 135,
+    "specialDefense": 120,
+    "speed": 65,
+    "bst": 555,
+    "types": [
+      "psychic",
+      "steel"
+    ]
+  },
+  "10307": {
+    "id": 10307,
+    "name": "Méga-Absol Z",
+    "apiName": "absol-mega-z",
+    "hp": 65,
+    "attack": 154,
+    "defense": 60,
+    "specialAttack": 75,
+    "specialDefense": 60,
+    "speed": 151,
+    "bst": 565,
+    "types": [
+      "dark",
+      "ghost"
+    ]
+  },
+  "10308": {
+    "id": 10308,
+    "name": "Méga-Étouraptor",
+    "apiName": "staraptor-mega",
+    "hp": 85,
+    "attack": 140,
+    "defense": 100,
+    "specialAttack": 60,
+    "specialDefense": 90,
+    "speed": 110,
+    "bst": 585,
+    "types": [
+      "fighting",
+      "flying"
+    ]
+  },
+  "10309": {
+    "id": 10309,
+    "name": "Méga-Carchacrok Z",
+    "apiName": "garchomp-mega-z",
+    "hp": 108,
+    "attack": 130,
+    "defense": 85,
+    "specialAttack": 141,
+    "specialDefense": 85,
+    "speed": 151,
+    "bst": 700,
+    "types": [
+      "dragon"
+    ]
+  },
+  "10310": {
+    "id": 10310,
+    "name": "Méga-Lucario Z",
+    "apiName": "lucario-mega-z",
+    "hp": 70,
+    "attack": 100,
+    "defense": 70,
+    "specialAttack": 164,
+    "specialDefense": 70,
+    "speed": 151,
+    "bst": 625,
+    "types": [
+      "fighting",
+      "steel"
+    ]
+  },
+  "10311": {
+    "id": 10311,
+    "name": "Méga-Heatran",
+    "apiName": "heatran-mega",
+    "hp": 91,
+    "attack": 120,
+    "defense": 106,
+    "specialAttack": 175,
+    "specialDefense": 141,
+    "speed": 67,
+    "bst": 700,
+    "types": [
+      "fire",
+      "steel"
+    ]
+  },
+  "10312": {
+    "id": 10312,
+    "name": "Méga-Darkrai",
+    "apiName": "darkrai-mega",
+    "hp": 70,
+    "attack": 120,
+    "defense": 130,
+    "specialAttack": 165,
+    "specialDefense": 130,
+    "speed": 85,
+    "bst": 700,
+    "types": [
+      "dark"
+    ]
+  },
+  "10313": {
+    "id": 10313,
+    "name": "Méga-Golemastoc",
+    "apiName": "golurk-mega",
+    "hp": 89,
+    "attack": 159,
+    "defense": 105,
+    "specialAttack": 70,
+    "specialDefense": 105,
+    "speed": 55,
+    "bst": 583,
+    "types": [
+      "ground",
+      "ghost"
+    ]
+  },
+  "10314": {
+    "id": 10314,
+    "name": "Méga-Mistigrix ♂",
+    "apiName": "meowstic-male-mega",
+    "hp": 74,
+    "attack": 48,
+    "defense": 76,
+    "specialAttack": 143,
+    "specialDefense": 101,
+    "speed": 124,
+    "bst": 566,
+    "types": [
+      "psychic"
+    ]
+  },
+  "10315": {
+    "id": 10315,
+    "name": "Méga-Crabominable",
+    "apiName": "crabominable-mega",
+    "hp": 97,
+    "attack": 157,
+    "defense": 122,
+    "specialAttack": 62,
+    "specialDefense": 107,
+    "speed": 33,
+    "bst": 578,
+    "types": [
+      "fighting",
+      "ice"
+    ]
+  },
+  "10316": {
+    "id": 10316,
+    "name": "Méga-Sarmuraï",
+    "apiName": "golisopod-mega",
+    "hp": 75,
+    "attack": 150,
+    "defense": 175,
+    "specialAttack": 70,
+    "specialDefense": 120,
+    "speed": 40,
+    "bst": 630,
+    "types": [
+      "bug",
+      "steel"
+    ]
+  },
+  "10317": {
+    "id": 10317,
+    "name": "Méga-Magearna",
+    "apiName": "magearna-mega",
+    "hp": 80,
+    "attack": 125,
+    "defense": 115,
+    "specialAttack": 170,
+    "specialDefense": 115,
+    "speed": 95,
+    "bst": 700,
+    "types": [
+      "steel",
+      "fairy"
+    ]
+  },
+  "10318": {
+    "id": 10318,
+    "name": "Méga-Magearna Original",
+    "apiName": "magearna-original-mega",
+    "hp": 80,
+    "attack": 125,
+    "defense": 115,
+    "specialAttack": 170,
+    "specialDefense": 115,
+    "speed": 95,
+    "bst": 700,
+    "types": [
+      "steel",
+      "fairy"
+    ]
+  },
+  "10319": {
+    "id": 10319,
+    "name": "Méga-Zeraora",
+    "apiName": "zeraora-mega",
+    "hp": 88,
+    "attack": 157,
+    "defense": 75,
+    "specialAttack": 147,
+    "specialDefense": 80,
+    "speed": 153,
+    "bst": 700,
+    "types": [
+      "electric"
+    ]
+  },
+  "10320": {
+    "id": 10320,
+    "name": "Méga-Scovilain",
+    "apiName": "scovillain-mega",
+    "hp": 65,
+    "attack": 138,
+    "defense": 85,
+    "specialAttack": 138,
+    "specialDefense": 85,
+    "speed": 75,
+    "bst": 586,
+    "types": [
+      "grass",
+      "fire"
+    ]
+  },
+  "10321": {
+    "id": 10321,
+    "name": "Méga-Floréclat",
+    "apiName": "glimmora-mega",
+    "hp": 83,
+    "attack": 90,
+    "defense": 105,
+    "specialAttack": 150,
+    "specialDefense": 96,
+    "speed": 101,
+    "bst": 625,
+    "types": [
+      "rock",
+      "poison"
+    ]
+  },
+  "10322": {
+    "id": 10322,
+    "name": "Méga-Nigirigon Courbé",
+    "apiName": "tatsugiri-curly-mega",
+    "hp": 68,
+    "attack": 65,
+    "defense": 90,
+    "specialAttack": 135,
+    "specialDefense": 125,
+    "speed": 92,
+    "bst": 575,
+    "types": [
+      "dragon",
+      "water"
+    ]
+  },
+  "10323": {
+    "id": 10323,
+    "name": "Méga-Nigirigon Affalé",
+    "apiName": "tatsugiri-droopy-mega",
+    "hp": 68,
+    "attack": 65,
+    "defense": 90,
+    "specialAttack": 135,
+    "specialDefense": 125,
+    "speed": 92,
+    "bst": 575,
+    "types": [
+      "dragon",
+      "water"
+    ]
+  },
+  "10324": {
+    "id": 10324,
+    "name": "Méga-Nigirigon Étiré",
+    "apiName": "tatsugiri-stretchy-mega",
+    "hp": 68,
+    "attack": 65,
+    "defense": 90,
+    "specialAttack": 135,
+    "specialDefense": 125,
+    "speed": 92,
+    "bst": 575,
+    "types": [
+      "dragon",
+      "water"
+    ]
+  },
+  "10325": {
+    "id": 10325,
+    "name": "Méga-Glaivodo",
+    "apiName": "baxcalibur-mega",
+    "hp": 115,
+    "attack": 175,
+    "defense": 117,
+    "specialAttack": 105,
+    "specialDefense": 101,
+    "speed": 87,
+    "bst": 700,
+    "types": [
+      "dragon",
+      "ice"
+    ]
+  },
+  "10326": {
+    "id": 10326,
+    "name": "Méga-Mistigrix ♀",
+    "apiName": "meowstic-female-mega",
+    "hp": 74,
+    "attack": 48,
+    "defense": 76,
+    "specialAttack": 143,
+    "specialDefense": 101,
+    "speed": 124,
+    "bst": 566,
+    "types": [
+      "psychic"
+    ]
   }
 }
