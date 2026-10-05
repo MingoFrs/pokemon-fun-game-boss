@@ -13,6 +13,8 @@
  *   l'essai reprend exactement au même tour.
  * - Un essai dont le socket se coupe reste reprenable RESUME_GRACE_MS ; passé ce délai
  *   (ou "Abandonner"), il est clos avec le score atteint et classé (anti-contournement).
+ * - Série quotidienne : jours consécutifs avec un essai terminé, calculée depuis daily_scores
+ *   (aucune table en plus). Bonus d'XP de série à la fin d'un essai complet.
  * - Le client ne reçoit JAMAIS les points avant d'avoir choisi (comme turn_options).
  *
  * Branchement : registerDaily({ io, app, supabase, createAuthClient, deps }) — voir server.js.
@@ -25,6 +27,10 @@ const STORE_RETRY_MS = 60000;
 const BOARD_SIZE = 50;
 const BOARD_FETCH_LIMIT = 5000;
 const GEN_ATTEMPTS = 200;
+// Série : jours consécutifs avec un essai terminé (victoire OU défaite). Bonus d'XP à la fin
+// d'un essai complet : +2 XP par jour de série au-delà du 1er, plafonné à 10 jours (+20 XP).
+const STREAK_BONUS_PER_DAY = 2;
+const STREAK_BONUS_CAP_DAYS = 10;
 // Difficulté par jour de semaine (0 = dimanche). "extreme" exclu : injouable sans objets/bonus.
 const GROUP_BY_WEEKDAY = ['easy', 'medium', 'medium', 'hard', 'medium', 'hard', 'hard'];
 
@@ -39,6 +45,34 @@ function dayKey(date = new Date()) {
 function msUntilReset(date = new Date()) {
   const [h, m, s] = timeFmt.format(date).split(':').map(Number);
   return Math.max(1000, 86400000 - ((h * 60 + m) * 60 + s) * 1000);
+}
+
+function addDays(day, n) {
+  const d = new Date(day + 'T12:00:00Z');
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+// days : jours "YYYY-MM-DD" terminés (ordre quelconque, doublons tolérés). today : jour courant.
+// current = série en cours (aujourd'hui OU hier compté : la série reste vivante jusqu'à minuit).
+function computeStreak(days, today) {
+  const set = new Set(days);
+  const sorted = [...set].sort().reverse();
+  const playedToday = set.has(today);
+  let current = 0;
+  let cursor = playedToday ? today : addDays(today, -1);
+  while (set.has(cursor)) { current++; cursor = addDays(cursor, -1); }
+  let best = 0, run = 0, prev = null;
+  for (const d of sorted) {
+    run = prev && addDays(d, 1) === prev ? run + 1 : 1;
+    if (run > best) best = run;
+    prev = d;
+  }
+  return { current, best: Math.max(best, current), playedToday, atRisk: current > 0 && !playedToday };
+}
+
+function streakBonusFor(current) {
+  return Math.min(Math.max(current - 1, 0), STREAK_BONUS_CAP_DAYS) * STREAK_BONUS_PER_DAY;
 }
 
 // ---------- RNG à graine ----------
@@ -157,6 +191,18 @@ function registerDaily({ io, app, supabase, createAuthClient, deps }) {
     return { rank: idx >= 0 ? idx + 1 : null, total: rows.length };
   }
 
+  async function streakOf(userId, today) {
+    const { data, error } = await supabase.from('daily_scores')
+      .select('day').eq('user_id', userId).eq('finished', true)
+      .order('day', { ascending: false }).limit(1000);
+    if (error) throw error;
+    return computeStreak((data || []).map(r => r.day), today);
+  }
+
+  async function safeStreak(userId, today) {
+    try { return await streakOf(userId, today); } catch (err) { noteStoreError(err); return null; }
+  }
+
   async function grantXp(userId, amount) {
     const { data } = await supabase.from('profiles').select('xp').eq('id', userId).limit(1);
     const current = data && data[0] ? (data[0].xp || 0) : 0;
@@ -177,6 +223,7 @@ function registerDaily({ io, app, supabase, createAuthClient, deps }) {
       ranked: run.ranked,
       guest: !run.userId,
       rank: null, total: null, xpGained: 0,
+      streak: null, bestStreak: null, streakBonus: 0,
       ...extra
     };
   }
@@ -213,9 +260,12 @@ function registerDaily({ io, app, supabase, createAuthClient, deps }) {
           score: run.score, duration_ms: durationMs, victory, team: run.team, finished: true
         }).eq('day', run.day).eq('user_id', run.userId);
         if (error) throw error;
+        const st = await safeStreak(run.userId, run.day);
+        if (st) { extra.streak = st.current; extra.bestStreak = st.best; }
         if (reason === 'completed') {
-          extra.xpGained = xpParticipation + (victory ? xpVictoryBonus : 0);
-          try { await grantXp(run.userId, extra.xpGained); } catch (e) { extra.xpGained = 0; }
+          extra.streakBonus = st ? streakBonusFor(st.current) : 0;
+          extra.xpGained = xpParticipation + (victory ? xpVictoryBonus : 0) + extra.streakBonus;
+          try { await grantXp(run.userId, extra.xpGained); } catch (e) { extra.xpGained = 0; extra.streakBonus = 0; }
         }
         const r = await computeRank(run.day, run.userId);
         extra.rank = r.rank; extra.total = r.total;
@@ -248,7 +298,7 @@ function registerDaily({ io, app, supabase, createAuthClient, deps }) {
     return run;
   }
 
-  function emitPlayed(socket, day, daily, row, rank) {
+  function emitPlayed(socket, day, daily, row, rank, st) {
     socket.emit('daily_state', {
       phase: 'finished', day, boss: publicBoss(daily), maxTurns: MAX_TURNS, turn: MAX_TURNS,
       score: row.score || 0, team: row.team || [], ranked: true, guest: false, played: true,
@@ -256,7 +306,8 @@ function registerDaily({ io, app, supabase, createAuthClient, deps }) {
         day, score: row.score || 0, required: daily.boss.requiredPoints, victory: !!row.victory,
         team: row.team || [], choices: Array.isArray(row.choices) ? row.choices : [],
         bestPossible: daily.maxScore, ranked: true, guest: false,
-        rank: rank.rank, total: rank.total, xpGained: 0
+        rank: rank.rank, total: rank.total, xpGained: 0,
+        streak: st ? st.current : null, bestStreak: st ? st.best : null, streakBonus: 0
       }
     });
   }
@@ -290,7 +341,7 @@ function registerDaily({ io, app, supabase, createAuthClient, deps }) {
 
     let row = await getRow(day, user.id);
     if (row && row.finished) {
-      emitPlayed(socket, day, daily, row, await computeRank(day, user.id));
+      emitPlayed(socket, day, daily, row, await computeRank(day, user.id), await safeStreak(user.id, day));
       return;
     }
     if (!row) {
@@ -302,7 +353,7 @@ function registerDaily({ io, app, supabase, createAuthClient, deps }) {
       if (error) throw error;
       row = await getRow(day, user.id);
       if (row && row.finished) {
-        emitPlayed(socket, day, daily, row, await computeRank(day, user.id));
+        emitPlayed(socket, day, daily, row, await computeRank(day, user.id), await safeStreak(user.id, day));
         return;
       }
     }
@@ -316,7 +367,7 @@ function registerDaily({ io, app, supabase, createAuthClient, deps }) {
 
     if (saved.length >= MAX_TURNS) {
       await finishRun(run, 'completed', true);
-      emitPlayed(socket, day, daily, { score: run.final.score, team: run.final.team, victory: run.final.victory, choices: run.final.choices }, { rank: run.final.rank, total: run.final.total });
+      emitPlayed(socket, day, daily, { score: run.final.score, team: run.final.team, victory: run.final.victory, choices: run.final.choices }, { rank: run.final.rank, total: run.final.total }, { current: run.final.streak, best: run.final.bestStreak });
       return;
     }
     socket.emit('daily_state', stateFor(run));
@@ -409,6 +460,8 @@ function registerDaily({ io, app, supabase, createAuthClient, deps }) {
           out.participants = count || 0;
           const user = await authUser((req.body || {}).accessToken);
           if (user) {
+            const st = await streakOf(user.id, day);
+            out.streak = { current: st.current, best: st.best, playedToday: st.playedToday, atRisk: st.atRisk };
             const row = await getRow(day, user.id);
             if (row) {
               out.mine = { started: true, finished: !!row.finished, score: row.score, victory: row.victory };
@@ -460,7 +513,10 @@ function registerDaily({ io, app, supabase, createAuthClient, deps }) {
     }
   });
 
-  return { buildDaily, dayKey };
+  return { buildDaily, dayKey, publicBoss };
 }
 
-module.exports = { registerDaily, _test: { hashSeed, mulberry32, withSeededRandom, dayKey, msUntilReset, MAX_TURNS } };
+module.exports = {
+  registerDaily, computeStreak, addDays, dayKey, streakBonusFor,
+  _test: { hashSeed, mulberry32, withSeededRandom, dayKey, msUntilReset, MAX_TURNS }
+};

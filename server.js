@@ -5572,7 +5572,7 @@ const FLY = createFlyGame({
 
 // ---- DÉFI QUOTIDIEN : même boss + mêmes 6 tours pour tous (RNG à graine, jour Europe/Paris), classement du jour ----
 const { registerDaily } = require('./daily-game');
-registerDaily({
+const dailyApi = registerDaily({
   io, app, supabase, createAuthClient,
   deps: {
     pickRandomBoss: g => pickRandomBoss(g),
@@ -5581,6 +5581,11 @@ registerDaily({
     xpVictoryBonus: XP_VICTORY_BONUS
   }
 });
+
+// ---- NOTIFICATIONS PUSH : rappel quotidien du défi (nécessite `npm i web-push` + clés VAPID, cf. push.sql) ----
+let webpushModule = null;
+try { webpushModule = require('web-push'); } catch (e) { /* optionnel : rappels désactivés sans le module */ }
+require('./push-notifications').registerPush({ app, supabase, createAuthClient, daily: dailyApi, webpush: webpushModule });
 
 const PORT = process.env.PORT || 3000;
 // Restaure les parties persistées AVANT d'accepter des connexions : sinon un client qui

@@ -112,3 +112,30 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(cacheFirstCors(event, FONTS, 0));
   }
 });
+
+// ---------- Notifications push (rappel du défi quotidien) ----------
+self.addEventListener('push', (event) => {
+  let data = {};
+  try { data = event.data ? event.data.json() : {}; } catch (e) { data = { body: event.data ? event.data.text() : '' }; }
+  event.waitUntil(self.registration.showNotification(data.title || 'Route du Boss', {
+    body: data.body || '',
+    icon: '/icons/icon-192.png',
+    badge: '/icons/icon-192.png',
+    tag: data.tag || 'rdb-daily',
+    data: { url: data.url || '/' }
+  }));
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const url = (event.notification.data && event.notification.data.url) || '/';
+  event.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
+    for (const client of list) {
+      if (new URL(client.url).origin === self.location.origin && 'focus' in client) {
+        client.postMessage({ type: 'open-daily' });
+        return client.focus();
+      }
+    }
+    return self.clients.openWindow(url);
+  }));
+});

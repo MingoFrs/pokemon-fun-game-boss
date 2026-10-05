@@ -4955,3 +4955,27 @@ body.fly-mode #boss-attack-banner { display: none !important; }
   font-size: 12px;
   color: var(--accent-bas);
 }
+
+/* ---------- Série quotidienne + rappels ---------- */
+.daily-streak {
+  margin: 0 0 12px;
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--accent-haut);
+}
+
+.daily-streak--risk { color: var(--danger); }
+
+.daily-line + .daily-streak,
+.daily-line--xp + .daily-streak { margin: 0; text-align: center; }
+
+.daily-push {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.daily-push .btn { margin: 0; }
+.daily-push .daily-line { min-height: 0; }

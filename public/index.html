@@ -19,7 +19,7 @@
 <link rel="preconnect" href="https://raw.githubusercontent.com" crossorigin>
 <link rel="dns-prefetch" href="https://raw.githubusercontent.com">
 <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=5">
+<link rel="stylesheet" href="style.css?v=6">
 <!-- Applique thème de fond + réduction d'animations AVANT le premier rendu, pour
      éviter un flash visuel (contenu défini par le panneau Réglages, cf. client.js). -->
 <script>
@@ -134,9 +134,14 @@
             <h2>🗓️ Défi quotidien</h2>
             <p id="daily-card-boss" class="card__hint">Même boss, mêmes Pokémon pour tous. 1 essai par jour.</p>
             <p id="daily-card-status" class="daily-status"></p>
+            <p id="daily-card-streak" class="daily-streak screen--hidden"></p>
             <div class="daily-card__actions">
               <button id="btn-daily-play" type="button" class="btn btn--haut">Jouer</button>
               <button id="btn-daily-board" type="button" class="btn btn--ghost">Classement du jour</button>
+            </div>
+            <div class="daily-push screen--hidden" data-push="block">
+              <button type="button" class="btn btn--ghost btn--block" data-push="toggle">🔔 Activer les rappels</button>
+              <p class="daily-line daily-line--muted" data-push="hint"></p>
             </div>
           </div>
         </div>
@@ -200,9 +205,14 @@
         <p id="daily-final-score" class="finished-stat__value"></p>
         <p id="daily-final-rank" class="daily-line"></p>
         <p id="daily-final-xp" class="daily-line daily-line--xp screen--hidden"></p>
+        <p id="daily-final-streak" class="daily-streak screen--hidden"></p>
         <div id="daily-final-team" class="daily-team"></div>
         <p id="daily-final-best" class="daily-line daily-line--muted"></p>
         <p id="daily-final-next" class="daily-line daily-line--muted"></p>
+        <div class="daily-push screen--hidden" data-push="block">
+          <button type="button" class="btn btn--ghost btn--block" data-push="toggle">🔔 Activer les rappels</button>
+          <p class="daily-line daily-line--muted" data-push="hint"></p>
+        </div>
         <button id="daily-btn-share" type="button" class="btn btn--haut btn--block">📤 Partager mon résultat</button>
         <button id="daily-btn-final-board" type="button" class="btn btn--bas btn--block">Classement du jour</button>
         <button id="daily-btn-final-home" type="button" class="btn btn--ghost btn--block">Retour à l'accueil</button>
@@ -1100,6 +1110,6 @@
 <script src="client.js?v=4"></script>
 <script src="fly-client.js?v=3"></script>
 <script src="share-result.js?v=1"></script>
-<script src="daily-client.js?v=3"></script>
+<script src="daily-client.js?v=4"></script>
 </body>
 </html>
