@@ -172,6 +172,7 @@ function registerDaily({ io, app, supabase, createAuthClient, deps }) {
       required,
       victory: run.score >= required,
       team: run.team,
+      choices: run.choices.slice(),
       bestPossible: run.daily.maxScore,
       ranked: run.ranked,
       guest: !run.userId,
@@ -253,7 +254,8 @@ function registerDaily({ io, app, supabase, createAuthClient, deps }) {
       score: row.score || 0, team: row.team || [], ranked: true, guest: false, played: true,
       final: {
         day, score: row.score || 0, required: daily.boss.requiredPoints, victory: !!row.victory,
-        team: row.team || [], bestPossible: daily.maxScore, ranked: true, guest: false,
+        team: row.team || [], choices: Array.isArray(row.choices) ? row.choices : [],
+        bestPossible: daily.maxScore, ranked: true, guest: false,
         rank: rank.rank, total: rank.total, xpGained: 0
       }
     });
@@ -314,7 +316,7 @@ function registerDaily({ io, app, supabase, createAuthClient, deps }) {
 
     if (saved.length >= MAX_TURNS) {
       await finishRun(run, 'completed', true);
-      emitPlayed(socket, day, daily, { score: run.final.score, team: run.final.team, victory: run.final.victory }, { rank: run.final.rank, total: run.final.total });
+      emitPlayed(socket, day, daily, { score: run.final.score, team: run.final.team, victory: run.final.victory, choices: run.final.choices }, { rank: run.final.rank, total: run.final.total });
       return;
     }
     socket.emit('daily_state', stateFor(run));

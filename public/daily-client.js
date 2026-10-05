@@ -21,7 +21,7 @@
     next: $('daily-btn-next'), quit: $('daily-btn-quit'),
     final: $('daily-final'), outcome: $('daily-final-outcome'), finalScore: $('daily-final-score'), finalRank: $('daily-final-rank'),
     finalXp: $('daily-final-xp'), finalBest: $('daily-final-best'), finalTeam: $('daily-final-team'), finalNext: $('daily-final-next'),
-    finalBoard: $('daily-btn-final-board'), finalHome: $('daily-btn-final-home'),
+    finalBoard: $('daily-btn-final-board'), finalHome: $('daily-btn-final-home'), finalShare: $('daily-btn-share'),
     board: $('daily-board'), boardMe: $('daily-board-me'), boardList: $('daily-board-list'), boardBack: $('daily-btn-board-back')
   };
 
@@ -37,6 +37,8 @@
   let ranked = false;
   let finalShown = false;
   let boardPrev = 'home';
+  let lastHeader = null; // { day, boss } affichés
+  let lastFinal = null;
 
   // ---------- Navigation ----------
   function showScreenDaily() {
@@ -70,6 +72,7 @@
     return h > 0 ? `${h} h ${String(m).padStart(2, '0')}` : `${Math.max(1, m)} min`;
   }
   function renderHeader(day, boss) {
+    lastHeader = { day, boss };
     el.date.textContent = 'Défi du ' + fmtDay(day);
     el.bossSprite.src = boss.sprite;
     el.bossName.textContent = boss.name.toUpperCase();
@@ -118,6 +121,7 @@
 
   function renderFinal(f, played) {
     finalShown = true;
+    lastFinal = f;
     const win = !!f.victory;
     el.outcome.textContent = win ? 'VICTOIRE !' : 'DÉFAITE';
     el.outcome.classList.toggle('finished-outcome--victory', win);
@@ -140,6 +144,26 @@
     setView('final');
     if (!played) { if (win && typeof playVictorySound === 'function') playVictorySound(); else if (!win && typeof playDefeatSound === 'function') playDefeatSound(); }
     refreshInfo();
+  }
+
+  function openShare() {
+    if (!lastFinal || !lastHeader || !window.RDBShare) return;
+    const f = lastFinal, boss = lastHeader.boss;
+    const account = getStoredAccount();
+    window.RDBShare.open({
+      title: 'Défi du ' + fmtDay(lastHeader.day),
+      boss: { name: boss.name, sprite: boss.sprite },
+      difficultyKey: boss.group,
+      difficultyLabel: DIFFICULTY_LABELS[boss.group] || '',
+      victory: !!f.victory,
+      score: f.score,
+      required: f.required,
+      rankLine: f.rank ? `Rang #${f.rank} sur ${f.total} aujourd'hui` : null,
+      choices: f.choices || [],
+      team: (f.team || []).map(m => ({ name: m.name, shiny: !!m.shiny, urls: [m.shiny && m.shinySprite ? m.shinySprite : null, m.sprite] })),
+      pseudo: (account && account.pseudo) || '',
+      url: location.origin
+    });
   }
 
   async function loadBoard() {
@@ -249,6 +273,7 @@
   el.quit.addEventListener('click', quit);
   el.back.addEventListener('click', quit);
   el.finalHome.addEventListener('click', leaveDaily);
+  el.finalShare.addEventListener('click', openShare);
   el.finalBoard.addEventListener('click', () => { boardPrev = 'final'; setView('board'); loadBoard(); });
   el.boardBack.addEventListener('click', () => { if (boardPrev === 'final' && finalShown) setView('final'); else leaveDaily(); });
 

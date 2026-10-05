@@ -19,7 +19,7 @@
 <link rel="preconnect" href="https://raw.githubusercontent.com" crossorigin>
 <link rel="dns-prefetch" href="https://raw.githubusercontent.com">
 <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=4">
+<link rel="stylesheet" href="style.css?v=5">
 <!-- Applique thème de fond + réduction d'animations AVANT le premier rendu, pour
      éviter un flash visuel (contenu défini par le panneau Réglages, cf. client.js). -->
 <script>
@@ -203,6 +203,7 @@
         <div id="daily-final-team" class="daily-team"></div>
         <p id="daily-final-best" class="daily-line daily-line--muted"></p>
         <p id="daily-final-next" class="daily-line daily-line--muted"></p>
+        <button id="daily-btn-share" type="button" class="btn btn--haut btn--block">📤 Partager mon résultat</button>
         <button id="daily-btn-final-board" type="button" class="btn btn--bas btn--block">Classement du jour</button>
         <button id="daily-btn-final-home" type="button" class="btn btn--ghost btn--block">Retour à l'accueil</button>
       </div>
@@ -551,6 +552,7 @@
 
     <button id="btn-replay" class="btn btn--haut btn--block screen--hidden">Rejouer</button>
     <p class="lobby-status" id="finished-status"></p>
+    <button id="btn-share-finished" class="btn btn--bas btn--block screen--hidden">📤 Partager mon résultat</button>
     <button id="btn-leave-finished" class="btn btn--ghost btn--block">Quitter</button>
   </section>
 
@@ -1097,6 +1099,7 @@
 <script src="/socket.io/socket.io.js"></script>
 <script src="client.js?v=4"></script>
 <script src="fly-client.js?v=3"></script>
-<script src="daily-client.js?v=2"></script>
+<script src="share-result.js?v=1"></script>
+<script src="daily-client.js?v=3"></script>
 </body>
 </html>
