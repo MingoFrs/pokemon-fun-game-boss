@@ -798,6 +798,60 @@ console.log('\nH) Branchement de server.js (node patch-server-fly.js)');
   });
 }
 
+
+console.log('\nI) Diagnostic de persistance (check-fly-db.js)');
+const { diagnose, hint } = require('./check-fly-db');
+function stubSb({ colsErr, row = null, rowErr, snapErr, writeErr, writeEmpty, noUpdate } = {}) {
+  const res = v => Promise.resolve(v);
+  const err = m => (m ? { message: m } : null);
+  return { from: t => ({
+    select: cols => ({
+      limit: () => res(t === 'fly_brain' && cols.startsWith('generation') ? { data: colsErr ? null : [], error: err(colsErr) } : t === 'fly_brain' ? { data: [], error: null } : { data: snapErr ? null : [], error: err(snapErr) }),
+      eq: () => ({ maybeSingle: () => res({ data: rowErr ? null : row, error: err(rowErr) }) })
+    }),
+    update: () => { if (noUpdate) throw new Error('écriture interdite en mode --no-write'); return { eq: () => ({ select: () => res(writeErr ? { data: null, error: err(writeErr) } : { data: writeEmpty ? [] : [{ id: 1 }], error: null }) }) }; }
+  }) };
+}
+const goodRow = (o = {}) => ({ id: 1, weights: { kind: 'value', version: 1 }, generation: 2, games_played: 5, total_games: 7, total_wins: 4, total_losses: 2, total_draws: 1, updated_at: new Date(Date.now() - 3 * 60000).toISOString(), ...o });
+const txt = r => r.lines.join('\n');
+atest('Diagnostic : base correcte -> verdict OK, chiffres réels affichés, projet identifié', async () => {
+  const r = await diagnose(stubSb({ row: goodRow() }), { host: 'abc.supabase.co' });
+  assert.ok(r.ok); assert.deepStrictEqual(r.problems, []);
+  assert.ok(/abc\.supabase\.co/.test(txt(r)) && /génération 2/.test(txt(r)) && /Humanité 2 – Mouche 4/.test(txt(r)) && /il y a 3 min/.test(txt(r)) && /écriture possible/.test(txt(r)));
+  assert.ok(/VERDICT : la base est correcte/.test(txt(r)));
+});
+atest('Diagnostic : colonnes v2 absentes -> demande fly-brain-v2.sql + redémarrage', async () => {
+  const r = await diagnose(stubSb({ colsErr: 'column fly_brain.generation does not exist', row: goodRow() }));
+  assert.ok(!r.ok);
+  assert.ok(/fly-brain-v2\.sql/.test(txt(r)) && /REDÉMARRE/.test(txt(r)) && /repart à zéro/.test(txt(r)));
+});
+atest('Diagnostic : table absente, droits refusés, clé refusée, projet injoignable -> conseil précis', async () => {
+  assert.ok(/n'existe pas dans CE projet/.test(hint('relation "public.fly_brain" does not exist')));
+  assert.ok(/service_role/.test(hint('permission denied for table fly_brain')));
+  assert.ok(/SUPABASE_SECRET_KEY/.test(hint('Invalid API key')));
+  assert.ok(/SUPABASE_URL/.test(hint('fetch failed')));
+  assert.strictEqual(hint('erreur inconnue'), null);
+  const r = await diagnose(stubSb({ colsErr: 'relation "public.fly_brain" does not exist' }));
+  assert.ok(!r.ok && /n'existe pas dans CE projet/.test(txt(r)));
+});
+atest('Diagnostic : écriture refusée ou sans effet -> problème signalé', async () => {
+  assert.ok(!(await diagnose(stubSb({ row: goodRow(), writeErr: 'permission denied for table fly_brain' }))).ok);
+  const r = await diagnose(stubSb({ row: goodRow(), writeEmpty: true }));
+  assert.ok(!r.ok && /aucune ligne/.test(txt(r)));
+});
+atest('Diagnostic : modèle illisible en base -> commande de suppression ; ligne absente = pas une erreur', async () => {
+  const bad = await diagnose(stubSb({ row: goodRow({ weights: { kind: 'linear' } }) }));
+  assert.ok(!bad.ok && /delete from fly_brain/.test(txt(bad)));
+  const none = await diagnose(stubSb({ row: null }));
+  assert.ok(none.ok && /aucune ligne id = 1/.test(txt(none)));
+});
+atest('Diagnostic : --no-write ne tente aucune écriture ; lecture seule des archives', async () => {
+  const r = await diagnose(stubSb({ row: goodRow(), noUpdate: true }), { write: false });
+  assert.ok(r.ok && !/écriture possible/.test(txt(r)));
+  const s = await diagnose(stubSb({ row: goodRow(), snapErr: 'column fly_brain_snapshots.generation does not exist' }), { write: false });
+  assert.ok(!s.ok && /fly-brain-v2\.sql/.test(txt(s)));
+});
+
 (async () => {
   for (const { name, fn } of asyncTests) {
     try { await fn(); pass++; console.log(`  ✔ ${name}`); }

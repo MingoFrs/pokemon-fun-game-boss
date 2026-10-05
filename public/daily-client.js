@@ -124,8 +124,7 @@
     el.outcome.classList.toggle('finished-outcome--defeat', !win);
     el.finalScore.textContent = `${f.score} / ${f.required} PTS`;
     if (f.ranked && f.rank) el.finalRank.textContent = `Rang #${f.rank} sur ${f.total} aujourd'hui`;
-    else if (f.guest) el.finalRank.textContent = 'Connecte-toi pour apparaître au classement du jour.';
-    else el.finalRank.textContent = 'Classement indisponible pour cet essai.';
+    else el.finalRank.textContent = 'Ton score est enregistré au classement du jour.';
     el.finalXp.textContent = f.xpGained ? `+${f.xpGained} XP` : '';
     el.finalXp.classList.toggle('screen--hidden', !f.xpGained);
     el.finalBest.textContent = `Score max possible aujourd'hui : ${f.bestPossible} PTS`;
@@ -163,7 +162,8 @@
         const av = document.createElement('img'); av.className = 'leaderboard-item__avatar'; av.alt = '';
         av.src = e.avatar ? avatarUrl(e.avatar) : '';
         const name = document.createElement('span'); name.className = 'leaderboard-item__pseudo'; name.textContent = e.pseudo;
-        const lvl = document.createElement('span'); lvl.className = 'leaderboard-item__level'; lvl.textContent = e.victory ? '✅' : '';
+        const lvl = document.createElement('span'); lvl.className = 'leaderboard-item__level';
+        lvl.textContent = e.victory ? '✅' : '❌'; lvl.title = e.victory ? 'Victoire' : 'Défaite';
         const pts = document.createElement('span'); pts.className = 'leaderboard-item__xp'; pts.textContent = e.score + ' PTS';
         li.append(rank, av, name, lvl, pts);
         el.boardList.appendChild(li);
@@ -178,9 +178,16 @@
   function renderCard() {
     if (!info) return;
     const b = info.boss;
-    el.cardBoss.textContent = `Boss du jour : ${b.name} · ${DIFFICULTY_LABELS[b.group] || ''} · objectif ${b.requiredPoints} PTS. Mêmes Pokémon pour tous, 1 essai par jour.`;
+    el.cardBoss.textContent = `Boss du jour : ${b.name} · ${DIFFICULTY_LABELS[b.group] || ''} · objectif ${b.requiredPoints} PTS. Mêmes Pokémon pour tous, 1 seul essai par compte, victoire ou défaite classée.`;
     const m = info.mine;
-    if (m && m.finished) {
+    el.btnPlay.disabled = false;
+    if (!token()) {
+      el.cardStatus.textContent = 'Connecte-toi pour jouer et apparaître au classement.';
+      el.btnPlay.textContent = 'Se connecter pour jouer';
+    } else if (info.rankingAvailable === false) {
+      el.cardStatus.textContent = 'Défi indisponible pour le moment.';
+      el.btnPlay.disabled = true;
+    } else if (m && m.finished) {
       el.cardStatus.textContent = `✅ Terminé : ${m.score} PTS${m.rank ? ' · #' + m.rank : ''} · prochain défi dans ${fmtCountdown()}`;
       el.btnPlay.textContent = 'Voir mon résultat';
     } else {
@@ -203,8 +210,14 @@
   // ---------- Actions ----------
   function startDaily() {
     showError('');
+    if (!token()) {
+      el.cardStatus.textContent = 'Connecte-toi pour jouer : 1 essai par compte.';
+      const open = $('btn-account-open');
+      if (open) open.click();
+      return;
+    }
     el.btnPlay.disabled = true;
-    setTimeout(() => { el.btnPlay.disabled = false; }, 1500);
+    setTimeout(() => { el.btnPlay.disabled = !info || info.rankingAvailable === false; }, 1500);
     socket.emit('daily_start', { accessToken: token() });
   }
   function choose(choice) {
@@ -271,6 +284,16 @@
     if (inRun) socket.emit('daily_start', { accessToken: token() });
     refreshInfo();
   });
+
+  // Connexion / déconnexion / renouvellement de session : rafraîchit la carte immédiatement.
+  if (typeof window.setStoredAccount === 'function') {
+    const originalSetStoredAccount = window.setStoredAccount;
+    window.setStoredAccount = function (account) {
+      const out = originalSetStoredAccount.apply(this, arguments);
+      setTimeout(refreshInfo, 0);
+      return out;
+    };
+  }
 
   document.addEventListener('visibilitychange', () => { if (!document.hidden && document.body.dataset.screen === 'home') refreshInfo(); });
   setInterval(() => { if (!document.hidden && document.body.dataset.screen === 'home') refreshInfo(); }, 120000);

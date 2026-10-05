@@ -6,10 +6,13 @@
  * Solo, sans objet de départ, sans événement rare, sans pity, sans bonus de type :
  * score = somme des points des Pokémon choisis, victoire si score >= objectif du boss.
  *
- * - 1 essai classé par jour et par compte (table Supabase `daily_scores`, cf. daily.sql).
- * - Invité, ou table absente : jouable mais non classé, rejouable.
- * - Un essai classé dont le socket se coupe reste reprenable RESUME_GRACE_MS ; passé ce
- *   délai (ou "Abandonner"), il est clos avec le score atteint (anti-contournement).
+ * - COMPTE OBLIGATOIRE : 1 seul essai par jour et par compte (table Supabase `daily_scores`,
+ *   cf. daily.sql). Victoire OU défaite, tout essai terminé entre au classement du jour.
+ * - Invité, ou table indisponible : défi refusé (jamais d'essai non classé rejouable).
+ * - Chaque choix est persisté (colonne `choices`) : un redémarrage serveur ne perd rien,
+ *   l'essai reprend exactement au même tour.
+ * - Un essai dont le socket se coupe reste reprenable RESUME_GRACE_MS ; passé ce délai
+ *   (ou "Abandonner"), il est clos avec le score atteint et classé (anti-contournement).
  * - Le client ne reçoit JAMAIS les points avant d'avoir choisi (comme turn_options).
  *
  * Branchement : registerDaily({ io, app, supabase, createAuthClient, deps }) — voir server.js.
@@ -228,63 +231,92 @@ function registerDaily({ io, app, supabase, createAuthClient, deps }) {
     if (!silent && run.socketId) io.to(run.socketId).emit('daily_finished', run.final);
   }
 
+  function buildRun(day, daily, userId, socketId, choices) {
+    const run = {
+      day, daily, userId, ranked: true, socketId,
+      turn: 1, score: 0, team: [], choices: [], phase: 'choice', lastResult: null,
+      startedAt: Date.now(), finished: false, finishing: false, graceTimer: null
+    };
+    for (const c of choices) {
+      const r = daily.turns[run.choices.length][c === 'HAUT' ? 'haut' : 'bas'];
+      run.score += r.finalPoints;
+      run.team.push(teamMon(r));
+      run.choices.push(c);
+    }
+    run.turn = Math.min(run.choices.length + 1, MAX_TURNS);
+    return run;
+  }
+
+  function emitPlayed(socket, day, daily, row, rank) {
+    socket.emit('daily_state', {
+      phase: 'finished', day, boss: publicBoss(daily), maxTurns: MAX_TURNS, turn: MAX_TURNS,
+      score: row.score || 0, team: row.team || [], ranked: true, guest: false, played: true,
+      final: {
+        day, score: row.score || 0, required: daily.boss.requiredPoints, victory: !!row.victory,
+        team: row.team || [], bestPossible: daily.maxScore, ranked: true, guest: false,
+        rank: rank.rank, total: rank.total, xpGained: 0
+      }
+    });
+  }
+
   async function handleStart(socket, accessToken) {
     const day = dayKey();
     const daily = buildDaily(day);
     const user = await authUser(accessToken);
 
-    // Reprise d'un essai classé encore en mémoire (coupure réseau, onglet rechargé).
-    if (user) {
-      const live = runsByUser.get(user.id);
-      if (live && live.day === day && !live.finished && !live.finishing) {
-        clearTimeout(live.graceTimer);
-        if (live.socketId && live.socketId !== socket.id) runs.delete(live.socketId);
-        live.socketId = socket.id;
-        runs.set(socket.id, live);
-        socket.emit('daily_state', stateFor(live));
+    if (!user) {
+      socket.emit('daily_error', 'Connecte-toi pour jouer au défi quotidien (1 essai par compte).');
+      return;
+    }
+
+    // Reprise d'un essai encore en mémoire (coupure réseau, onglet rechargé).
+    const live = runsByUser.get(user.id);
+    if (live && live.day === day && !live.finished && !live.finishing) {
+      clearTimeout(live.graceTimer);
+      if (live.socketId && live.socketId !== socket.id) runs.delete(live.socketId);
+      live.socketId = socket.id;
+      runs.set(socket.id, live);
+      socket.emit('daily_state', stateFor(live));
+      return;
+    }
+    runs.delete(socket.id);
+
+    if (!storeUsable()) {
+      socket.emit('daily_error', 'Défi indisponible pour le moment.');
+      return;
+    }
+
+    let row = await getRow(day, user.id);
+    if (row && row.finished) {
+      emitPlayed(socket, day, daily, row, await computeRank(day, user.id));
+      return;
+    }
+    if (!row) {
+      // ignoreDuplicates : deux démarrages simultanés ne peuvent pas réinitialiser un essai.
+      const { error } = await supabase.from('daily_scores').upsert({
+        day, user_id: user.id, score: null, duration_ms: null, victory: null, team: null,
+        choices: [], finished: false, started_at: new Date().toISOString()
+      }, { onConflict: 'day,user_id', ignoreDuplicates: true });
+      if (error) throw error;
+      row = await getRow(day, user.id);
+      if (row && row.finished) {
+        emitPlayed(socket, day, daily, row, await computeRank(day, user.id));
         return;
       }
     }
-    // Essai invité déjà lié à ce socket : on repart proprement.
-    runs.delete(socket.id);
 
-    let ranked = false;
-    if (user && storeUsable()) {
-      try {
-        const row = await getRow(day, user.id);
-        if (row && row.finished) {
-          const r = await computeRank(day, user.id);
-          socket.emit('daily_state', {
-            phase: 'finished', day, boss: publicBoss(daily), maxTurns: MAX_TURNS, turn: MAX_TURNS,
-            score: row.score || 0, team: row.team || [], ranked: true, guest: false, played: true,
-            final: {
-              day, score: row.score || 0, required: daily.boss.requiredPoints, victory: !!row.victory,
-              team: row.team || [], bestPossible: daily.maxScore, ranked: true, guest: false,
-              rank: r.rank, total: r.total, xpGained: 0
-            }
-          });
-          return;
-        }
-        // Pas de ligne, ou essai interrompu par un redémarrage serveur : (ré)ouverture.
-        const { error } = await supabase.from('daily_scores').upsert({
-          day, user_id: user.id, score: null, duration_ms: null, victory: null, team: null,
-          finished: false, started_at: new Date().toISOString()
-        });
-        if (error) throw error;
-        ranked = true;
-      } catch (err) {
-        noteStoreError(err);
-        ranked = false;
-      }
-    }
-
-    const run = {
-      day, daily, userId: user ? user.id : null, ranked, socketId: socket.id,
-      turn: 1, score: 0, team: [], choices: [], phase: 'choice', lastResult: null,
-      startedAt: Date.now(), finished: false, finishing: false, graceTimer: null
-    };
+    // Essai interrompu (redémarrage serveur) : on rejoue les choix déjà persistés.
+    const saved = Array.isArray(row && row.choices)
+      ? row.choices.filter(c => c === 'HAUT' || c === 'BAS').slice(0, MAX_TURNS) : [];
+    const run = buildRun(day, daily, user.id, socket.id, saved);
     runs.set(socket.id, run);
-    if (ranked) runsByUser.set(user.id, run);
+    runsByUser.set(user.id, run);
+
+    if (saved.length >= MAX_TURNS) {
+      await finishRun(run, 'completed', true);
+      emitPlayed(socket, day, daily, { score: run.final.score, team: run.final.team, victory: run.final.victory }, { rank: run.final.rank, total: run.final.total });
+      return;
+    }
     socket.emit('daily_state', stateFor(run));
   }
 
@@ -292,7 +324,7 @@ function registerDaily({ io, app, supabase, createAuthClient, deps }) {
     socket.on('daily_start', async ({ accessToken } = {}) => {
       try { await handleStart(socket, accessToken); }
       catch (err) {
-        console.error('[daily] start', err && err.message);
+        if (supabase) noteStoreError(err);
         socket.emit('daily_error', 'Défi indisponible, réessaie.');
       }
     });
@@ -317,6 +349,12 @@ function registerDaily({ io, app, supabase, createAuthClient, deps }) {
         score: run.score
       };
       socket.emit('daily_result', { ...run.lastResult, last: run.turn >= MAX_TURNS });
+      if (run.ranked && run.userId && supabase) {
+        supabase.from('daily_scores')
+          .update({ choices: run.choices, score: run.score, team: run.team })
+          .eq('day', run.day).eq('user_id', run.userId)
+          .then(({ error }) => { if (error) noteStoreError(error); }, noteStoreError);
+      }
     });
 
     socket.on('daily_next', async () => {
