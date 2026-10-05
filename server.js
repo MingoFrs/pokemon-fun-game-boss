@@ -1628,7 +1628,7 @@ const BONUS_WEIGHTS = {
 
 const BONUS_LABELS = {
   xpCandy: 'Bonbon XP',
-  mysteryItem: 'Objet Mystère',
+  mysteryItem: 'PSL',
   shinyCharm: 'Charme Chroma',
   megaGem: 'Méga Gemme'
 };
@@ -1669,7 +1669,7 @@ function randomFrom(list) {
 
 // ---- Helpers de mutation d'un Pokémon d'équipe (factorisent un pattern répété par
 // tous les événements rares qui modifient un Pokémon existant : talent caché, évolution
-// instantanée, double ou rien, shiny, loterie, Bonbon XP, Objet Mystère). ----
+// instantanée, double ou rien, shiny, loterie, Bonbon XP, PSL). ----
 
 // Contribution actuelle d'un Pokémon au score (arrondie, jamais stockée : recalculée
 // à chaque fois à partir de basePoints/multiplier, seule source de vérité).
@@ -5207,7 +5207,7 @@ io.on('connection', (socket) => {
 
   // Utilisation de l'objet en inventaire, À TOUT MOMENT pendant la partie (clic sur son
   // icône côté client) — jamais lié à un tour précis, contrairement à l'ancien système.
-  // Charme Chroma s'applique instantanément ; Bonbon XP / Objet Mystère ouvrent le même
+  // Charme Chroma s'applique instantanément ; Bonbon XP / PSL ouvrent le même
   // sélecteur d'équipe qu'avant (xp_candy_pending / mystery_item_pending, inchangés).
   socket.on('use_item', () => {
     const gameId = socket.data.gameId;
@@ -5397,8 +5397,8 @@ io.on('connection', (socket) => {
     broadcastGameUpdated(game);
   });
 
-  // Objet Mystère : le joueur choisit QUEL Pokémon reçoit un trait, le trait lui-même
-  // est tiré aléatoirement par le serveur (le joueur ne le choisit jamais).
+  // PSL (clé interne 'mysteryItem', conservée pour l'historique) : le joueur choisit QUEL Pokémon
+  // reçoit un trait ; le trait est TOUJOURS 'Beauty privilege' (×1.3), jamais aléatoire.
   socket.on('mystery_item_select', ({ index } = {}) => {
     const gameId = socket.data.gameId;
     const game = games[gameId];
@@ -5417,7 +5417,7 @@ io.on('connection', (socket) => {
       return;
     }
     if (player.pendingBonusKey !== 'mysteryItem') {
-      socket.emit('error_message', 'Aucun Objet Mystère en attente.');
+      socket.emit('error_message', 'Aucun PSL en attente.');
       return;
     }
 
@@ -5427,7 +5427,11 @@ io.on('connection', (socket) => {
       return;
     }
 
-    const newEffect = randomFrom(EFFECTS.filter(e => e.name !== 'Neutre'));
+    const newEffect = EFFECTS.find(e => e.name === 'Beauty privilege');
+    if (!newEffect) {
+      socket.emit('error_message', 'Trait Beauty privilege introuvable.');
+      return;
+    }
     const scoreDelta = applyMonMutation(player, mon, m => assignEffect(m, newEffect), game);
 
     player.pendingBonusKey = null;

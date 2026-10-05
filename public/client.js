@@ -1696,14 +1696,14 @@ const DIFFICULTY_LABELS = {
 
 const BONUS_LABELS_CLIENT = {
   xpCandy: 'Bonbon XP',
-  mysteryItem: 'Objet Mystère',
+  mysteryItem: 'PSL',
   shinyCharm: 'Charme Chroma',
   megaGem: 'Méga Gemme'
 };
 
 const BONUS_DESCRIPTIONS = {
   xpCandy: 'Fait évoluer un Pokémon de ton équipe jusqu\'à sa forme finale.',
-  mysteryItem: 'Applique un trait aléatoire à un Pokémon — quitte ou double.',
+  mysteryItem: 'Donne le trait Beauty privilege (×1.3) à un Pokémon de ton équipe.',
   shinyCharm: 'Passif, tous les tours : meilleurs Pokémon et ×2 de chances de shiny.',
   megaGem: 'Fait Méga-Évoluer un Pokémon de ton équipe (×1.5 pts), quand tu veux.'
 };
@@ -2304,7 +2304,7 @@ function renderAdminViewOptions({ playerName, playerScore, haut, bas }) {
 }
 
 // Bouton "cible" (sprite + nom) pour choisir un Pokémon de l'équipe. Réutilisé par
-// renderBonusTargetList (Bonbon XP / Objet Mystère, tour 4) et renderEventTeamPicker
+// renderBonusTargetList (Bonbon XP / PSL, tour 4) et renderEventTeamPicker
 // (HIDDEN_TALENT / INSTANT_EVOLUTION, événements rares).
 function buildTeamTargetButton(mon, onClick) {
   const btn = document.createElement('button');
@@ -2325,7 +2325,7 @@ function buildTeamTargetButton(mon, onClick) {
 }
 
 // Liste cible réutilisée par Bonbon XP (Pokémon évoluables uniquement, filtré côté
-// serveur) et Objet Mystère (toute l'équipe). Le client ne renvoie que l'index fourni
+// serveur) et PSL (toute l'équipe). Le client ne renvoie que l'index fourni
 // par le serveur, jamais un choix qu'il aurait inventé lui-même.
 function renderBonusTargetList(team, onSelect) {
   bonusTargetListEl.innerHTML = '';
@@ -2749,7 +2749,7 @@ function renderEventResult(payload) {
 function showBonusResult(data) {
   const titles = {
     xpCandy: 'Bonbon XP',
-    mysteryItem: 'Objet Mystère',
+    mysteryItem: 'PSL',
     shinyCharm: 'Charme Chroma',
     megaGem: 'Méga Gemme'
   };
@@ -3621,7 +3621,7 @@ socket.on('mega_gem_pending', ({ team }) => {
   showBonusTargetOverlay();
 });
 
-// Objet Mystère : toute l'équipe, le trait reste tiré par le serveur ensuite.
+// PSL : toute l'équipe, le trait (Beauty privilege) est appliqué par le serveur.
 socket.on('mystery_item_pending', ({ team }) => {
   bonusTargetTitleEl.textContent = 'Choisis un Pokémon';
   renderBonusTargetList(team, (index) => {
