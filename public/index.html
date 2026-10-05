@@ -284,6 +284,15 @@
         <p id="gamemode-hint" class="gamemode-hint screen--hidden"></p>
         <div id="fly-lobby-stats" class="fly-stats screen--hidden"></div>
 
+        <!-- Modificateurs de partie (Mode normal / Coop uniquement, cf. renderModifiers) : l'hôte
+             les active, les autres les voient en direct. Partie hors-classement (aucune XP). -->
+        <div id="modifiers-panel" class="modifiers-panel screen--hidden">
+          <p class="eyebrow">Modificateurs de partie</p>
+          <div id="modifiers-options" class="modifiers-options"></div>
+          <ul id="modifiers-active-list" class="modifiers-active-list"></ul>
+          <p id="modifiers-note" class="modifiers-note screen--hidden">Partie hors-classement : aucune XP, aucun succès, stats et Pokédex inchangés.</p>
+        </div>
+
         <!-- Visible uniquement si le mode est admin/guess ET qu'il y a plus de 2 joueurs
              dans le lobby : l'hôte choisit qui joue, les autres deviennent spectateurs
              automatiquement au lancement (cf. renderActivePlayersOptions). -->
@@ -349,6 +358,7 @@
           <img id="boss-sprite" class="boss-sprite" src="" alt="">
           <h2 id="boss-name" class="boss-name">ARCEUS</h2>
           <p class="boss-target">Objectif : <span id="boss-target-value">2500</span> PTS</p>
+          <div id="game-modifiers" class="game-modifiers screen--hidden"></div>
           <div id="boss-types" class="type-badges screen--hidden"></div>
           <p id="boss-weak" class="boss-weak screen--hidden"></p>
           <div id="type-bonus-panel" class="type-bonus-panel screen--hidden"></div>
@@ -532,6 +542,8 @@
         <img id="finished-boss-sprite" class="boss-sprite" src="" alt="">
         <h2 id="finished-boss-name" class="boss-name"></h2>
         <p id="finished-difficulty" class="finished-difficulty-badge"></p>
+        <div id="finished-modifiers" class="game-modifiers screen--hidden"></div>
+        <p id="finished-modifiers-note" class="modifiers-note screen--hidden">Partie hors-classement : aucune XP, aucun succès, stats et Pokédex inchangés.</p>
         <div id="finished-boss-types" class="type-badges screen--hidden"></div>
         <p id="finished-type-bonus" class="finished-type-bonus screen--hidden"></p>
 

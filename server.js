@@ -158,7 +158,8 @@ const XP_VICTORY_BONUS = 20; // en plus de XP_PARTICIPATION, uniquement au(x) va
 //             détail dans l'historique + le calcul des succès ; null en mode "guess", qui
 //             n'a pas de concept d'équipe) }
 async function recordGameResult(player, xpAmount, details) {
-  if (!player || !player.accountAccessToken || !supabase || !createAuthClient) return;
+  // Partie à modificateurs : ni XP, ni historique (donc ni succès/stats/Pokédex, tout en dérive).
+  if (!player || player.modifiedGame || !player.accountAccessToken || !supabase || !createAuthClient) return;
   try {
     const { data: { user }, error: userError } = await createAuthClient().auth.getUser(player.accountAccessToken);
     if (userError || !user) return;
@@ -364,6 +365,12 @@ const GENERATIONS = [
 ];
 app.get('/api/pokedex/national', (req, res) => {
   res.json({ generations: GENERATIONS, dex: NATIONAL_DEX });
+});
+
+// Catalogue des modificateurs de partie (libellés/descriptions : source unique côté serveur,
+// jamais dupliqué dans le client) + modes où ils sont disponibles.
+app.get('/api/modifiers', (req, res) => {
+  res.json({ modifiers: GAME_MODIFIERS, modes: MODIFIER_GAME_MODES });
 });
 
 app.get('/api/avatars', (req, res) => {
@@ -1156,6 +1163,11 @@ function applyBossMechanics(game) {
   boss.typeRules = BOSS_MECHANICS.isEnabled(game.gameMode) ? BOSS_MECHANICS.publicRules() : null;
   const scale = BOSS_MECHANICS.scaleFor(boss, game.gameMode);
   if (scale !== 1) boss.requiredPoints = Math.round(boss.requiredPoints * scale / 10) * 10;
+  // Modificateurs de partie (cf. GAME_MODIFIERS) : appliqués ICI, avant l'objectif coop.
+  let modifierFactor = 1;
+  if (gameHasModifier(game, 'boss_x15')) modifierFactor *= 1.5;
+  if (gameHasModifier(game, 'sprint')) modifierFactor *= SPRINT_TURNS / MAX_TURNS;
+  if (modifierFactor !== 1) boss.requiredPoints = Math.max(10, Math.round(boss.requiredPoints * modifierFactor / 10) * 10);
 }
 
 const POKEMON_POOLS = {};
@@ -1361,12 +1373,13 @@ const RARITY_ORDER = ['commun', 'peu_commun', 'rare', 'epique', 'pseudo_legendai
 // raretés que le pity, cumulable avec pity/Charme mais toujours renormalisé une seule fois.
 // gameMode détermine si "méga" participe DU TOUT à ce tirage (admin vs joueur uniquement,
 // cf. RARITY_TABLE ci-dessus) — absent/'normal' : jamais incluse ici.
-function buildWeightedRarityTable({ useCharm, pity, floorRarity, extraBoost, gameMode }) {
+function buildWeightedRarityTable({ useCharm, pity, floorRarity, extraBoost, gameMode, megaWeight }) {
   const pityMultiplier = getPityMultiplier(pity);
   const boost = extraBoost || 1;
+  // megaWeight : modificateur de partie "Méga-déferlante" (cf. GAME_MODIFIERS), 0/absent = aucun.
   const baseTable = gameMode === 'admin'
     ? [...RARITY_TABLE, { rarity: 'mega', weight: MEGA_ADMIN_WEIGHT }]
-    : RARITY_TABLE;
+    : (megaWeight > 0 ? [...RARITY_TABLE, { rarity: 'mega', weight: megaWeight }] : RARITY_TABLE);
   let weighted = baseTable.map(entry => {
     let weight = entry.weight;
     if (useCharm && SHINY_CHARM_BOOSTED_RARITIES.includes(entry.rarity)) weight *= SHINY_CHARM_MULTIPLIER;
@@ -1385,8 +1398,8 @@ function buildWeightedRarityTable({ useCharm, pity, floorRarity, extraBoost, gam
   return weighted.map(e => ({ rarity: e.rarity, weight: total > 0 ? e.weight / total : 0 }));
 }
 
-function pickRarity(useCharm, pity, floorRarity, extraBoost, gameMode) {
-  const table = buildWeightedRarityTable({ useCharm, pity, floorRarity, extraBoost, gameMode });
+function pickRarity(useCharm, pity, floorRarity, extraBoost, gameMode, megaWeight) {
+  const table = buildWeightedRarityTable({ useCharm, pity, floorRarity, extraBoost, gameMode, megaWeight });
   const roll = Math.random();
   let cumulative = 0;
   for (const entry of table) {
@@ -1413,7 +1426,14 @@ const EFFECTS = [
 
 const EFFECTS_TOTAL_WEIGHT = EFFECTS.reduce((sum, e) => sum + e.weight, 0);
 
-function pickEffect() {
+function pickEffect(noNeutral) {
+  // noNeutral : modificateur "Talents chaotiques" — jamais de trait Neutre, tirage uniforme
+  // parmi les 8 vrais bonus/malus (le multiplicateur reste porté par effect.multiplier, donc
+  // tout le reste du code — contribution, mutations, bonus de type — reste cohérent).
+  if (noNeutral) {
+    const real = EFFECTS.filter(e => e.multiplier !== 1.0);
+    return real[Math.floor(Math.random() * real.length)];
+  }
   let roll = Math.random() * EFFECTS_TOTAL_WEIGHT;
   for (const effect of EFFECTS) {
     if (roll < effect.weight) return effect;
@@ -1723,11 +1743,28 @@ function teamMonFromReward(reward) {
 // fonction (tirage normal, DOUBLE_ENCOUNTER, TIME_RIFT). gameMode détermine si
 // "méga" participe au tirage (admin vs joueur uniquement, cf. pickRarity) — le ×1.5 d'un
 // méga est déjà dans basePoints (multiplicateur de catégorie), jamais ré-appliqué ici.
-function buildRewardOption(useCharm, pity, floorRarity, extraBoost, gameMode) {
-  const rarity = pickRarity(useCharm, pity, floorRarity, extraBoost, gameMode);
-  const pokemon = randomFrom(POKEMON_POOLS[rarity]);
-  const effect = pickEffect();
-  const shiny = rollShiny(useCharm); // Charme Chroma : ×2 chances de shiny
+function buildRewardOption(useCharm, pity, floorRarity, extraBoost, gameMode, modifiers) {
+  // modifiers : clés de GAME_MODIFIERS actives (game.modifiers), absent = partie classique.
+  const floor = hasModifier(modifiers, 'elite') ? higherRarity(floorRarity, 'rare') : floorRarity;
+  const megaWeight = hasModifier(modifiers, 'mega_rush') ? MEGA_RUSH_WEIGHT : 0;
+  const draw = () => pickRarity(useCharm, pity, floor, extraBoost, gameMode, megaWeight);
+
+  let rarity = draw();
+  let pool = POKEMON_POOLS[rarity];
+  if (hasModifier(modifiers, 'kanto_only')) {
+    // Certaines raretés n'ont aucun Pokémon de Kanto : on retire la rareté tant que le pool
+    // filtré est vide (borné, jamais de boucle infinie).
+    let kantoPool = pool.filter(isKantoEntry);
+    for (let i = 0; i < 50 && kantoPool.length === 0; i++) {
+      rarity = draw();
+      kantoPool = POKEMON_POOLS[rarity].filter(isKantoEntry);
+    }
+    pool = kantoPool.length ? kantoPool : POKEMON_POOLS[rarity];
+  }
+
+  const pokemon = randomFrom(pool);
+  const effect = pickEffect(hasModifier(modifiers, 'chaos_traits'));
+  const shiny = hasModifier(modifiers, 'all_shiny') || rollShiny(useCharm); // Charme Chroma : ×2 chances de shiny
   const finalPoints = Math.round(
     pokemon.basePoints *
     effect.multiplier *
@@ -1807,14 +1844,58 @@ function megaEvolveMon(player, mon, form, game) {
   return { fromName, scoreDelta };
 }
 
+// -----------------------------------------------------------------
+// MODIFICATEURS DE PARTIE (Route du Boss : modes "normal" et "coop" uniquement), activables
+// par l'HÔTE dans le lobby (cf. set_modifiers). Règle d'or : une partie avec au moins un
+// modificateur est "hors-classement" — AUCUNE XP, AUCUN historique, donc ni succès, ni stats,
+// ni Pokédex (tout en dérive, cf. recordGameResult qui sort dès que player.modifiedGame).
+// -----------------------------------------------------------------
+const GAME_MODIFIERS = [
+  { key: 'all_shiny', icon: '✨', label: 'Tout shiny', description: 'Chaque Pokémon proposé est chromatique (×1.5 pts).' },
+  { key: 'no_items', icon: '🚫', label: "Pas d'objets", description: "Aucun objet de départ : tout se joue sur le tirage." },
+  { key: 'boss_x15', icon: '💪', label: 'Boss ×1.5', description: "L'objectif du boss est multiplié par 1,5." },
+  { key: 'chaos_traits', icon: '🎲', label: 'Talents chaotiques', description: 'Plus aucun trait Neutre : chaque Pokémon a un bonus ou un malus.' },
+  { key: 'kanto_only', icon: '🔴', label: 'Retour à Kanto', description: 'Seuls les Pokémon de la 1re génération (et leurs Méga) sont tirés.' },
+  { key: 'elite', icon: '👑', label: "Sélection d'élite", description: 'Plus de communs ni de peu communs : rare et au-dessus uniquement.' },
+  { key: 'sprint', icon: '⚡', label: 'Sprint', description: '3 tours seulement, objectif du boss réduit de moitié.' },
+  { key: 'mega_rush', icon: '💎', label: 'Méga-déferlante', description: 'Les Méga-Évolutions rejoignent les tirages (~13 % par Pokémon).' }
+];
+const GAME_MODIFIER_KEYS = GAME_MODIFIERS.map(m => m.key);
+const MODIFIER_GAME_MODES = ['normal', 'coop'];
+const SPRINT_TURNS = 3;
+const MEGA_RUSH_WEIGHT = 0.15;
+const KANTO_MAX_DEX_ID = 151;
+const KANTO_MEGA_IDS = new Set(
+  Object.entries(MEGA_FORMS).filter(([baseId]) => Number(baseId) <= KANTO_MAX_DEX_ID).flatMap(([, ids]) => ids)
+);
+
+function hasModifier(modifiers, key) {
+  return Array.isArray(modifiers) && modifiers.includes(key);
+}
+
+function gameHasModifier(game, key) {
+  return !!game && hasModifier(game.modifiers, key);
+}
+
+function isKantoEntry(entry) {
+  return entry.id <= KANTO_MAX_DEX_ID || KANTO_MEGA_IDS.has(entry.id);
+}
+
+// La plus haute des deux raretés (a peut être absent) — sert à combiner un plancher existant
+// (Tour chanceux, Faille temporelle) avec celui de la "Sélection d'élite".
+function higherRarity(a, b) {
+  if (!a) return b;
+  return RARITY_ORDER.indexOf(a) >= RARITY_ORDER.indexOf(b) ? a : b;
+}
+
 // Génère les 2 options HAUT/BAS d'un joueur pour un tour (toujours 2 Pokémon distincts).
-function pickPlayerTurnOptions(useCharm, pity, floorRarity, extraBoost, gameMode) {
-  const haut = buildRewardOption(useCharm, pity, floorRarity, extraBoost, gameMode);
-  let bas = buildRewardOption(useCharm, pity, floorRarity, extraBoost, gameMode);
+function pickPlayerTurnOptions(useCharm, pity, floorRarity, extraBoost, gameMode, modifiers) {
+  const haut = buildRewardOption(useCharm, pity, floorRarity, extraBoost, gameMode, modifiers);
+  let bas = buildRewardOption(useCharm, pity, floorRarity, extraBoost, gameMode, modifiers);
 
   let guard = 0;
   while (bas.pokemonId === haut.pokemonId && guard < 10) {
-    bas = buildRewardOption(useCharm, pity, floorRarity, extraBoost, gameMode);
+    bas = buildRewardOption(useCharm, pity, floorRarity, extraBoost, gameMode, modifiers);
     guard += 1;
   }
 
@@ -2474,11 +2555,11 @@ function startEvent(game, player, def) {
 // N'affecte PAS le pity : c'est un tirage bonus hors flux principal, pas un tour normal.
 function startDoubleEncounter(game, player) {
   const useCharm = !!player.hasShinyCharm;
-  const optionA = buildRewardOption(useCharm, player.pity, undefined, undefined, game.gameMode);
-  let optionB = buildRewardOption(useCharm, player.pity, undefined, undefined, game.gameMode);
+  const optionA = buildRewardOption(useCharm, player.pity, undefined, undefined, game.gameMode, game.modifiers);
+  let optionB = buildRewardOption(useCharm, player.pity, undefined, undefined, game.gameMode, game.modifiers);
   let guard = 0;
   while (optionB.pokemonId === optionA.pokemonId && guard < 10) {
-    optionB = buildRewardOption(useCharm, player.pity, undefined, undefined, game.gameMode);
+    optionB = buildRewardOption(useCharm, player.pity, undefined, undefined, game.gameMode, game.modifiers);
     guard += 1;
   }
 
@@ -2728,7 +2809,7 @@ const TIME_RIFT_FLOOR_RARITY = 'pseudo_legendaire'; // uniquement pseudo-légend
 // joueur doit choisir lequel de ses Pokémon actuels il remplace, ou skip (rien ne change).
 function startTimeRift(game, player) {
   const useCharm = !!player.hasShinyCharm;
-  const reward = buildRewardOption(useCharm, player.pity, TIME_RIFT_FLOOR_RARITY, undefined, game.gameMode);
+  const reward = buildRewardOption(useCharm, player.pity, TIME_RIFT_FLOOR_RARITY, undefined, game.gameMode, game.modifiers);
 
   player.activeEvent = { type: EVENT_TYPES.TIME_RIFT, reward };
 
@@ -2944,8 +3025,8 @@ function resolveEventAction(game, player, action) {
   }
 }
 
-function buildRoute() {
-  return Array.from({ length: MAX_TURNS }, (_, i) => ({
+function buildRoute(length = MAX_TURNS) {
+  return Array.from({ length }, (_, i) => ({
     turn: i + 1,
     status: i === 0 ? 'current' : 'upcoming'
   }));
@@ -3333,7 +3414,7 @@ function assignTurnOptions(game) {
     // Le Charme Chroma est un objet PASSIF (cf. PASSIVE_ITEMS) : actif dès le tour 1 si le
     // joueur l'a choisi au départ, sans aucune restriction de tour.
     const useCharm = !!p.hasShinyCharm;
-    p.currentOptions = pickPlayerTurnOptions(useCharm, p.pity, p.rarityFloor || undefined, p.rarityBoost || undefined, game.gameMode);
+    p.currentOptions = pickPlayerTurnOptions(useCharm, p.pity, p.rarityFloor || undefined, p.rarityBoost || undefined, game.gameMode, game.modifiers);
     p.rarityFloor = null; // effet LUCKY_TURN consommé, à usage unique
     p.rarityBoost = null; // effet CROSSED_FATES consommé, à usage unique
     io.to(p.id).emit('turn_options', {
@@ -3379,7 +3460,8 @@ function assignAdminModeOptions(game) {
 function beginRouteGameplay(game, gameId) {
   game.status = 'playing';
   game.turn = 1;
-  game.route = buildRoute();
+  game.maxTurns = gameHasModifier(game, 'sprint') ? SPRINT_TURNS : MAX_TURNS;
+  game.route = buildRoute(game.maxTurns);
   // Cloné (jamais la référence partagée de BOSSES) : en mode coop on ajoute un champ
   // teamRequiredPoints propre à CETTE partie, jamais sur l'objet boss partagé.
   game.boss = { ...pickRandomBoss(game.selectedDifficulty || 'medium') };
@@ -3403,6 +3485,7 @@ function beginRouteGameplay(game, gameId) {
     difficulty: game.selectedDifficulty,
     gameMode: game.gameMode,
     adminId: game.adminId,
+    modifiers: game.modifiers || [],
     players: getPublicPlayers(game)
   });
   // État de l'objet : privé à chacun (jamais dans le payload ci-dessus, partagé par toute
@@ -3517,7 +3600,8 @@ function finishGame(game) {
       route: game.route,
       players: coopResults,
       teamScore,
-      teamRequired: game.boss.teamRequiredPoints
+      teamRequired: game.boss.teamRequiredPoints,
+      modifiers: game.modifiers || []
     });
     return;
   }
@@ -3566,6 +3650,7 @@ function finishGame(game) {
     gameMode: game.gameMode,
     adminId: game.adminId,
     route: game.route,
+    modifiers: game.modifiers || [],
     players: results
   });
 }
@@ -3948,6 +4033,7 @@ function finishAdminModeByForfeit(game, leavingPlayer) {
     adminId: game.adminId,
     reason: 'forfeit',
     route: game.route,
+    modifiers: game.modifiers || [],
     players: results
   });
 }
@@ -4010,6 +4096,7 @@ io.on('connection', (socket) => {
       selectedDifficulty: 'medium', // choisi par l'hôte dans le lobby ; défaut = MOYEN
       gameMode: 'normal', // 'normal' | 'admin' | 'guess' | 'auction' — choisi par l'hôte dans le lobby, cf. set_game_mode
       adminId: null, // id du joueur ADMIN si gameMode === 'admin', cf. set_admin_role
+      modifiers: [], // clés de GAME_MODIFIERS choisies par l'hôte (modes normal/coop), cf. set_modifiers
       route: buildRoute(),
       turnTimer: null,
       // ---- Mode "guess" (Devine le Pokémon) uniquement, cf. startGuessGame() ----
@@ -4045,7 +4132,8 @@ io.on('connection', (socket) => {
       adminId: games[gameId].adminId,
       activePlayerIds: games[gameId].activePlayerIds,
       guessTurnDurationMs: games[gameId].guessTurnDurationMs,
-      auctionType: games[gameId].auctionType
+      auctionType: games[gameId].auctionType,
+      modifiers: games[gameId].modifiers || []
     });
   });
 
@@ -4113,7 +4201,8 @@ io.on('connection', (socket) => {
         adminId: game.adminId,
         activePlayerIds: game.activePlayerIds,
         guessTurnDurationMs: game.guessTurnDurationMs,
-        auctionType: game.auctionType
+        auctionType: game.auctionType,
+        modifiers: game.modifiers || []
       });
       return;
     }
@@ -4138,7 +4227,8 @@ io.on('connection', (socket) => {
       adminId: game.adminId,
       activePlayerIds: game.activePlayerIds,
       guessTurnDurationMs: game.guessTurnDurationMs,
-      auctionType: game.auctionType
+      auctionType: game.auctionType,
+      modifiers: game.modifiers || []
     });
 
     broadcastPlayers(game);
@@ -4232,6 +4322,11 @@ io.on('connection', (socket) => {
     if (game.status !== 'waiting') {
       socket.emit('error_message', 'Partie déjà démarrée.');
       return;
+    }
+
+    // Défensif : des modificateurs ne peuvent jamais survivre dans un mode qui ne les gère pas.
+    if (game.modifiers && game.modifiers.length && !MODIFIER_GAME_MODES.includes(game.gameMode)) {
+      game.modifiers = [];
     }
 
     // Mode "auction" (Draft/Enchères) : strictement 2 joueurs, JAMAIS de banc/spectateur
@@ -4330,6 +4425,9 @@ io.on('connection', (socket) => {
       p.rarityBoost = null;
       p.crossedFatesPartner = null;
       p.secretPokemonIndex = null;
+      // Partie à modificateurs = hors-classement : lu par recordGameResult (aucune XP, aucun
+      // historique, donc ni succès, ni stats, ni Pokédex). Remis à false sinon.
+      p.modifiedGame = !!(game.modifiers && game.modifiers.length);
     });
 
     // Mode ADMIN VS JOUEUR : décision de gameplay volontaire — jamais d'objet dans ce
@@ -4339,6 +4437,13 @@ io.on('connection', (socket) => {
       return;
     }
     if (game.gameMode === 'admin') {
+      beginRouteGameplay(game, gameId);
+      return;
+    }
+
+    // Modificateur "Pas d'objets" : aucun choix d'objet de départ, le tour 1 démarre tout de
+    // suite (beginRouteGameplay émet your_item avec item: null à chaque joueur).
+    if (gameHasModifier(game, 'no_items')) {
       beginRouteGameplay(game, gameId);
       return;
     }
@@ -4652,6 +4757,7 @@ io.on('connection', (socket) => {
       selectedDifficulty: oldGame.selectedDifficulty || 'medium', // conservée, modifiable avant le lancement
       gameMode: oldGame.gameMode || 'normal',
       adminId: carriedAdminId,
+      modifiers: Array.isArray(oldGame.modifiers) ? [...oldGame.modifiers] : [], // conservés, modifiables avant le lancement
       route: buildRoute(),
       turnTimer: null,
       guessBoard: null,
@@ -4718,7 +4824,8 @@ io.on('connection', (socket) => {
       adminId: newGame.adminId,
       activePlayerIds: newGame.activePlayerIds,
       guessTurnDurationMs: newGame.guessTurnDurationMs,
-      auctionType: newGame.auctionType
+      auctionType: newGame.auctionType,
+      modifiers: newGame.modifiers || []
     });
   });
 
@@ -4748,6 +4855,40 @@ io.on('connection', (socket) => {
 
     game.selectedDifficulty = difficulty;
     io.to(gameId).emit('difficulty_updated', { difficulty: game.selectedDifficulty });
+  });
+
+  // Modificateurs de partie (cf. GAME_MODIFIERS). Réservé à l'hôte, uniquement avant le
+  // lancement, modes normal/coop. Le client envoie la liste COMPLÈTE souhaitée ; le serveur
+  // la valide (clés connues), la dédoublonne et la remet dans l'ordre du catalogue.
+  socket.on('set_modifiers', ({ modifiers } = {}) => {
+    const gameId = socket.data.gameId;
+    const game = games[gameId];
+
+    if (!game) {
+      socket.emit('error_message', 'Partie introuvable.');
+      return;
+    }
+    if (game.hostId !== socket.id) {
+      socket.emit('error_message', "Seul l'hôte peut choisir les modificateurs.");
+      return;
+    }
+    if (game.status !== 'waiting') {
+      socket.emit('error_message', 'Les modificateurs ne peuvent plus être modifiés.');
+      return;
+    }
+    if (!Array.isArray(modifiers) || modifiers.length > GAME_MODIFIER_KEYS.length
+        || !modifiers.every(k => typeof k === 'string' && GAME_MODIFIER_KEYS.includes(k))) {
+      socket.emit('error_message', 'Modificateur invalide.');
+      return;
+    }
+    const clean = GAME_MODIFIER_KEYS.filter(k => modifiers.includes(k));
+    if (clean.length && !MODIFIER_GAME_MODES.includes(game.gameMode)) {
+      socket.emit('error_message', "Les modificateurs ne sont disponibles qu'en Mode normal et Coop.");
+      return;
+    }
+
+    game.modifiers = clean;
+    io.to(gameId).emit('modifiers_updated', { modifiers: game.modifiers });
   });
 
   // Choix du mode de jeu dans le lobby. Réservé à l'hôte, uniquement avant le lancement.
@@ -4780,6 +4921,10 @@ io.on('connection', (socket) => {
     }
 
     game.gameMode = mode;
+    if (!MODIFIER_GAME_MODES.includes(mode) && game.modifiers && game.modifiers.length) {
+      game.modifiers = []; // les modificateurs n'existent qu'en normal/coop
+      io.to(gameId).emit('modifiers_updated', { modifiers: game.modifiers });
+    }
     game.adminId = null;
     game.activePlayerIds = null;
     game.auctionType = null; // repart de zéro si l'hôte change de mode puis revient sur "auction"
@@ -5498,6 +5643,7 @@ io.on('connection', (socket) => {
 
     socket.emit('rejoin_success', {
       gameId: game.id,
+      modifiers: game.modifiers || [],
       status: game.status,
       turn: game.turn,
       maxTurns: game.maxTurns,

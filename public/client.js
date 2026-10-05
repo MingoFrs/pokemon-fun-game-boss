@@ -1403,6 +1403,13 @@ const btnCopyLink = document.getElementById('btn-copy-link');
 const copyFeedbackEl = document.getElementById('copy-feedback');
 const difficultyButtons = Array.from(document.querySelectorAll('.difficulty-btn'));
 const gamemodeButtons = Array.from(document.querySelectorAll('.gamemode-btn'));
+const modifiersPanelEl = document.getElementById('modifiers-panel');
+const modifiersOptionsEl = document.getElementById('modifiers-options');
+const modifiersActiveListEl = document.getElementById('modifiers-active-list');
+const modifiersNoteEl = document.getElementById('modifiers-note');
+const gameModifiersEl = document.getElementById('game-modifiers');
+const finishedModifiersEl = document.getElementById('finished-modifiers');
+const finishedModifiersNoteEl = document.getElementById('finished-modifiers-note');
 const gamemodeHintEl = document.getElementById('gamemode-hint');
 const teamScoreLineEl = document.getElementById('team-score-line');
 const bossAttackBannerEl = document.getElementById('boss-attack-banner');
@@ -1731,6 +1738,7 @@ function updateHostControls() {
   gamemodeButtons.forEach(btn => { btn.disabled = !host; });
   guessDurationButtons.forEach(btn => { btn.disabled = !host; });
   auctionTypeButtons.forEach(btn => { btn.disabled = !host; });
+  renderModifiers(currentModifiers); // boutons désactivés pour l'invité
   renderActivePlayersOptions(); // dépend aussi de isHost() (boutons désactivés pour l'invité)
   renderAdminRoleOptions(); // dépend aussi de isHost() (boutons désactivés pour l'invité)
   lobbyStatusEl.textContent = host
@@ -1788,7 +1796,83 @@ function renderGameMode(gameMode) {
   }
   guessDurationPanelEl.classList.toggle('screen--hidden', currentGameMode !== 'guess');
   auctionTypePanelEl.classList.toggle('screen--hidden', currentGameMode !== 'auction');
+  renderModifiers(currentModifiers); // le panneau n'existe qu'en Mode normal / Coop
 }
+
+// ---------- Modificateurs de partie ----------
+// Catalogue (libellés/descriptions) fourni par le serveur — jamais dupliqué ici. La sélection
+// est celle de l'hôte, confirmée par le serveur (modifiers_updated), jamais décidée côté client.
+// Une partie à modificateurs est hors-classement : aucune XP/succès/stats/Pokédex (serveur).
+let modifiersCatalog = [];
+let modifiersAllowedModes = ['normal', 'coop'];
+let currentModifiers = [];
+let lastGameModifiers = []; // modificateurs de la partie en cours / qui vient de finir (bandeaux)
+
+function renderModifiers(mods) {
+  currentModifiers = Array.isArray(mods) ? mods : [];
+  const allowed = modifiersAllowedModes.includes(currentGameMode);
+  modifiersPanelEl.classList.toggle('screen--hidden', !allowed || modifiersCatalog.length === 0);
+  modifiersOptionsEl.innerHTML = '';
+  modifiersActiveListEl.innerHTML = '';
+  const host = isHost();
+
+  modifiersCatalog.forEach(m => {
+    const active = currentModifiers.includes(m.key);
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'modifier-chip' + (active ? ' modifier-chip--active' : '');
+    btn.title = m.description;
+    btn.disabled = !host;
+    btn.setAttribute('aria-pressed', String(active));
+    btn.textContent = `${m.icon} ${m.label}`;
+    btn.addEventListener('click', () => {
+      if (!isHost()) return;
+      const next = active ? currentModifiers.filter(k => k !== m.key) : currentModifiers.concat(m.key);
+      socket.emit('set_modifiers', { modifiers: next });
+    });
+    modifiersOptionsEl.appendChild(btn);
+
+    if (active) {
+      // Descriptions des modificateurs actifs en toutes lettres (le title ne marche pas au doigt).
+      const li = document.createElement('li');
+      li.textContent = `${m.icon} ${m.label} — ${m.description}`;
+      modifiersActiveListEl.appendChild(li);
+    }
+  });
+  modifiersNoteEl.classList.toggle('screen--hidden', currentModifiers.length === 0);
+}
+
+// Pastilles des modificateurs actifs (panneau du boss en partie, écran de fin).
+function renderModifierBadges(containerEl, mods) {
+  containerEl.innerHTML = '';
+  const list = (Array.isArray(mods) ? mods : [])
+    .map(key => modifiersCatalog.find(m => m.key === key))
+    .filter(Boolean);
+  containerEl.classList.toggle('screen--hidden', list.length === 0);
+  list.forEach(m => {
+    const badge = document.createElement('span');
+    badge.className = 'modifier-badge';
+    badge.title = m.description;
+    badge.textContent = `${m.icon} ${m.label}`;
+    containerEl.appendChild(badge);
+  });
+}
+
+async function fetchModifiersCatalog() {
+  try {
+    const res = await fetch('/api/modifiers');
+    const data = await res.json();
+    if (!res.ok || !Array.isArray(data.modifiers)) return;
+    modifiersCatalog = data.modifiers;
+    if (Array.isArray(data.modes)) modifiersAllowedModes = data.modes;
+    renderModifiers(currentModifiers);
+    renderModifierBadges(gameModifiersEl, lastGameModifiers);
+    renderModifierBadges(finishedModifiersEl, lastGameModifiers);
+  } catch (err) {
+    // Silencieux : le lobby fonctionne sans (panneau simplement masqué).
+  }
+}
+fetchModifiersCatalog();
 
 // Reflet local de la durée de tour choisie par l'hôte (mode "guess"). Le serveur reste
 // seul à décider réellement (cf. GUESS_TURN_DURATION_MS / set_guess_turn_duration côté
@@ -2727,6 +2811,11 @@ function resetGameUI() {
   finishedMyTeamEl.innerHTML = '';
   finishedOutcomeEl.textContent = '';
   finishedOutcomeEl.classList.remove('finished-outcome--victory', 'finished-outcome--defeat');
+  finishedModifiersEl.innerHTML = '';
+  finishedModifiersEl.classList.add('screen--hidden');
+  finishedModifiersNoteEl.classList.add('screen--hidden');
+  gameModifiersEl.innerHTML = '';
+  gameModifiersEl.classList.add('screen--hidden');
   finishedDifficultyEl.textContent = '';
   finishedDifficultyEl.classList.remove('finished-difficulty-badge--easy', 'finished-difficulty-badge--medium', 'finished-difficulty-badge--hard', 'finished-difficulty-badge--extreme');
   btnReplay.classList.add('screen--hidden');
@@ -3228,6 +3317,7 @@ socket.on('rejoin_success', (payload) => {
     renderLobbyPlayers(payload.players);
     renderDifficulty(payload.difficulty);
     renderGameMode(payload.gameMode);
+    renderModifiers(payload.modifiers);
     updateHostControls();
     showScreen(screenLobby);
   } else if (payload.status === 'playing') {
@@ -3244,7 +3334,8 @@ socket.on('rejoin_success', (payload) => {
       boss: payload.boss,
       players: payload.players,
       gameMode: payload.gameMode,
-      adminId: payload.adminId
+      adminId: payload.adminId,
+      modifiers: payload.modifiers
     });
   } else if (payload.status === 'finished') {
     applyGameFinished({
@@ -3253,7 +3344,8 @@ socket.on('rejoin_success', (payload) => {
       gameMode: payload.gameMode,
       adminId: payload.adminId,
       reason: null,
-      players: payload.players
+      players: payload.players,
+      modifiers: payload.modifiers
     });
   }
 });
@@ -3266,7 +3358,7 @@ socket.on('rejoin_failed', () => {
   endReconnectAttempt();
 });
 
-socket.on('game_created', ({ gameId, players, hostId: hId, difficulty, gameMode, adminId, activePlayerIds, guessTurnDurationMs, auctionType }) => {
+socket.on('game_created', ({ gameId, players, hostId: hId, difficulty, gameMode, adminId, activePlayerIds, guessTurnDurationMs, auctionType, modifiers }) => {
   resetGameUI();
   isSpectating = false;
   hostId = hId;
@@ -3279,11 +3371,12 @@ socket.on('game_created', ({ gameId, players, hostId: hId, difficulty, gameMode,
   renderGameMode(gameMode);
   renderGuessDuration(guessTurnDurationMs);
   renderAuctionType(auctionType);
+  renderModifiers(modifiers);
   updateHostControls();
   showScreen(screenLobby);
 });
 
-socket.on('game_joined', ({ gameId, players, hostId: hId, difficulty, gameMode, adminId, activePlayerIds, guessTurnDurationMs, auctionType }) => {
+socket.on('game_joined', ({ gameId, players, hostId: hId, difficulty, gameMode, adminId, activePlayerIds, guessTurnDurationMs, auctionType, modifiers }) => {
   resetGameUI();
   isSpectating = false;
   hostId = hId;
@@ -3296,11 +3389,12 @@ socket.on('game_joined', ({ gameId, players, hostId: hId, difficulty, gameMode, 
   renderGameMode(gameMode);
   renderGuessDuration(guessTurnDurationMs);
   renderAuctionType(auctionType);
+  renderModifiers(modifiers);
   updateHostControls();
   showScreen(screenLobby);
 });
 
-socket.on('game_replayed', ({ gameId, players, hostId: hId, difficulty, gameMode, adminId, activePlayerIds, guessTurnDurationMs, auctionType }) => {
+socket.on('game_replayed', ({ gameId, players, hostId: hId, difficulty, gameMode, adminId, activePlayerIds, guessTurnDurationMs, auctionType, modifiers }) => {
   // Diffusé à tout le nouveau salon (io.to(newGameId).emit), donc reçu aussi par un
   // spectateur transféré depuis l'ancienne partie (cf. socket.on('play_again') côté
   // serveur) : celui-ci vient de recevoir SON propre spectate_joined juste avant, il ne
@@ -3320,6 +3414,7 @@ socket.on('game_replayed', ({ gameId, players, hostId: hId, difficulty, gameMode
   renderGameMode(gameMode);
   renderGuessDuration(guessTurnDurationMs);
   renderAuctionType(auctionType);
+  renderModifiers(modifiers);
   updateHostControls();
   showScreen(screenLobby);
 });
@@ -3337,6 +3432,12 @@ socket.on('game_mode_updated', ({ gameMode, adminId, activePlayerIds, auctionTyp
   currentActivePlayerIds = activePlayerIds || [];
   renderGameMode(gameMode);
   renderAuctionType(auctionType);
+});
+
+// Modificateurs de partie : confirmés par le serveur (ou vidés quand l'hôte change vers un
+// mode qui ne les gère pas, cf. set_game_mode).
+socket.on('modifiers_updated', ({ modifiers }) => {
+  renderModifiers(modifiers);
 });
 
 // Le rôle ADMIN change (hôte uniquement) : les deux joueurs voient le nouveau choix en direct.
@@ -3375,7 +3476,7 @@ socket.on('players_updated', ({ players, hostId: hId }) => {
 });
 
 // ---------- Événements serveur : jeu ----------
-function applyGameStarted({ status, turn, maxTurns, route, boss, players, gameMode, adminId }) {
+function applyGameStarted({ status, turn, maxTurns, route, boss, players, gameMode, adminId, modifiers }) {
   resetGameUI(); // aucun résidu de l'ancienne partie ; masque aussi le choix tour 4 par défaut
   resetChatPanel(); // nouvelle partie = discussion vierge
   currentGameMode = gameMode || 'normal';
@@ -3389,6 +3490,8 @@ function applyGameStarted({ status, turn, maxTurns, route, boss, players, gameMo
   bossNameEl.textContent = boss.name.toUpperCase();
   bossTargetValueEl.textContent = bossTarget;
   renderBossTypeInfo(boss);
+  lastGameModifiers = Array.isArray(modifiers) ? modifiers : [];
+  renderModifierBadges(gameModifiersEl, lastGameModifiers);
   applyGameState({ status, turn, maxTurns, route, players });
   showScreen(screenGame);
 }
@@ -3668,7 +3771,7 @@ socket.on('metamorph_transformed', ({ score, scoreDelta, team, targetName, sprit
   showMetamorphResult({ targetName, sprite, scoreDelta });
 });
 
-function applyGameFinished({ boss, difficulty, gameMode, adminId, reason, players, teamScore, teamRequired }) {
+function applyGameFinished({ boss, difficulty, gameMode, adminId, reason, players, teamScore, teamRequired, modifiers }) {
   // Le rôle a pu changer entre le dernier game_started reçu (aucun risque en pratique
   // puisqu'il est verrouillé après start_game, mais on resynchronise par cohérence).
   currentGameMode = gameMode || currentGameMode;
@@ -3689,6 +3792,9 @@ function applyGameFinished({ boss, difficulty, gameMode, adminId, reason, player
   finishedBossSpriteEl.src = boss.sprite;
   finishedBossNameEl.textContent = boss.name.toUpperCase();
   finishedDifficultyEl.textContent = DIFFICULTY_LABELS[difficulty] || '';
+  lastGameModifiers = Array.isArray(modifiers) ? modifiers : [];
+  renderModifierBadges(finishedModifiersEl, lastGameModifiers);
+  finishedModifiersNoteEl.classList.toggle('screen--hidden', lastGameModifiers.length === 0);
   renderTypeBadges(finishedBossTypesEl, boss.types);
   const tb = observed && observed.typeBonus;
   if (tb && boss.typeRules) {
