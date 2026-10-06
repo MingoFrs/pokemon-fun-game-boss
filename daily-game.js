@@ -152,9 +152,14 @@ function registerDaily({ io, app, supabase, createAuthClient, deps }) {
   });
 
   // ---------- Stockage Supabase (dégradation gracieuse) ----------
+  const describeErr = (e) => {
+    if (!e) return 'erreur inconnue';
+    const o = { name: e.name, message: e.message, code: e.code, status: e.status, details: e.details, hint: e.hint, cause: e.cause && (e.cause.message || String(e.cause)) };
+    try { return JSON.stringify(o); } catch (x) { return String(e); }
+  };
   const storeUsable = () => !!supabase && Date.now() >= storeDisabledUntil;
   function noteStoreError(err) {
-    console.error('[daily] stockage indisponible :', err && err.message);
+    console.error('[daily] stockage indisponible :', describeErr(err));
     if (err && (err.code === '42P01' || /daily_scores/.test(err.message || ''))) {
       console.error('[daily] table daily_scores absente : exécuter daily.sql dans Supabase.');
     }
@@ -478,6 +483,25 @@ function registerDaily({ io, app, supabase, createAuthClient, deps }) {
       res.status(500).json({ error: 'Défi indisponible.' });
     }
   });
+
+  // Diagnostic : GET/POST /api/daily/health -> état réel de Supabase (sans secret).
+  const health = async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    const out = { supabaseConfigured: !!supabase, now: new Date().toISOString(), day: dayKey(), storeDisabledForMs: Math.max(0, storeDisabledUntil - Date.now()) };
+    if (supabase) {
+      try {
+        const { error, count } = await supabase.from('daily_scores').select('user_id', { count: 'exact', head: true });
+        out.dailyScores = error ? { ok: false, code: error.code, message: error.message, details: error.details, hint: error.hint } : { ok: true, rows: count };
+      } catch (e) { out.dailyScores = { ok: false, error: describeErr(e) }; }
+      try {
+        const { error } = await supabase.from('profiles').select('id', { head: true }).limit(1);
+        out.profiles = error ? { ok: false, code: error.code, message: error.message } : { ok: true };
+      } catch (e) { out.profiles = { ok: false, error: describeErr(e) }; }
+    }
+    res.json(out);
+  };
+  app.get('/api/daily/health', health);
+  app.post('/api/daily/health', health);
 
   app.post('/api/daily/leaderboard', async (req, res) => {
     res.set('Cache-Control', 'no-store');
