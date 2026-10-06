@@ -168,6 +168,22 @@ async function recordGameResult(player, xpAmount, details) {
     const newXp = (profile ? (profile.xp || 0) : 0) + xpAmount;
     await supabase.from('profiles').update({ xp: newXp }).eq('id', user.id);
 
+    // Récap : Pokémon jamais obtenus avant cette partie (= absents des équipes déjà en historique,
+    // même source que le Pokédex). Lu AVANT l'insertion de la partie en cours.
+    const newPokemon = [];
+    if (Array.isArray(details.team) && details.team.length) {
+      const { data: prevRows } = await supabase.from('game_history').select('team').eq('user_id', user.id);
+      const known = new Set();
+      (prevRows || []).forEach(r => { if (Array.isArray(r.team)) r.team.forEach(m => { if (m && m.id != null) known.add(m.id); }); });
+      const seenNow = new Set();
+      details.team.forEach(m => {
+        if (m && m.id != null && !known.has(m.id) && !seenNow.has(m.id)) {
+          seenNow.add(m.id);
+          newPokemon.push({ id: m.id, name: m.name, sprite: m.sprite, shiny: !!m.shiny, shinySprite: m.shinySprite || null });
+        }
+      });
+    }
+
     await supabase.from('game_history').insert({
       user_id: user.id,
       game_mode: details.gameMode,
@@ -180,6 +196,7 @@ async function recordGameResult(player, xpAmount, details) {
 
     // Succès (fire-and-forget comme le reste de cette fonction) : jamais bloquant, jamais
     // un pré-requis pour terminer une partie — cf. checkAndUnlockAchievements.
+    if (newPokemon.length) io.to(player.id).emit('game_recap_new', { newPokemon });
     await checkAndUnlockAchievements(user.id, player.id);
   } catch (err) {
     console.error('[fin de partie] échec XP/historique', { err: err.message });
@@ -196,6 +213,13 @@ async function recordGameResult(player, xpAmount, details) {
 // TITRES : chaque succès débloque UN titre cosmétique (champ `title`), équipable sur le
 // compte (profiles.title = clé du succès, '' = aucun). Pas de table à part : le droit
 // d'équiper un titre = succès débloqué en base, revalidé dans /api/profile/title.
+// Méga de Pokémon Legends Z-A : ids PokéAPI 10278-10326 (49 formes, cf. MEGA_FORMS). Les succès
+// « Collection Z-A » comptent les formes DISTINCTES obtenues, toutes parties confondues.
+const ZA_MEGA_ID_MIN = 10278;
+const ZA_MEGA_ID_MAX = 10326;
+const ZA_MEGA_COUNT = ZA_MEGA_ID_MAX - ZA_MEGA_ID_MIN + 1; // 49
+const isZaMegaId = id => Number.isInteger(id) && id >= ZA_MEGA_ID_MIN && id <= ZA_MEGA_ID_MAX;
+
 const ACHIEVEMENTS = [
   { key: 'first_game', category: 'facile', title: 'Dresseur Novice', label: 'Premiers pas', description: 'Termine ta première partie.', check: ctx => ctx.gamesPlayed >= 1 },
   { key: 'first_win', category: 'facile', title: 'Vainqueur', label: 'Première victoire', description: 'Remporte ta première partie.', check: ctx => ctx.wins >= 1 },
@@ -221,6 +245,14 @@ const ACHIEVEMENTS = [
   { key: 'wins_25', category: 'difficile', title: 'Légende Vivante', label: 'Increvable', description: 'Remporte 25 parties.', check: ctx => ctx.wins >= 25 },
   { key: 'win_streak_5', category: 'difficile', title: 'Invaincu', label: 'Série parfaite', description: 'Enchaîne 5 victoires d\'affilée.', check: ctx => ctx.maxWinStreak >= 5 },
   { key: 'four_modes_win', category: 'difficile', title: 'Maître Absolu', label: 'Maître absolu', description: 'Remporte au moins une partie dans les 4 modes de jeu (Route du Boss, Admin vs Joueur, Devine le Pokémon, Draft/Enchères).', check: ctx => ['normal', 'admin', 'guess', 'auction'].every(m => ctx.winModes.has(m)) },
+  { key: 'za_mega_first', category: 'facile', title: 'Pionnier Z-A', label: 'Éveil Z-A', description: 'Obtiens une Méga-Évolution de Pokémon Légendes Z-A dans ton équipe.', check: ctx => ctx.zaMegaIds.size >= 1 },
+  { key: 'za_mega_10', category: 'difficile', title: 'Collectionneur Z-A', label: 'Collection Z-A', description: 'Obtiens 10 Méga-Évolutions Z-A différentes (cumul de toutes tes parties).', check: ctx => ctx.zaMegaIds.size >= 10 },
+  { key: 'za_mega_all', category: 'difficile', title: 'Maître Méga Z-A', label: 'Méga-Dex Z-A complet', description: `Obtiens les ${ZA_MEGA_COUNT} Méga-Évolutions Z-A (cumul de toutes tes parties).`, check: ctx => ctx.zaMegaIds.size >= ZA_MEGA_COUNT },
+  { key: 'gamble_x2', category: 'difficile', title: 'Jackpot', label: 'Jackpot ×2', description: "Fais tomber ×2 avec LET'S GO GAMBLING.", check: ctx => ctx.gambleX2 },
+  { key: 'gamble_x05', category: 'facile', title: 'Malchanceux', label: 'Perdu au Gambling', description: "Tombe sur ×0.5 avec LET'S GO GAMBLING.", check: ctx => ctx.gambleX05 },
+  { key: 'aura_duo', category: 'difficile', title: 'Équilibre des Auras', label: 'Yin & Yang', description: 'Aies Aura +150 et Aura -100 dans la même équipe.', check: ctx => ctx.auraDuo },
+  { key: 'six_traits', category: 'difficile', title: 'Casting Complet', label: 'Six traits', description: 'Termine une partie avec 6 Pokémon ayant chacun un trait (aucun Neutre).', check: ctx => ctx.sixTraits },
+  { key: 'p2l_victory', category: 'difficile', title: 'Porté par la Chance', label: 'Gagner avec P2L', description: 'Gagne une partie avec un Pokémon P2L dans ton équipe.', check: ctx => ctx.p2lVictory },
   { key: 'score_10000', category: 'difficile', title: 'Astre du Score', label: 'Score astronomique', description: 'Atteins un score de 10000 en une seule partie.', check: ctx => ctx.bestScore >= 10000 }
 ];
 
@@ -245,6 +277,12 @@ function buildAchievementContext(allRows) {
     hasEpic: false,
     hasShiny: false,
     hasMega: false,
+    zaMegaIds: new Set(),
+    gambleX2: false,
+    gambleX05: false,
+    auraDuo: false,
+    sixTraits: false,
+    p2lVictory: false,
     doubleShiny: false,
     rainbowTeam: false,
     beatExtreme: false,
@@ -273,6 +311,14 @@ function buildAchievementContext(allRows) {
       if (row.team.some(mon => mon.rarity === 'epique')) ctx.hasEpic = true;
       if (row.team.some(mon => mon.shiny)) ctx.hasShiny = true;
       if (row.team.some(mon => mon.rarity === 'mega')) ctx.hasMega = true;
+      row.team.forEach(mon => { if (mon && isZaMegaId(mon.id)) ctx.zaMegaIds.add(mon.id); });
+      // Traits : lus sur le snapshot de l'équipe (effectName / gambleRoll / flat, cf. teamMonFromReward).
+      const names = row.team.map(mon => mon && mon.effectName);
+      if (row.team.some(mon => mon && mon.gambleRoll === 2)) ctx.gambleX2 = true;
+      if (row.team.some(mon => mon && mon.gambleRoll === 0.5)) ctx.gambleX05 = true;
+      if (names.includes('Aura +150') && names.includes('Aura -100')) ctx.auraDuo = true;
+      if (row.team.length >= 6 && row.team.filter(mon => mon && EFFECTS.some(e => e.name !== 'Neutre' && e.name === mon.effectName)).length >= 6) ctx.sixTraits = true;
+      if (row.result === 'victory' && names.includes('P2L')) ctx.p2lVictory = true;
       if (row.team.filter(mon => mon.shiny).length >= 2) ctx.doubleShiny = true;
       if (new Set(row.team.map(mon => mon.rarity)).size >= 5) ctx.rainbowTeam = true;
       if (row.game_mode === 'auction' && row.team.length >= 6) ctx.auctionFullTeam = true;
@@ -363,8 +409,22 @@ const GENERATIONS = [
   { gen: 8, label: 'Génération 8 — Galar', from: 810, to: 905 },
   { gen: 9, label: 'Génération 9 — Paldea', from: 906, to: 1025 }
 ];
+// `megas` : toutes les formes Méga du jeu (id >= 10000, données du roster), `za: true` pour les
+// 49 Méga de Pokémon Légendes Z-A — alimente les onglets « Méga » / « Méga Z-A » du Pokédex.
 app.get('/api/pokedex/national', (req, res) => {
-  res.json({ generations: GENERATIONS, dex: NATIONAL_DEX });
+  const megas = POKEMON_ENTRIES
+    .filter(e => e.id >= 10000)
+    .map(e => ({ id: e.id, name: e.name, za: isZaMegaId(e.id) }))
+    .sort((a, b) => a.id - b.id);
+  // Trait-dex : définitions des traits (ordre de EFFECTS). Aucune probabilité exposée : la rareté
+  // reste à découvrir. kind = 'neutral' | 'bonus' | 'malus' | 'gamble' (couleur côté client).
+  const traits = EFFECTS.map(e => ({
+    name: e.name,
+    kind: e.name === 'Neutre' ? 'neutral' : (e.gamble ? 'gamble' : (e.power > 1 ? 'bonus' : 'malus')),
+    multiplier: e.gamble ? null : e.multiplier,
+    flat: e.flat || 0
+  }));
+  res.json({ generations: GENERATIONS, dex: NATIONAL_DEX, megas, traits });
 });
 
 // Catalogue des modificateurs de partie (libellés/descriptions : source unique côté serveur,
@@ -771,7 +831,25 @@ app.post('/api/profile/pokedex', async (req, res) => {
     });
   });
 
-  res.json({ seen: Array.from(seen.values()) });
+  // Trait-dex : traits présents dans les équipes FINALES de l'historique (comme le Pokédex : un
+  // trait remplacé en cours de partie n'est pas compté). count = nb de Pokémon l'ayant porté ;
+  // pour LET'S GO GAMBLING, minRoll/maxRoll = pire/meilleur multiplicateur tiré (gambleRoll).
+  const traitNames = new Set(EFFECTS.map(e => e.name));
+  const traits = {};
+  (data || []).forEach(row => {
+    if (!Array.isArray(row.team)) return;
+    row.team.forEach(mon => {
+      if (!mon || !traitNames.has(mon.effectName)) return;
+      const t = traits[mon.effectName] || (traits[mon.effectName] = { count: 0 });
+      t.count += 1;
+      if (typeof mon.gambleRoll === 'number') {
+        t.minRoll = t.minRoll === undefined ? mon.gambleRoll : Math.min(t.minRoll, mon.gambleRoll);
+        t.maxRoll = t.maxRoll === undefined ? mon.gambleRoll : Math.max(t.maxRoll, mon.gambleRoll);
+      }
+    });
+  });
+
+  res.json({ seen: Array.from(seen.values()), traits });
 });
 
 // Stats de profil : Pokémon le plus tiré, taux de victoire par mode, meilleur score par
@@ -1670,7 +1748,7 @@ const BONUS_LABELS = {
   mysteryItem: 'PSL',
   shinyCharm: 'Charme Chroma',
   megaGem: 'Méga Gemme',
-  patchNote: 'Patch Note',
+  patchNote: 'Return To Zero',
   reroll: 'Reroll'
 };
 
@@ -1756,6 +1834,8 @@ function assignEffect(mon, effect) {
   // Le ×shiny déjà inclus dans le multiplicateur (cf. startShinyPokemon) ne doit jamais être perdu.
   mon.multiplier = effect.multiplier * (mon.shinyInMultiplier ? SHINY_POINTS_MULTIPLIER : 1);
   mon.flat = effect.flat || 0;
+  if (effect.gamble) mon.gambleRoll = effect.multiplier; // roulette du trait (succès / récap)
+  else delete mon.gambleRoll;
 }
 
 // ---- PATCH NOTE / REROLL : helpers d'éligibilité et de tirage ----
@@ -1805,6 +1885,7 @@ function teamMonFromReward(reward) {
     multiplier: reward.multiplier,
     flat: reward.flat || 0
   };
+  if (reward.gambleRoll != null) mon.gambleRoll = reward.gambleRoll; // résultat de la roulette (succès / récap)
   if (reward.shiny) {
     mon.shiny = true;
     mon.shinySprite = reward.shinySprite;
@@ -1856,6 +1937,7 @@ function buildRewardOption(useCharm, pity, floorRarity, extraBoost, gameMode, mo
     effectName: effect.name,
     multiplier: effect.multiplier,
     flat: effect.flat,
+    gambleRoll: effect.gamble ? effect.multiplier : null,
     shiny,
     shinySprite: shiny ? shinySpriteUrl(pokemon.id) : null,
     finalPoints
@@ -2033,6 +2115,7 @@ function buildAdminModeOption() {
     effectName: effect.name,
     multiplier: effect.multiplier,
     flat: effect.flat,
+    gambleRoll: effect.gamble ? effect.multiplier : null,
     shiny,
     shinySprite: shiny ? shinySpriteUrl(pokemon.id) : null,
     finalPoints
@@ -3439,6 +3522,7 @@ function makePlayer(id, name, token, avatar, accessToken) {
     heldItemUsed: false,
     pendingBonusKey: null,
     pity: 0, // compteur anti-RNG individuel, jamais partagé entre joueurs
+    worstChoice: null, // récap de fin de partie : plus gros regret HAUT/BAS
     activeEvent: null, // événement rare en cours pour CE joueur (jamais 2 à la fois)
     eventCooldown: 0, // nb de tours restants avant qu'un nouvel événement puisse se tirer
     rarityFloor: null, // effet différé de LUCKY_TURN : plancher de rareté pour le PROCHAIN tirage, à usage unique
@@ -3690,6 +3774,7 @@ function finishGame(game) {
       teamRequired: game.boss.teamRequiredPoints,
       modifiers: game.modifiers || []
     });
+    emitGameRecaps(game);
     return;
   }
 
@@ -3739,6 +3824,39 @@ function finishGame(game) {
     route: game.route,
     modifiers: game.modifiers || [],
     players: results
+  });
+  emitGameRecaps(game);
+}
+
+// RÉCAP DE FIN DE PARTIE (par joueur, calculé ICI à partir de l'équipe finale, envoyé via
+// 'game_recap' juste après game_finished). Gain d'un trait = points du Pokémon avec son trait
+// moins ses points « neutres » (le ×shiny intégré au multiplicateur n'est pas attribué au trait).
+function buildPlayerRecap(player) {
+  const team = Array.isArray(player.team) ? player.team : [];
+  const traitMons = team
+    .filter(mon => EFFECTS.some(e => e.name !== 'Neutre' && e.name === mon.effectName))
+    .map(mon => {
+      const shinyFactor = mon.shinyInMultiplier ? SHINY_POINTS_MULTIPLIER : 1;
+      const gain = Math.round(mon.basePoints * mon.multiplier) + (mon.flat || 0) - Math.round(mon.basePoints * shinyFactor);
+      const multiplier = mon.gambleRoll != null ? mon.gambleRoll : traitDisplayMultiplier(mon);
+      return { mon, gain, trait: { name: mon.effectName, multiplier, flat: mon.flat || 0 } };
+    });
+  const toEntry = t => ({ pokemonName: t.mon.name, sprite: t.mon.sprite, trait: t.trait, gain: t.gain });
+  const best = traitMons.filter(t => t.gain > 0).sort((a, b) => b.gain - a.gain)[0];
+  const worst = traitMons.filter(t => t.gain < 0).sort((a, b) => a.gain - b.gain)[0];
+  const gambles = traitMons.filter(t => t.mon.gambleRoll != null).sort((a, b) => b.mon.gambleRoll - a.mon.gambleRoll || b.gain - a.gain);
+  return {
+    bestTrait: best ? toEntry(best) : null,
+    worstTrait: worst ? toEntry(worst) : null,
+    bigGamble: gambles[0] ? { ...toEntry(gambles[0]), roll: gambles[0].mon.gambleRoll } : null,
+    worstChoice: player.worstChoice || null
+  };
+}
+
+function emitGameRecaps(game) {
+  game.players.forEach(p => {
+    if (game.gameMode === 'admin' && p.id === game.adminId) return; // l'admin n'a pas d'équipe
+    io.to(p.id).emit('game_recap', buildPlayerRecap(p));
   });
 }
 
@@ -4123,6 +4241,7 @@ function finishAdminModeByForfeit(game, leavingPlayer) {
     modifiers: game.modifiers || [],
     players: results
   });
+  emitGameRecaps(game);
 }
 
 io.on('connection', (socket) => {
@@ -4506,6 +4625,7 @@ io.on('connection', (socket) => {
       p.startItemOptions = null;
       p.pendingBonusKey = null;
       p.pity = 0; // compteur anti-RNG propre à chaque nouvelle partie
+      p.worstChoice = null; // récap : pire choix de la partie
       p.activeEvent = null;
       p.eventCooldown = 0;
       p.rarityFloor = null;
@@ -5221,6 +5341,21 @@ io.on('connection', (socket) => {
     const pointsGained = bossAttackHit ? Math.round(reward.finalPoints * 0.5) : reward.finalPoints;
     if (bossAttackHit) game.bossAttackTargetId = null;
 
+    // Récap de fin de partie : « pire choix » = plus gros regret (points de l'option NON choisie
+    // moins ceux de l'option choisie). Comparaison sur finalPoints, avant attaque du boss.
+    const otherReward = player.currentOptions[key === 'haut' ? 'bas' : 'haut'];
+    if (otherReward) {
+      const regret = otherReward.finalPoints - reward.finalPoints;
+      if (regret > 0 && (!player.worstChoice || regret > player.worstChoice.regret)) {
+        player.worstChoice = {
+          turn: game.turn,
+          chosenName: reward.name, chosenPoints: reward.finalPoints,
+          otherName: otherReward.name, otherPoints: otherReward.finalPoints,
+          regret
+        };
+      }
+    }
+
     player.score += pointsGained;
     pushMonToTeam(player, teamMonFromReward(reward));
     const typeBonusDelta = game.gameMode === 'fly' ? 0 : syncTypeBonus(player, game); // bonus de faiblesse + affinité, recalculés depuis l'équipe
@@ -5363,13 +5498,13 @@ io.on('connection', (socket) => {
       return;
     }
 
-    // Patch Note : uniquement les Pokémon qui ont un malus (revalidé à la sélection).
+    // Return To Zero : uniquement les Pokémon qui ont un malus (revalidé à la sélection).
     if (player.heldItem === 'patchNote') {
       const eligible = player.team
         .map((mon, index) => ({ index, mon }))
         .filter(({ mon }) => isMalusMon(mon));
       if (!eligible.length) {
-        socket.emit('error_message', "Aucun Pokémon de ton équipe n'a de malus : Patch Note conservé.");
+        socket.emit('error_message', "Aucun Pokémon de ton équipe n'a de malus : Return To Zero conservé.");
         return;
       }
       player.pendingBonusKey = 'patchNote';
@@ -5561,7 +5696,7 @@ io.on('connection', (socket) => {
     broadcastGameUpdated(game);
   });
 
-  // Patch Note : retire le malus d'un Pokémon (trait remis à Neutre). Le Pokémon est relu ICI
+  // Return To Zero : retire le malus d'un Pokémon (trait remis à Neutre). Le Pokémon est relu ICI
   // dans player.team et son éligibilité revalidée ; l'objet n'est consommé qu'au succès.
   socket.on('patch_note_select', ({ index } = {}) => {
     const game = games[socket.data.gameId];
@@ -5579,7 +5714,7 @@ io.on('connection', (socket) => {
       return;
     }
     if (player.pendingBonusKey !== 'patchNote' || player.heldItem !== 'patchNote' || player.heldItemUsed) {
-      socket.emit('error_message', 'Aucun Patch Note en attente.');
+      socket.emit('error_message', 'Aucun Return To Zero en attente.');
       return;
     }
     const mon = Number.isInteger(index) ? player.team[index] : null;

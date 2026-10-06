@@ -5175,3 +5175,96 @@ body.fly-mode #boss-attack-banner { display: none !important; }
 @media (prefers-reduced-motion: reduce) {
   .gamble-roulette--spinning, .gamble-roulette--landed { animation: none; }
 }
+
+/* ---------- Pokédex : onglets Méga / Méga Z-A ---------- */
+.pokedex-gen-tab--mega {
+  border-color: rgba(255, 213, 74, 0.45);
+}
+.pokedex-cell__za {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  font-family: var(--font-mono);
+  font-size: 8px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 3px;
+  color: #1a1a1a;
+  background: #ffd54a;
+}
+
+/* ---------- Récap de fin de partie ---------- */
+.finished-recap {
+  margin: 14px 0;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--bg-panel-alt);
+  border: 1px solid var(--border);
+}
+.finished-recap__title {
+  margin: 0 0 8px;
+  font-family: var(--font-display);
+  font-size: 15px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-primary);
+}
+.finished-recap__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 0;
+  border-top: 1px solid var(--border-soft);
+}
+.finished-recap__icon { font-size: 20px; flex: none; }
+.finished-recap__sprite { width: 40px; height: 40px; object-fit: contain; flex: none; }
+.finished-recap__body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.finished-recap__label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+.finished-recap__text { font-size: 13px; color: var(--text-primary); overflow-wrap: anywhere; }
+.finished-recap__value {
+  flex: none;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 13px;
+  white-space: nowrap;
+}
+.finished-recap__value--up { color: var(--accent-bas); }
+.finished-recap__value--down { color: var(--danger); }
+.finished-recap__chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.finished-recap__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px 2px 2px;
+  border-radius: 999px;
+  font-size: 12px;
+  background: var(--bg-panel);
+  border: 1px solid rgba(255, 213, 74, 0.45);
+}
+.finished-recap__chip img { width: 28px; height: 28px; object-fit: contain; }
+
+/* ---------- Trait-dex (onglet « Traits » du Pokédex) ---------- */
+.trait-cell__icon { font-size: 34px; line-height: 1; }
+.trait-cell__value {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.trait-cell__count {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-align: center;
+}
+.pokedex-cell--trait-bonus { border-color: var(--accent-bas); }
+.pokedex-cell--trait-malus { border-color: var(--danger); }
+.pokedex-cell--trait-gamble { border-color: #ffd54a; }
+.pokedex-cell--trait-bonus .trait-cell__value { color: var(--accent-bas); }
+.pokedex-cell--trait-malus .trait-cell__value { color: var(--danger); }
+.pokedex-cell--trait-gamble .trait-cell__value { color: #ffd54a; }

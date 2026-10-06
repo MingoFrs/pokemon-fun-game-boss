@@ -402,7 +402,15 @@ const ACHIEVEMENT_ICONS = {
   full_legendary_team: '👑',
   auction_full_team: '💰',
   three_modes_win: '🧭',
-  win_streak_3: '⚡'
+  win_streak_3: '⚡',
+  za_mega_first: '🧬',
+  za_mega_10: '🧪',
+  za_mega_all: '🌌',
+  gamble_x2: '🎰',
+  gamble_x05: '📉',
+  aura_duo: '☯️',
+  six_traits: '🎭',
+  p2l_victory: '🍀'
 };
 
 async function fetchAndRenderAccountAchievements(account) {
@@ -565,6 +573,7 @@ async function equipAccountTitle(key) {
 // client n'a de toute façon pas la liste complète des ~1073 Pokémon/méga possibles).
 let pokedexSeenCache = [];
 let pokedexOwnedMap = new Map(); // id -> { id, name, sprite, shiny }
+let pokedexTraitsOwned = {}; // Trait-dex : nom du trait -> { count, minRoll?, maxRoll? } (cf. /api/profile/pokedex)
 let nationalDexCache = null; // { generations, dex } (cf. GET /api/pokedex/national)
 let currentPokedexGen = 1;
 
@@ -595,17 +604,118 @@ function renderPokedexGenTabs() {
     tab.addEventListener('click', () => renderPokedexGen(gen.gen));
     accountPokedexGenTabsEl.appendChild(tab);
   });
+  // Onglets Méga : formes Méga classiques puis Méga de Pokémon Légendes Z-A (cf. megas côté serveur).
+  POKEDEX_MEGA_TABS.forEach(def => {
+    const entries = pokedexMegaEntries(def.key);
+    const owned = entries.filter(p => pokedexOwnedMap.has(p.id)).length;
+    const tab = document.createElement('button');
+    tab.type = 'button';
+    tab.className = 'pokedex-gen-tab pokedex-gen-tab--mega' + (def.key === currentPokedexGen ? ' pokedex-gen-tab--selected' : '');
+    tab.dataset.gen = def.key;
+    tab.innerHTML = `<span class="pokedex-gen-tab__num">${def.tab}</span><span class="pokedex-gen-tab__count">${owned}/${entries.length}</span>`;
+    tab.addEventListener('click', () => renderPokedexGen(def.key));
+    accountPokedexGenTabsEl.appendChild(tab);
+  });
+  // Onglet Trait-dex : collection des traits (débloqué à la première obtention).
+  const traitDefs = nationalDexCache.traits || [];
+  const traitsOwned = traitDefs.filter(t => pokedexTraitsOwned[t.name]).length;
+  const traitTab = document.createElement('button');
+  traitTab.type = 'button';
+  traitTab.className = 'pokedex-gen-tab pokedex-gen-tab--mega' + (currentPokedexGen === TRAITDEX_KEY ? ' pokedex-gen-tab--selected' : '');
+  traitTab.dataset.gen = TRAITDEX_KEY;
+  traitTab.innerHTML = `<span class="pokedex-gen-tab__num">Traits</span><span class="pokedex-gen-tab__count">${traitsOwned}/${traitDefs.length}</span>`;
+  traitTab.addEventListener('click', () => renderPokedexGen(TRAITDEX_KEY));
+  accountPokedexGenTabsEl.appendChild(traitTab);
+}
+
+const TRAITDEX_KEY = 'traits';
+const TRAIT_KIND_ICONS = { neutral: '⚪', bonus: '🟢', malus: '🔴', gamble: '🎰' };
+
+// Valeur d'un trait pour la grille (sans son nom) : « ×1.25 », « +150 PTS », « ×0.5 → ×2 ».
+function traitValueLabel(def) {
+  if (def.kind === 'gamble') return `×${formatMultiplier(GAMBLE_MULTIPLIERS[0])} → ×${formatMultiplier(GAMBLE_MULTIPLIERS[GAMBLE_MULTIPLIERS.length - 1])}`;
+  if (def.flat) return `${def.flat > 0 ? '+' : ''}${def.flat} PTS`;
+  return `×${formatMultiplier(def.multiplier)}`;
+}
+
+function buildTraitCell(def) {
+  const owned = pokedexTraitsOwned[def.name];
+  const cell = document.createElement('div');
+  cell.className = 'pokedex-cell pokedex-cell--trait' + (owned ? ` pokedex-cell--owned pokedex-cell--trait-${def.kind}` : ' pokedex-cell--locked');
+  cell.title = owned ? def.name : 'Trait non obtenu';
+
+  const imgWrap = document.createElement('div');
+  imgWrap.className = 'pokedex-cell__img';
+  const icon = document.createElement('span');
+  icon.className = owned ? 'trait-cell__icon' : 'pokedex-cell__mark';
+  icon.textContent = owned ? TRAIT_KIND_ICONS[def.kind] || '⚪' : '?';
+  imgWrap.appendChild(icon);
+  cell.appendChild(imgWrap);
+
+  const name = document.createElement('span');
+  name.className = 'pokedex-cell__name';
+  name.textContent = owned ? def.name : '???';
+  cell.appendChild(name);
+
+  if (owned) {
+    const value = document.createElement('span');
+    value.className = 'trait-cell__value';
+    value.textContent = traitValueLabel(def);
+    cell.appendChild(value);
+    const count = document.createElement('span');
+    count.className = 'trait-cell__count';
+    count.textContent = `Obtenu ${owned.count} fois`;
+    cell.appendChild(count);
+    if (def.kind === 'gamble' && owned.minRoll !== undefined) {
+      const rolls = document.createElement('span');
+      rolls.className = 'trait-cell__count';
+      rolls.textContent = owned.minRoll === owned.maxRoll
+        ? `Tiré : ×${formatMultiplier(owned.maxRoll)}`
+        : `Pire ×${formatMultiplier(owned.minRoll)} · Meilleur ×${formatMultiplier(owned.maxRoll)}`;
+      cell.appendChild(rolls);
+    }
+  }
+  return cell;
+}
+
+function renderTraitDex() {
+  const defs = nationalDexCache.traits || [];
+  const query = accountPokedexSearchEl.value.trim().toLowerCase();
+  // La recherche ne porte que sur les traits déjà obtenus (les autres restent « ??? »).
+  const filtered = query ? defs.filter(d => pokedexTraitsOwned[d.name] && d.name.toLowerCase().includes(query)) : defs;
+  accountPokedexGridEl.innerHTML = '';
+  if (!filtered.length) {
+    const empty = document.createElement('p');
+    empty.className = 'account-history-empty';
+    empty.textContent = 'Aucun trait ne correspond.';
+    accountPokedexGridEl.appendChild(empty);
+  } else {
+    filtered.forEach(def => accountPokedexGridEl.appendChild(buildTraitCell(def)));
+  }
+  const owned = defs.filter(d => pokedexTraitsOwned[d.name]).length;
+  accountPokedexCountEl.textContent = `Trait-dex : ${owned}/${defs.length} traits obtenus (équipes finales de tes parties)`;
+}
+
+const POKEDEX_MEGA_TABS = [
+  { key: 'mega', tab: 'Méga', label: 'Méga-Évolutions', za: false },
+  { key: 'mega-za', tab: 'Méga Z-A', label: 'Méga-Évolutions Pokémon Légendes Z-A', za: true }
+];
+
+// Entrées d'un onglet Méga ('mega' = formes classiques, 'mega-za' = Z-A), triées par id.
+function pokedexMegaEntries(key) {
+  const wantZa = key === 'mega-za';
+  return (nationalDexCache.megas || []).filter(m => m.za === wantZa);
 }
 
 function buildPokedexCell(entry) {
   const owned = pokedexOwnedMap.get(entry.id);
   const cell = document.createElement('div');
   cell.className = 'pokedex-cell' + (owned ? ' pokedex-cell--owned' : ' pokedex-cell--locked');
-  cell.title = owned ? entry.name : 'Pokémon non obtenu';
+  cell.title = owned ? entry.name : 'Non obtenu';
 
   const num = document.createElement('span');
   num.className = 'pokedex-cell__num';
-  num.textContent = '#' + String(entry.id).padStart(4, '0');
+  num.textContent = entry.id >= 10000 ? 'MÉGA' : '#' + String(entry.id).padStart(4, '0');
   cell.appendChild(num);
 
   const imgWrap = document.createElement('div');
@@ -630,6 +740,13 @@ function buildPokedexCell(entry) {
   }
   cell.appendChild(imgWrap);
 
+  if (entry.za) {
+    const tag = document.createElement('span');
+    tag.className = 'pokedex-cell__za';
+    tag.textContent = 'Z-A';
+    cell.appendChild(tag);
+  }
+
   const name = document.createElement('span');
   name.className = 'pokedex-cell__name';
   name.textContent = owned ? entry.name : '???';
@@ -641,27 +758,38 @@ function buildPokedexCell(entry) {
 function renderPokedexGen(genNumber) {
   currentPokedexGen = genNumber;
   accountPokedexGenTabsEl.querySelectorAll('.pokedex-gen-tab').forEach(tab => {
-    tab.classList.toggle('pokedex-gen-tab--selected', Number(tab.dataset.gen) === genNumber);
+    tab.classList.toggle('pokedex-gen-tab--selected', tab.dataset.gen === String(genNumber));
   });
-  const gen = nationalDexCache.generations.find(g => g.gen === genNumber);
+  if (genNumber === TRAITDEX_KEY) {
+    renderTraitDex();
+    return;
+  }
+  const megaDef = POKEDEX_MEGA_TABS.find(d => d.key === genNumber);
+  const gen = megaDef
+    ? { label: megaDef.label }
+    : nationalDexCache.generations.find(g => g.gen === genNumber);
   if (!gen) return;
 
   const query = accountPokedexSearchEl.value.trim().toLowerCase();
-  const entries = nationalDexCache.dex.filter(p => p.id >= gen.from && p.id <= gen.to);
+  const entries = megaDef
+    ? pokedexMegaEntries(megaDef.key)
+    : nationalDexCache.dex.filter(p => p.id >= gen.from && p.id <= gen.to);
   const filtered = query ? entries.filter(p => p.name.toLowerCase().includes(query)) : entries;
 
   accountPokedexGridEl.innerHTML = '';
   if (!filtered.length) {
     const empty = document.createElement('p');
     empty.className = 'account-history-empty';
-    empty.textContent = 'Aucun Pokémon ne correspond.';
+    empty.textContent = megaDef && !entries.length ? 'Aucune Méga disponible.' : 'Aucun Pokémon ne correspond.';
     accountPokedexGridEl.appendChild(empty);
   } else {
     filtered.forEach(entry => accountPokedexGridEl.appendChild(buildPokedexCell(entry)));
   }
 
   const genOwned = entries.filter(p => pokedexOwnedMap.has(p.id)).length;
-  accountPokedexCountEl.textContent = `${pokedexOwnedMap.size} / ${nationalDexCache.dex.length} au total — ${gen.label} : ${genOwned}/${entries.length}`;
+  // Total national = formes du dex national uniquement (les Méga ont leurs propres onglets).
+  const nationalOwned = nationalDexCache.dex.filter(p => pokedexOwnedMap.has(p.id)).length;
+  accountPokedexCountEl.textContent = `${nationalOwned} / ${nationalDexCache.dex.length} au total — ${gen.label} : ${genOwned}/${entries.length}`;
 }
 
 async function fetchAndRenderPokedex(account) {
@@ -681,6 +809,7 @@ async function fetchAndRenderPokedex(account) {
     }
     pokedexSeenCache = data.seen.sort((a, b) => a.id - b.id);
     pokedexOwnedMap = new Map(pokedexSeenCache.map(m => [m.id, m]));
+    pokedexTraitsOwned = data.traits || {};
     renderPokedexGenTabs();
     renderPokedexGen(currentPokedexGen);
   } catch (err) {
@@ -1795,7 +1924,7 @@ const BONUS_LABELS_CLIENT = {
   mysteryItem: 'PSL',
   shinyCharm: 'Charme Chroma',
   megaGem: 'Méga Gemme',
-  patchNote: 'Patch Note',
+  patchNote: 'Return To Zero',
   reroll: 'Reroll'
 };
 
@@ -2865,7 +2994,7 @@ function showBonusResult(data) {
     mysteryItem: 'PSL',
     shinyCharm: 'Charme Chroma',
     megaGem: 'Méga Gemme',
-    patchNote: 'Patch Note',
+    patchNote: 'Return To Zero',
     reroll: 'Reroll'
   };
   bonusResultTitleEl.textContent = titles[data.type] || '';
@@ -3767,7 +3896,7 @@ socket.on('mystery_item_pending', ({ team }) => {
   showBonusTargetOverlay();
 });
 
-// Patch Note : uniquement les Pokémon qui ont un malus (filtré côté serveur, revalidé à la sélection).
+// Return To Zero : uniquement les Pokémon qui ont un malus (filtré côté serveur, revalidé à la sélection).
 socket.on('patch_note_pending', ({ team }) => {
   bonusTargetTitleEl.textContent = 'Choisis un Pokémon à nettoyer';
   renderBonusTargetList(team, (index) => {
@@ -4062,6 +4191,7 @@ function applyGameFinished({ boss, difficulty, gameMode, adminId, reason, player
 }
 
 socket.on('game_finished', (payload) => {
+  resetRecapCard(); // le récap de la partie précédente ne doit jamais rester affiché
   refreshAccountFromServer(); // XP gagnée pendant la partie (cf. awardXp côté serveur)
   if (isSpectating) {
     // Même logique que game_started ci-dessus : un spectateur reste dans le salon
@@ -4081,6 +4211,132 @@ socket.on('game_finished', (payload) => {
 // suite plutôt que de le laisser le découvrir à la prochaine ouverture des Réglages.
 socket.on('achievements_unlocked', ({ achievements }) => {
   (achievements || []).forEach(a => showAchievementToast(a));
+});
+
+// ---------- Récap de fin de partie ----------
+// Envoyé par le serveur juste après game_finished ('game_recap' : traits, Gambling, pire choix)
+// puis, un peu plus tard si le joueur est connecté, 'game_recap_new' (Pokémon jamais obtenus
+// avant cette partie). Tout est calculé côté serveur ; ici : affichage uniquement.
+let lastRecap = null;
+let lastRecapNew = null;
+
+function resetRecapCard() {
+  lastRecap = null;
+  lastRecapNew = null;
+  const old = document.getElementById('finished-recap');
+  if (old) old.remove();
+}
+
+function signedPts(n) {
+  return `${n > 0 ? '+' : ''}${n} PTS`;
+}
+
+function renderRecapCard() {
+  const old = document.getElementById('finished-recap');
+  if (old) old.remove();
+  if (!finishedMyTeamEl || !finishedMyTeamEl.parentElement) return;
+
+  const rows = [];
+  const r = lastRecap;
+  if (r) {
+    if (r.bestTrait) rows.push({ icon: '🏆', label: 'Meilleur trait', sprite: r.bestTrait.sprite,
+      text: `${formatEffect(r.bestTrait.trait.name, r.bestTrait.trait.multiplier, r.bestTrait.trait.flat)} — ${r.bestTrait.pokemonName}`,
+      value: signedPts(r.bestTrait.gain), up: true });
+    if (r.worstTrait) rows.push({ icon: '💀', label: 'Pire trait', sprite: r.worstTrait.sprite,
+      text: `${formatEffect(r.worstTrait.trait.name, r.worstTrait.trait.multiplier, r.worstTrait.trait.flat)} — ${r.worstTrait.pokemonName}`,
+      value: signedPts(r.worstTrait.gain), up: false });
+    if (r.bigGamble) rows.push({ icon: '🎰', label: 'Plus gros Gambling', sprite: r.bigGamble.sprite,
+      text: `×${formatMultiplier(r.bigGamble.roll)} — ${r.bigGamble.pokemonName}`,
+      value: signedPts(r.bigGamble.gain), up: r.bigGamble.gain >= 0 });
+    if (r.worstChoice) rows.push({ icon: '🤦', label: 'Pire choix', sprite: null,
+      text: `Tour ${r.worstChoice.turn} : ${r.worstChoice.chosenName} (${r.worstChoice.chosenPoints} pts) au lieu de ${r.worstChoice.otherName} (${r.worstChoice.otherPoints} pts)`,
+      value: signedPts(-r.worstChoice.regret), up: false });
+  }
+  const hasNew = Array.isArray(lastRecapNew) && lastRecapNew.length > 0;
+  if (!rows.length && !hasNew) return;
+
+  const card = document.createElement('div');
+  card.id = 'finished-recap';
+  card.className = 'finished-recap';
+  const title = document.createElement('h3');
+  title.className = 'finished-recap__title';
+  title.textContent = 'Récap de ta partie';
+  card.appendChild(title);
+
+  rows.forEach(row => {
+    const el = document.createElement('div');
+    el.className = 'finished-recap__row';
+    const icon = document.createElement('span');
+    icon.className = 'finished-recap__icon';
+    icon.textContent = row.icon;
+    el.appendChild(icon);
+    if (row.sprite) {
+      const img = document.createElement('img');
+      img.className = 'finished-recap__sprite';
+      img.src = row.sprite;
+      img.alt = '';
+      el.appendChild(img);
+    }
+    const body = document.createElement('div');
+    body.className = 'finished-recap__body';
+    const label = document.createElement('span');
+    label.className = 'finished-recap__label';
+    label.textContent = row.label;
+    const text = document.createElement('span');
+    text.className = 'finished-recap__text';
+    text.textContent = row.text;
+    body.appendChild(label);
+    body.appendChild(text);
+    el.appendChild(body);
+    const value = document.createElement('span');
+    value.className = 'finished-recap__value ' + (row.up ? 'finished-recap__value--up' : 'finished-recap__value--down');
+    value.textContent = row.value;
+    el.appendChild(value);
+    card.appendChild(el);
+  });
+
+  if (hasNew) {
+    const el = document.createElement('div');
+    el.className = 'finished-recap__row finished-recap__row--new';
+    const icon = document.createElement('span');
+    icon.className = 'finished-recap__icon';
+    icon.textContent = '✨';
+    el.appendChild(icon);
+    const body = document.createElement('div');
+    body.className = 'finished-recap__body';
+    const label = document.createElement('span');
+    label.className = 'finished-recap__label';
+    label.textContent = lastRecapNew.length > 1 ? `${lastRecapNew.length} nouveaux Pokémon (Pokédex)` : 'Nouveau Pokémon (Pokédex)';
+    body.appendChild(label);
+    const chips = document.createElement('div');
+    chips.className = 'finished-recap__chips';
+    lastRecapNew.forEach(p => {
+      const chip = document.createElement('span');
+      chip.className = 'finished-recap__chip';
+      const img = document.createElement('img');
+      img.src = p.shiny && p.shinySprite ? p.shinySprite : p.sprite;
+      img.alt = '';
+      const name = document.createElement('span');
+      name.textContent = p.name;
+      chip.appendChild(img);
+      chip.appendChild(name);
+      chips.appendChild(chip);
+    });
+    body.appendChild(chips);
+    el.appendChild(body);
+    card.appendChild(el);
+  }
+  finishedMyTeamEl.insertAdjacentElement('afterend', card);
+}
+
+socket.on('game_recap', (recap) => {
+  lastRecap = recap;
+  renderRecapCard();
+});
+
+socket.on('game_recap_new', ({ newPokemon }) => {
+  lastRecapNew = newPokemon;
+  renderRecapCard();
 });
 
 // ---------- Événements serveur : événements rares ----------
