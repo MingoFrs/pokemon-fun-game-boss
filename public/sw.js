@@ -1,17 +1,20 @@
 /* Service worker — Route du Boss
  * - Code/HTML (même origine) : réseau d'abord, repli cache (mises à jour toujours fraîches).
- * - Sprites Pokémon / dresseurs : cache d'abord, plafonné (MAX_SPRITES), purge des plus anciens.
+ * - Sprites auto-hébergés (/sprites/*.webp, même origine) : cache d'abord, plafonné (MAX_LOCAL_SPRITES).
+ * - Sprites Pokémon / dresseurs externes (repli CDN) : cache d'abord, plafonné (MAX_SPRITES), purge des plus anciens.
  * - Polices Google : cache d'abord.
  * - /api/* statiques (sprite-ids, avatars, pokedex, évolutions) : cache + revalidation.
  * - Jamais interceptés : socket.io, autres /api (comptes, stats), requêtes non-GET.
  * Incrémenter VERSION pour purger tous les caches. */
-const VERSION = 'v1';
+const VERSION = 'v2';
 const SHELL = 'rdb-shell-' + VERSION;
 const SPRITES = 'rdb-sprites-' + VERSION;
 const FONTS = 'rdb-fonts-' + VERSION;
 const API = 'rdb-api-' + VERSION;
-const KEEP = [SHELL, SPRITES, FONTS, API];
+const LOCAL_SPRITES = 'rdb-local-sprites-' + VERSION;
+const KEEP = [SHELL, SPRITES, FONTS, API, LOCAL_SPRITES];
 const MAX_SPRITES = 700;
+const MAX_LOCAL_SPRITES = 1600; // ~13 Ko pièce : ~20 Mo au plus
 
 const SPRITE_HOSTS = ['raw.githubusercontent.com', 'play.pokemonshowdown.com'];
 const FONT_HOSTS = ['fonts.googleapis.com', 'fonts.gstatic.com'];
@@ -63,6 +66,18 @@ async function cacheFirstCors(event, cacheName, max) {
   return res;
 }
 
+// Même origine, fichiers immuables (sprites WebP) : cache d'abord, jamais de requête réseau si déjà en cache.
+async function cacheFirst(event, cacheName, max) {
+  const cache = await caches.open(cacheName);
+  const hit = await cache.match(event.request.url);
+  if (hit) return hit;
+  const res = await fetch(event.request);
+  if (res.ok && res.type === 'basic') {
+    event.waitUntil(cache.put(event.request.url, res.clone()).then(() => trim(cacheName, max)).catch(() => {}));
+  }
+  return res;
+}
+
 async function networkFirst(request, cacheName, fallbackUrl) {
   const cache = await caches.open(cacheName);
   try {
@@ -100,6 +115,10 @@ self.addEventListener('fetch', (event) => {
       return;
     }
     if (url.pathname === '/sw.js') return;
+    if (url.pathname.startsWith('/sprites/')) {
+      event.respondWith(cacheFirst(event, LOCAL_SPRITES, MAX_LOCAL_SPRITES));
+      return;
+    }
     event.respondWith(networkFirst(req, SHELL, req.mode === 'navigate' ? '/' : null));
     return;
   }

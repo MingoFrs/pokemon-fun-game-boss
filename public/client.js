@@ -1,5 +1,14 @@
 const socket = io();
 
+// Sprites auto-hébergés (/sprites/<id>.webp, /sprites/shiny/<id>.webp) : si l'un est introuvable, repli
+// automatique sur le CDN PokeAPI (PNG) pour cette image — aucune image cassée, quel que soit l'écran.
+document.addEventListener('error', (e) => {
+  const img = e.target;
+  if (!img || img.tagName !== 'IMG') return;
+  const m = /\/sprites\/(shiny\/)?(\d+)\.webp(?:\?.*)?$/.exec(img.currentSrc || img.src || '');
+  if (m) img.src = `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/${m[1] || ''}${m[2]}.png`;
+}, true);
+
 // ---------- Écran de chargement ----------
 // Overlay tant que des sprites reçus du serveur ne sont pas chargés (tous modes :
 // normal/admin/coop/fly, guess, auction, spectateur, reconnexion). Hook générique sur TOUS les
@@ -581,7 +590,7 @@ let nationalDexCache = null; // { generations, dex } (cf. GET /api/pokedex/natio
 let currentPokedexGen = 1;
 
 function pokemonSpriteUrl(dexId) {
-  return `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/${dexId}.png`;
+  return `/sprites/${dexId}.webp`;
 }
 
 async function loadNationalDexIfNeeded() {
@@ -6144,7 +6153,7 @@ accountFrameButtons.forEach(btn => {
   // Même construction d'URL que spriteUrl() côté serveur (server.js) : le préchargement
   // n'a aucune donnée Pokémon complète à disposition, juste des dex id bruts.
   function spriteUrlFromId(dexId) {
-    return `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/${dexId}.png`;
+    return `/sprites/${dexId}.webp`;
   }
 
   // Mobile / écran tactile / petit écran / connexion lente / économiseur de données : AUCUN préchargement

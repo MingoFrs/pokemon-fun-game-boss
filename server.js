@@ -68,6 +68,7 @@ io.use((socket, next) => {
   };
 });
 
+app.use('/sprites', express.static(path.join(__dirname, 'public', 'sprites'), { maxAge: '30d', immutable: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 
@@ -1201,12 +1202,15 @@ function pushMonToTeam(player, mon) {
   return true;
 }
 
+// Sprites AUTO-HÉBERGÉS (public/sprites/<id>.webp, 256 px) : bien plus légers que les PNG ~475 px du CDN
+// PokeAPI (≈13 Ko contre ≈130 Ko), servis par le même serveur, mis en cache 30 jours. Si un fichier manque,
+// le client retombe automatiquement sur le CDN (cf. client.js, gestionnaire d'erreur d'image).
 function spriteUrl(dexId) {
-  return `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/${dexId}.png`;
+  return `/sprites/${dexId}.webp`;
 }
 
 function shinySpriteUrl(dexId) {
-  return `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/shiny/${dexId}.png`;
+  return `/sprites/shiny/${dexId}.webp`;
 }
 
 // -----------------------------------------------------------------
