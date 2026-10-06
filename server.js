@@ -253,7 +253,7 @@ const ACHIEVEMENTS = [
   { key: 'aura_duo', category: 'difficile', title: 'Équilibre des Auras', label: 'Yin & Yang', description: 'Aies Aura +150 et Aura -100 dans la même équipe.', check: ctx => ctx.auraDuo },
   { key: 'six_traits', category: 'difficile', title: 'Casting Complet', label: 'Six traits', description: 'Termine une partie avec 6 Pokémon ayant chacun un trait (aucun Neutre).', check: ctx => ctx.sixTraits },
   { key: 'p2l_victory', category: 'difficile', title: 'Porté par la Chance', label: 'Gagner avec P2L', description: 'Gagne une partie avec un Pokémon P2L dans ton équipe.', check: ctx => ctx.p2lVictory },
-  { key: 'all_traits', category: 'difficile', title: 'Collectionneur de Traits', label: 'Trait-dex complet', description: `Obtiens les ${EFFECTS.length} traits du Trait-dex (cumul de toutes tes parties).`, check: ctx => ctx.traitsSeen.size >= EFFECTS.length },
+  { key: 'all_traits', category: 'difficile', title: 'Collectionneur de Traits', label: 'Trait-dex complet', description: 'Obtiens tous les traits du Trait-dex (cumul de toutes tes parties).', check: ctx => ctx.traitsSeen.size >= EFFECTS.length },
   { key: 'score_10000', category: 'difficile', title: 'Astre du Score', label: 'Score astronomique', description: 'Atteins un score de 10000 en une seule partie.', check: ctx => ctx.bestScore >= 10000 }
 ];
 
