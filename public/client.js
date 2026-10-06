@@ -2517,13 +2517,24 @@ function updatePlayerRow(refs, p) {
     for (let i = refs.teamRow.children.length; i < team.length; i++) {
       const icon = document.createElement('img');
       icon.className = 'player-item__team-icon';
-      icon.src = pokemonSprite(team[i]);
-      icon.alt = team[i].name;
       refs.teamRow.appendChild(icon);
     }
     refs.teamCount = team.length;
     if (team.length > 0 && !refs.teamRow.isConnected) refs.li.appendChild(refs.teamRow);
     if (team.length === 0 && refs.teamRow.isConnected) refs.teamRow.remove();
+  }
+  // Même taille mais Pokémon modifié (Bonbon XP, Méga Gemme, événements : évolution, shiny...) :
+  // on resynchronise le sprite de chaque icône (src recalculé seulement s'il a changé).
+  for (let i = 0; i < team.length; i++) {
+    const icon = refs.teamRow.children[i];
+    if (!icon) continue;
+    const mon = team[i];
+    const src = pokemonSprite(mon);
+    if (icon.dataset.sprite === src) continue;
+    icon.dataset.sprite = src;
+    icon.alt = mon.name;
+    icon.onerror = mon.shiny ? () => { icon.onerror = null; icon.src = mon.sprite; } : null;
+    icon.src = src;
   }
 }
 

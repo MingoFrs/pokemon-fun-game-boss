@@ -5268,3 +5268,49 @@ body.fly-mode #boss-attack-banner { display: none !important; }
 .pokedex-cell--trait-bonus .trait-cell__value { color: var(--accent-bas); }
 .pokedex-cell--trait-malus .trait-cell__value { color: var(--danger); }
 .pokedex-cell--trait-gamble .trait-cell__value { color: #ffd54a; }
+
+/* ---------- Défi quotidien : écran final aéré et sobre ---------- */
+#daily-final {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 16px;
+  padding-top: 12px;
+}
+#daily-final .finished-outcome { margin: 0; text-align: center; text-shadow: none; }
+#daily-final .finished-stat__value { margin: 0; text-align: center; }
+#daily-final .daily-line { line-height: 1.5; }
+#daily-final .daily-streak { margin: 0; font-size: 14px; opacity: 0.85; }
+#daily-final .daily-team {
+  gap: 12px;
+  margin: 8px 0 4px;
+}
+#daily-final .daily-team__sprite {
+  width: 56px;
+  height: 56px;
+  padding: 4px;
+  border-color: var(--border-soft);
+}
+#daily-final .daily-team__sprite--shiny {
+  border-color: rgba(255, 213, 74, 0.45);
+  box-shadow: 0 0 6px rgba(255, 213, 74, 0.18);
+}
+#daily-final .daily-line--muted { margin: 0; }
+#daily-final .daily-line--muted + .daily-line--muted { margin-top: -8px; }
+/* Boutons sobres : fond teinté discret au lieu d'aplats orange / turquoise. */
+#daily-final .btn { width: 100%; margin: 0; }
+#daily-final .btn + .btn { margin-top: -6px; }
+#daily-final .btn--haut {
+  background: rgba(245, 166, 35, 0.12);
+  border: 1px solid rgba(245, 166, 35, 0.35);
+  color: var(--accent-haut);
+}
+#daily-final .btn--bas {
+  background: rgba(63, 208, 201, 0.10);
+  border: 1px solid rgba(63, 208, 201, 0.30);
+  color: var(--accent-bas);
+}
+@media (max-width: 420px) {
+  #daily-final .daily-team { gap: 8px; }
+  #daily-final .daily-team__sprite { width: 48px; height: 48px; }
+}
