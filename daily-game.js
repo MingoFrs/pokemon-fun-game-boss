@@ -490,8 +490,12 @@ function registerDaily({ io, app, supabase, createAuthClient, deps }) {
     const out = { supabaseConfigured: !!supabase, now: new Date().toISOString(), day: dayKey(), storeDisabledForMs: Math.max(0, storeDisabledUntil - Date.now()) };
     if (supabase) {
       try {
-        const { error, count } = await supabase.from('daily_scores').select('user_id', { count: 'exact', head: true });
-        out.dailyScores = error ? { ok: false, code: error.code, message: error.message, details: error.details, hint: error.hint } : { ok: true, rows: count };
+        const r = await supabase.from('daily_scores').select('*').limit(1);
+        out.dailyScores = r.error
+          ? { ok: false, status: r.status, statusText: r.statusText, code: r.error.code, message: r.error.message, details: r.error.details, hint: r.error.hint }
+          : { ok: true, status: r.status, columns: r.data && r.data[0] ? Object.keys(r.data[0]) : '(table vide)' };
+        const w = await supabase.from('daily_scores').select('day, user_id, score, duration_ms, victory, team, choices, finished, started_at').limit(1);
+        out.columnsCheck = w.error ? { ok: false, code: w.error.code, message: w.error.message, details: w.error.details, hint: w.error.hint } : { ok: true };
       } catch (e) { out.dailyScores = { ok: false, error: describeErr(e) }; }
       try {
         const { error } = await supabase.from('profiles').select('id', { head: true }).limit(1);
