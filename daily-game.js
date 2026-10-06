@@ -200,7 +200,9 @@ function registerDaily({ io, app, supabase, createAuthClient, deps }) {
   }
 
   async function safeStreak(userId, today) {
-    try { return await streakOf(userId, today); } catch (err) { noteStoreError(err); return null; }
+    // Échec de la série = non bloquant : on log seulement (noteStoreError couperait tout le défi 60 s).
+    try { return await streakOf(userId, today); }
+    catch (err) { console.error('[daily] série indisponible :', err && err.message); return null; }
   }
 
   async function grantXp(userId, amount) {
@@ -460,8 +462,8 @@ function registerDaily({ io, app, supabase, createAuthClient, deps }) {
           out.participants = count || 0;
           const user = await authUser((req.body || {}).accessToken);
           if (user) {
-            const st = await streakOf(user.id, day);
-            out.streak = { current: st.current, best: st.best, playedToday: st.playedToday, atRisk: st.atRisk };
+            const st = await safeStreak(user.id, day);
+            if (st) out.streak = { current: st.current, best: st.best, playedToday: st.playedToday, atRisk: st.atRisk };
             const row = await getRow(day, user.id);
             if (row) {
               out.mine = { started: true, finished: !!row.finished, score: row.score, victory: row.victory };

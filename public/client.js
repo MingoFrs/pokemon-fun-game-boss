@@ -1607,7 +1607,6 @@ const resultEffectEl = document.getElementById('result-effect');
 const resultPointsEl = document.getElementById('result-points');
 const teamSlotsEl = document.getElementById('team-slots');
 const metamorphResultPanelEl = document.getElementById('metamorph-result-panel');
-const metamorphResultTitleEl = document.getElementById('metamorph-result-title');
 const metamorphResultSpriteEl = document.getElementById('metamorph-result-sprite');
 const metamorphResultDetailEl = document.getElementById('metamorph-result-detail');
 const metamorphResultFinalEl = document.getElementById('metamorph-result-final');
@@ -1839,49 +1838,6 @@ function stopGambleRoulette(el) {
   if (el._gambleWheel) { el._gambleWheel.remove(); el._gambleWheel = null; }
   el.classList.remove('gamble-roulette', 'gamble-roulette--spinning', 'gamble-roulette--landed',
     'gamble-roulette--up', 'gamble-roulette--down');
-}
-
-// Roulette générique : les `items` défilent en ralentissant (un tick sonore par case), puis
-// s'arrêtent sur items[finalIndex] (choisi par le serveur, jamais par le client).
-//   render(item) -> texte ; tone(item) -> 'up' | 'down' | null (couleur + son d'arrêt) ;
-//   laps = tours complets avant l'arrêt. onDone est appelé à l'arrêt (jamais si la roulette
-//   est interrompue par une nouvelle roulette/un stopGambleRoulette).
-function playRoulette(el, { items, finalIndex, render, tone, laps = 3, onDone }) {
-  stopGambleRoulette(el);
-  const n = items.length;
-  const paint = (item) => {
-    el.textContent = render(item);
-    const t = tone(item);
-    el.classList.toggle('gamble-roulette--up', t === 'up');
-    el.classList.toggle('gamble-roulette--down', t === 'down');
-  };
-  el.classList.add('gamble-roulette');
-  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-    paint(items[finalIndex]);
-    el.classList.add('gamble-roulette--landed');
-    if (onDone) onDone();
-    return;
-  }
-  el.classList.add('gamble-roulette--spinning');
-  const start = Math.floor(Math.random() * n);
-  const steps = n * laps + ((finalIndex - start + n) % n); // la dernière case est toujours finalIndex
-  let i = 0;
-  const tick = () => {
-    paint(items[(start + i) % n]);
-    const t = i / steps;
-    if (i >= steps) {
-      el._gambleTimer = null;
-      el.classList.remove('gamble-roulette--spinning');
-      el.classList.add('gamble-roulette--landed');
-      playRouletteStopSound(tone(items[finalIndex]) !== 'down');
-      if (onDone) onDone();
-      return;
-    }
-    playRouletteTickSound(t);
-    i += 1;
-    el._gambleTimer = setTimeout(tick, 45 + Math.pow(t, 3) * 420); // ~45 ms -> ~465 ms
-  };
-  tick();
 }
 
 // ---- Roue dorée (LET'S GO GAMBLING + Reroll) : segments colorés, ampoules, pointeur, moyeu ----
@@ -3264,6 +3220,7 @@ function showBonusResult(data) {
   };
   bonusResultTitleEl.textContent = titles[data.type] || '';
   if (activeBonusRouletteEl) { stopGambleRoulette(activeBonusRouletteEl); activeBonusRouletteEl = null; } // coupe une roulette précédente
+  document.querySelectorAll('#bonus-result-panel .gamble-wheel').forEach(w => w.remove()); // roue d'un Reroll précédent (déjà terminée)
 
   if (data.type === 'shinyCharm') {
     bonusResultSpriteEl.classList.add('screen--hidden');
@@ -5964,7 +5921,7 @@ function playClickSound() {
 }
 
 // Roulette : tick court dont la hauteur descend avec la progression (t de 0 à 1) ; le rythme
-// qui ralentit vient du délai entre ticks (cf. playRoulette).
+// qui ralentit vient du freinage de la roue (cf. spinGambleWheel).
 function playRouletteTickSound(t) {
   playTone({ freq: 900 - t * 400, duration: 0.035, type: 'square', volume: 0.035 });
 }

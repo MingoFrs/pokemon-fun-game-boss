@@ -245,13 +245,27 @@
     }
     refreshPushState();
   }
+  // Minuit (Paris) : nouveau défi -> recharge les infos même si la page reste ouverte.
+  let resetTimer = null;
+  function scheduleReset() {
+    clearTimeout(resetTimer);
+    if (!info) return;
+    const ms = Math.max(1000, info.msUntilReset - (Date.now() - info.fetchedAt)) + 2000;
+    resetTimer = setTimeout(async () => {
+      await refreshInfo();
+      if (screenDaily.classList.contains('screen--hidden') || inRun) return;
+      if (lastHeader && info && info.day !== lastHeader.day) leaveDaily(); // écran d'un ancien défi -> accueil
+    }, Math.min(ms, 2147483000));
+  }
+  const canAutoRefresh = () => !document.hidden && (document.body.dataset.screen === 'home' || (document.body.dataset.screen === 'daily' && !inRun));
   async function refreshInfo() {
     try {
-      const res = await fetch('/api/daily/info', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accessToken: token() }) });
+      const res = await fetch('/api/daily/info', { method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accessToken: token() }) });
       if (!res.ok) throw new Error('http ' + res.status);
       info = await res.json();
       info.fetchedAt = Date.now();
       renderCard();
+      scheduleReset();
     } catch (err) {
       el.cardStatus.textContent = 'Défi indisponible pour le moment.';
     }
@@ -474,7 +488,9 @@
     };
   }
 
-  document.addEventListener('visibilitychange', () => { if (!document.hidden && document.body.dataset.screen === 'home') refreshInfo(); });
-  setInterval(() => { if (!document.hidden && document.body.dataset.screen === 'home') refreshInfo(); }, 120000);
+  document.addEventListener('visibilitychange', () => { if (canAutoRefresh()) refreshInfo(); });
+  window.addEventListener('focus', () => { if (canAutoRefresh()) refreshInfo(); });
+  window.addEventListener('online', () => { if (canAutoRefresh()) refreshInfo(); });
+  setInterval(() => { if (canAutoRefresh()) refreshInfo(); }, 120000);
   refreshInfo();
 })();

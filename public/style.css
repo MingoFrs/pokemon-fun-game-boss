@@ -349,13 +349,13 @@ body {
   }
 }
 
-/* Sous-onglets DANS la page Compte connectée (Historique / Succès / Pokédex / Stats /
-   Amis / Avatar) : même composant visuel que .settings-tab, en plus discret (pas
-   d'icône). Une seule ligne sur grand écran (place disponible avec le layout plein
-   écran), repasse en grille compacte sur mobile. */
+/* Sous-onglets DANS la page Compte connectée (Historique / Succès / Titres / Pokédex /
+   Stats / Amis / Avatar = 7) : même composant visuel que .settings-tab, en plus discret
+   (pas d'icône). Une seule ligne sur grand écran (place disponible avec le layout plein
+   écran), repasse en grille 4 + 3 sur mobile (3 colonnes laissait « Avatar » seul). */
 .settings-subtabs {
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
+  grid-template-columns: repeat(7, 1fr);
   gap: 4px;
   margin: 14px 0 16px;
   padding: 4px;
@@ -366,7 +366,7 @@ body {
 
 @media (max-width: 720px) {
   .settings-subtabs {
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(4, 1fr);
   }
 }
 

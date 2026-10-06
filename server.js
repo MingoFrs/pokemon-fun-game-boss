@@ -24,6 +24,50 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
+// ---------------------------------------------------------------
+// FILET DE SÉCURITÉ : une erreur dans UN handler (payload inattendu, ex. `null` ou un nombre
+// au lieu d'un objet/texte, rejet d'une requête Supabase...) ne doit jamais faire tomber tout
+// le serveur — et donc toutes les parties en cours.
+// ---------------------------------------------------------------
+process.on('unhandledRejection', (err) => console.error('[unhandledRejection]', err));
+process.on('uncaughtException', (err) => console.error('[uncaughtException]', err));
+
+// Handlers socket (ce fichier ET les modules fly/daily : le middleware passe avant tout `connection`).
+io.use((socket, next) => {
+  const rawOn = socket.on.bind(socket);
+  socket.on = (event, handler) => {
+    if (typeof handler !== 'function') return rawOn(event, handler);
+    return rawOn(event, (...args) => {
+      try {
+        const out = handler(...args);
+        if (out && typeof out.catch === 'function') out.catch(err => console.error(`[socket:${event}]`, err));
+      } catch (err) {
+        console.error(`[socket:${event}]`, err);
+      }
+    });
+  };
+  next();
+});
+
+// Routes HTTP : Express 4 n'attrape pas les rejets des handlers async (=> plantage du process).
+// On enveloppe chaque handler get/post : toute erreur renvoie un 500 propre au lieu de tout couper.
+['get', 'post'].forEach((method) => {
+  const original = app[method].bind(app);
+  app[method] = (routePath, ...handlers) => {
+    if (!handlers.length) return original(routePath); // app.get('setting') : lecture d'un réglage
+    return original(routePath, ...handlers.map((h) => (typeof h !== 'function' || h.length > 3 ? h : (req, res, next) => {
+      const fail = (err) => {
+        console.error(`[http ${method.toUpperCase()} ${routePath}]`, err);
+        if (!res.headersSent) res.status(500).json({ error: 'Erreur serveur.' });
+      };
+      try {
+        const out = h(req, res, next);
+        if (out && typeof out.catch === 'function') out.catch(fail);
+      } catch (err) { fail(err); }
+    })));
+  };
+});
+
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 
@@ -2155,16 +2199,6 @@ function pickAdminModeOptions() {
 // GUESS_TURN_DURATION_MS reste la valeur par défaut à la création d'une partie.
 const GUESS_TURN_DURATION_OPTIONS_MS = [20000, 30000, 45000, 60000, 90000];
 const GUESS_TURN_DURATION_MS = 30000;
-
-// Taille de la planche pilotée par la difficulté choisie dans le lobby (réutilise le
-// même sélecteur que Route du Boss — jamais un 2e réglage séparé). Plus de Pokémon en
-// jeu = plus de possibilités à éliminer = plus difficile à deviner.
-const GUESS_BOARD_SIZE_BY_DIFFICULTY = {
-  easy: 15,
-  medium: 20,
-  hard: 30,
-  extreme: 40
-};
 
 // Nombre de cases tirées par palier pour chaque taille de planche (la somme de chaque
 // ligne correspond exactement à la taille visée). Toujours un peu de chaque palier,
@@ -4489,7 +4523,7 @@ io.on('connection', (socket) => {
     const game = games[gameId];
     if (!game) return;
 
-    const trimmed = (text || '').trim().slice(0, CHAT_MAX_LENGTH);
+    const trimmed = (typeof text === 'string' ? text : '').trim().slice(0, CHAT_MAX_LENGTH);
     if (!trimmed) return;
 
     const now = Date.now();
