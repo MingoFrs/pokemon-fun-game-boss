@@ -5176,13 +5176,6 @@ body.fly-mode #boss-attack-banner { display: none !important; }
   .gamble-roulette--spinning, .gamble-roulette--landed { animation: none; }
 }
 
-/* La règle `.result-line span` (spécificité 0,1,1) écrasait les couleurs de la roulette dans le panneau
-   de résultat : on les re-pose avec une spécificité supérieure. min-width = pas de saut de mise en page. */
-.gamble-roulette { min-width: 12ch; text-align: center; }
-.result-line .gamble-roulette { color: #ffd54a; }
-.result-line .gamble-roulette--up { color: var(--accent-bas); }
-.result-line .gamble-roulette--down { color: var(--danger); }
-
 /* ---------- Pokédex : onglets Méga / Méga Z-A ---------- */
 .pokedex-gen-tab--mega {
   border-color: rgba(255, 213, 74, 0.45);

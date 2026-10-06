@@ -1810,6 +1810,8 @@ function isBonusEffect(multiplier, flat) {
 
 function stopGambleRoulette(el) {
   if (el._gambleTimer) { clearTimeout(el._gambleTimer); el._gambleTimer = null; }
+  if (el._gambleRaf) { cancelAnimationFrame(el._gambleRaf); el._gambleRaf = null; }
+  if (el._gambleWheel) { el._gambleWheel.remove(); el._gambleWheel = null; }
   el.classList.remove('gamble-roulette', 'gamble-roulette--spinning', 'gamble-roulette--landed',
     'gamble-roulette--up', 'gamble-roulette--down');
 }
@@ -1857,19 +1859,120 @@ function playRoulette(el, { items, finalIndex, render, tone, laps = 3, onDone })
   tick();
 }
 
-// LET'S GO GAMBLING : multiplicateurs ×0.5 -> ×2.
+// ---- LET'S GO GAMBLING : vraie roue SVG (7 cases ×0.5 -> ×2), pointeur fixe en haut ----
+// Le serveur tire le multiplicateur final ; la roue ne fait que tourner et s'arrêter dessus.
+const GAMBLE_WHEEL_COLORS = { 0.5: '#b83a37', 0.75: '#e8615d', 1: '#6b7587', 1.25: '#2f9d96', 1.5: '#3fd0c9', 1.75: '#f5a623', 2: '#ffd54a' };
+const GAMBLE_WHEEL_LIGHT_TEXT = { 0.5: true, 0.75: true, 1: true };
+
+function ensureGambleWheelStyles() {
+  if (document.getElementById('gamble-wheel-style')) return;
+  const st = document.createElement('style');
+  st.id = 'gamble-wheel-style';
+  st.textContent = `
+.gamble-wheel { display: flex; justify-content: center; margin: 8px auto 12px; }
+.gamble-wheel svg { width: 180px; max-width: 70vw; height: auto; overflow: visible; filter: drop-shadow(0 4px 14px rgba(0,0,0,.5)); }
+.gamble-wheel__seg { stroke: #0b0f16; stroke-width: 1.5; }
+.gamble-wheel__seg--win { stroke: #fff; stroke-width: 3.5; }
+.gamble-wheel__label { font: 700 14px 'JetBrains Mono', monospace; text-anchor: middle; dominant-baseline: middle; pointer-events: none; }
+.gamble-wheel__ring { fill: none; stroke: #ffd54a; stroke-width: 4; }
+.gamble-wheel__hub { fill: #141a24; stroke: #ffd54a; stroke-width: 3; }
+.gamble-wheel__pointer { fill: #ffd54a; stroke: #0b0f16; stroke-width: 2; stroke-linejoin: round; }
+.gamble-wheel--landed svg { animation: gambleWheelPop .7s ease-out 1; }
+@keyframes gambleWheelPop { 0% { transform: scale(1); } 40% { transform: scale(1.1); } 100% { transform: scale(1); } }
+.gamble-roulette { min-width: 12ch; text-align: center; }
+.result-line .gamble-roulette { color: #ffd54a; }
+.result-line .gamble-roulette.gamble-roulette--up { color: var(--accent-bas); }
+.result-line .gamble-roulette.gamble-roulette--down { color: var(--danger); }
+`;
+  document.head.appendChild(st);
+}
+
+function buildGambleWheel(items) {
+  const NS = 'http://www.w3.org/2000/svg';
+  const n = items.length, seg = 360 / n, R = 90;
+  const mk = (tag, attrs) => { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); return e; };
+  const pt = (deg) => { const r = deg * Math.PI / 180; return [(R * Math.sin(r)).toFixed(2), (-R * Math.cos(r)).toFixed(2)]; };
+
+  const root = document.createElement('div');
+  root.className = 'gamble-wheel';
+  root.setAttribute('aria-hidden', 'true');
+  const svg = mk('svg', { viewBox: '-100 -112 200 212' });
+  const rot = mk('g', { transform: 'rotate(0)' });
+  const segs = [];
+  items.forEach((m, i) => {
+    const [x1, y1] = pt(i * seg), [x2, y2] = pt((i + 1) * seg);
+    const path = mk('path', { d: `M0 0 L${x1} ${y1} A${R} ${R} 0 0 1 ${x2} ${y2} Z`, fill: GAMBLE_WHEEL_COLORS[m] || (m > 1 ? '#3fd0c9' : m < 1 ? '#e8615d' : '#6b7587'), class: 'gamble-wheel__seg' });
+    rot.appendChild(path);
+    segs.push(path);
+    const label = mk('text', { transform: `rotate(${(i + 0.5) * seg}) translate(0 -62)`, class: 'gamble-wheel__label', fill: GAMBLE_WHEEL_LIGHT_TEXT[m] ? '#fff' : '#0b0f16' });
+    label.textContent = `×${formatMultiplier(m)}`;
+    rot.appendChild(label);
+  });
+  svg.appendChild(rot);
+  svg.appendChild(mk('circle', { r: R, class: 'gamble-wheel__ring' }));
+  svg.appendChild(mk('circle', { r: 11, class: 'gamble-wheel__hub' }));
+  svg.appendChild(mk('polygon', { points: '-10,-106 10,-106 0,-82', class: 'gamble-wheel__pointer' }));
+  root.appendChild(svg);
+  return { root, rot, segs, seg, n };
+}
+
+// LET'S GO GAMBLING : la roue tourne ~4,5 s en ralentissant (tick à chaque case franchie),
+// s'arrête sur le multiplicateur du serveur, puis le texte `el` affiche le résultat.
 function playGambleRoulette(el, finalMultiplier, onDone) {
+  stopGambleRoulette(el);
+  ensureGambleWheelStyles();
   const items = GAMBLE_MULTIPLIERS.includes(finalMultiplier)
     ? GAMBLE_MULTIPLIERS
     : [...GAMBLE_MULTIPLIERS, finalMultiplier].sort((a, b) => a - b);
-  playRoulette(el, {
-    items,
-    finalIndex: items.indexOf(finalMultiplier),
-    render: (m) => `${GAMBLE_EFFECT_NAME} ×${formatMultiplier(m)}`,
-    tone: (m) => (m > 1 ? 'up' : (m < 1 ? 'down' : null)),
-    laps: 3,
-    onDone
-  });
+  const finalIdx = items.indexOf(finalMultiplier);
+  const wheel = buildGambleWheel(items);
+  const anchor = el.parentElement || el;
+  anchor.insertAdjacentElement('beforebegin', wheel.root);
+  el._gambleWheel = wheel.root;
+
+  const paint = (m) => {
+    el.textContent = `${GAMBLE_EFFECT_NAME} ×${formatMultiplier(m)}`;
+    el.classList.toggle('gamble-roulette--up', m > 1);
+    el.classList.toggle('gamble-roulette--down', m < 1);
+  };
+  const setRot = (deg) => wheel.rot.setAttribute('transform', `rotate(${deg.toFixed(2)})`);
+  const idxUnder = (deg) => Math.floor((((360 - (deg % 360)) % 360)) / wheel.seg) % wheel.n; // case sous le pointeur (haut)
+  const finish = () => {
+    el._gambleRaf = null;
+    el.classList.remove('gamble-roulette--spinning');
+    el.classList.add('gamble-roulette--landed');
+    wheel.segs[finalIdx].classList.add('gamble-wheel__seg--win');
+    wheel.root.classList.add('gamble-wheel--landed');
+    paint(finalMultiplier);
+    playRouletteStopSound(finalMultiplier >= 1);
+    if (onDone) onDone();
+  };
+
+  el.classList.add('gamble-roulette');
+  const jitter = (Math.random() - 0.5) * 0.7;                     // arrêt pas toujours pile au centre
+  const landAngle = (finalIdx + 0.5 + jitter) * wheel.seg;       // angle de la case visée (depuis le haut)
+  const base = (360 - landAngle + 360) % 360;
+  const reduced = document.documentElement.classList.contains('reduce-motion'); // réglage du jeu uniquement
+  if (reduced) { setRot(base); finish(); return; }
+
+  const start = Math.random() * 360;
+  const end = start + 360 * 5 + ((((base - start) % 360) + 360) % 360);
+  const DURATION = 4500;
+  const t0 = performance.now();
+  let lastIdx = -1;
+  el.classList.add('gamble-roulette--spinning');
+  const frame = (now) => {
+    if (!el.isConnected) { stopGambleRoulette(el); return; }
+    const t = Math.min(1, (now - t0) / DURATION);
+    const eased = 1 - Math.pow(1 - t, 4);                         // easeOutQuart : démarre vite, freine fort
+    const deg = start + (end - start) * eased;
+    setRot(deg);
+    const idx = idxUnder(deg);
+    if (idx !== lastIdx) { lastIdx = idx; paint(items[idx]); if (t < 1) playRouletteTickSound(t); }
+    if (t < 1) el._gambleRaf = requestAnimationFrame(frame);
+    else finish();
+  };
+  el._gambleRaf = requestAnimationFrame(frame);
 }
 
 // Reroll : défilement de TOUS les traits possibles (liste fournie par le serveur) jusqu'au
