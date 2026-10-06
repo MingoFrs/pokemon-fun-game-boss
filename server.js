@@ -1410,19 +1410,56 @@ function pickRarity(useCharm, pity, floorRarity, extraBoost, gameMode, megaWeigh
 }
 
 // Bonus / malus secrets appliqués au tirage d'un Pokémon.
-// Multiplicateurs inchangés — seule leur fréquence d'apparition change (poids ci-dessous) :
-// ~75% Neutre (aucun modificateur perceptible), ~25% répartis entre les 8 vrais bonus/malus.
+// Chaque trait porte soit un multiplicateur (`multiplier`), soit des points FIXES (`flat`, ajoutés
+// APRÈS le calcul : jamais multipliés par shiny/Méga/etc., multiplier = 1.0). `gamble: true` =
+// LET'S GO GAMBLING : le multiplicateur final est tiré au moment de l'attribution (cf.
+// resolveEffect), `multiplier` ici n'est qu'une valeur par défaut neutre.
+//
+// RARETÉ : plus un trait s'éloigne de la neutralité (très bon OU très mauvais), plus il est rare.
+// Seule `power` (force équivalente en multiplicateur) est saisie ; les poids sont CALCULÉS
+// ci-dessous : poids ∝ 1 / |power - 1|, ~75% Neutre et ~25% répartis sur les vrais traits.
+// Pour un trait à points fixes, power = 1 + flat / FLAT_REFERENCE_POINTS (Pokémon « moyen »).
+const GAMBLE_EFFECT_NAME = "LET'S GO GAMBLING";
+const GAMBLE_MULTIPLIERS = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2]; // ×0.5 -> ×2, roulette côté client
+const FLAT_REFERENCE_POINTS = 500;
+const EFFECT_NEUTRAL_WEIGHT = 75;
+const EFFECT_TRAITS_WEIGHT_TOTAL = 25;
 const EFFECTS = [
-  { name: 'Neutre', multiplier: 1.0, weight: 75 },
-  { name: 'Salzmann secret technique', multiplier: 1.2, weight: 3.125 },
-  { name: 'Beauty privilege', multiplier: 1.3, weight: 3.125 },
-  { name: 'Motivé', multiplier: 1.1, weight: 3.125 },
-  { name: 'Sous steroïde', multiplier: 1.15, weight: 3.125 },
-  { name: 'Sub-5', multiplier: 0.75, weight: 3.125 },
-  { name: 'Lagging', multiplier: 0.8, weight: 3.125 },
-  { name: 'Skill issues', multiplier: 0.6, weight: 3.125 },
-  { name: 'Épine dans le pied', multiplier: 0.7, weight: 3.125 }
+  { name: 'Neutre', multiplier: 1.0, weight: EFFECT_NEUTRAL_WEIGHT },
+  { name: 'Motivé', multiplier: 1.1 },
+  { name: 'Sous steroïde', multiplier: 1.15 },
+  { name: 'Salzmann secret technique', multiplier: 1.2 },
+  { name: 'Smurf', multiplier: 1.25 },
+  { name: 'Aura +150', multiplier: 1.0, flat: 150 },
+  { name: 'Main Character', multiplier: 1.35 },
+  { name: 'P2W', multiplier: 1.0, flat: 250 },
+  { name: 'Beauty privilege', multiplier: 1.6 },
+  { name: GAMBLE_EFFECT_NAME, multiplier: 1.0, gamble: true, power: 1.5 }, // gros écart possible : rare
+  { name: 'Aura -100', multiplier: 1.0, flat: -100 },
+  { name: 'Lagging', multiplier: 0.8 },
+  { name: 'Sub-5', multiplier: 0.75 },
+  { name: 'Épine dans le pied', multiplier: 0.7 },
+  { name: 'Skill issues', multiplier: 0.6 },
+  { name: 'P2L', multiplier: 1.0, flat: -200 }
 ];
+
+// Calcul des poids (une seule fois au démarrage) : tout est dérivé de `power`.
+(function computeEffectWeights() {
+  const traits = EFFECTS.filter(e => e.name !== 'Neutre');
+  for (const e of traits) {
+    if (e.power === undefined) e.power = e.flat ? 1 + e.flat / FLAT_REFERENCE_POINTS : e.multiplier;
+  }
+  const rawSum = traits.reduce((sum, e) => sum + 1 / Math.abs(e.power - 1), 0);
+  for (const e of traits) e.weight = (1 / Math.abs(e.power - 1)) / rawSum * EFFECT_TRAITS_WEIGHT_TOTAL;
+})();
+
+// Résout un trait avant attribution : copie avec les champs normalisés (flat toujours défini) ;
+// pour LET'S GO GAMBLING, tire le multiplicateur final ici (côté serveur, jamais le client).
+function resolveEffect(effect) {
+  const resolved = { ...effect, flat: effect.flat || 0 };
+  if (effect.gamble) resolved.multiplier = GAMBLE_MULTIPLIERS[Math.floor(Math.random() * GAMBLE_MULTIPLIERS.length)];
+  return resolved;
+}
 
 const EFFECTS_TOTAL_WEIGHT = EFFECTS.reduce((sum, e) => sum + e.weight, 0);
 
@@ -1431,15 +1468,15 @@ function pickEffect(noNeutral) {
   // parmi les 8 vrais bonus/malus (le multiplicateur reste porté par effect.multiplier, donc
   // tout le reste du code — contribution, mutations, bonus de type — reste cohérent).
   if (noNeutral) {
-    const real = EFFECTS.filter(e => e.multiplier !== 1.0);
-    return real[Math.floor(Math.random() * real.length)];
+    const real = EFFECTS.filter(e => e.name !== 'Neutre');
+    return resolveEffect(real[Math.floor(Math.random() * real.length)]);
   }
   let roll = Math.random() * EFFECTS_TOTAL_WEIGHT;
   for (const effect of EFFECTS) {
-    if (roll < effect.weight) return effect;
+    if (roll < effect.weight) return resolveEffect(effect);
     roll -= effect.weight;
   }
-  return EFFECTS[0]; // filet de sécurité (arrondis flottants) -> Neutre
+  return resolveEffect(EFFECTS[0]); // filet de sécurité (arrondis flottants) -> Neutre
 }
 
 // Plusieurs boss légendaires possibles, avec un objectif propre à chacun.
@@ -1623,14 +1660,18 @@ const BONUS_WEIGHTS = {
   xpCandy: 30,
   mysteryItem: 30,
   shinyCharm: 30,
-  megaGem: 20
+  megaGem: 20,
+  patchNote: 20,
+  reroll: 25
 };
 
 const BONUS_LABELS = {
   xpCandy: 'Bonbon XP',
   mysteryItem: 'PSL',
   shinyCharm: 'Charme Chroma',
-  megaGem: 'Méga Gemme'
+  megaGem: 'Méga Gemme',
+  patchNote: 'Patch Note',
+  reroll: 'Reroll'
 };
 
 // Objets PASSIFS : effet actif toute la partie dès le choix de départ, jamais cliquables
@@ -1674,7 +1715,7 @@ function randomFrom(list) {
 // Contribution actuelle d'un Pokémon au score (arrondie, jamais stockée : recalculée
 // à chaque fois à partir de basePoints/multiplier, seule source de vérité).
 function monContribution(mon) {
-  return Math.round(mon.basePoints * mon.multiplier);
+  return Math.round(mon.basePoints * mon.multiplier) + (mon.flat || 0);
 }
 
 // Applique une mutation à un Pokémon puis répercute la différence de contribution sur
@@ -1712,7 +1753,41 @@ function evolveMon(mon, evolution) {
 // Assigne un trait/effet à un Pokémon. Mutation en place.
 function assignEffect(mon, effect) {
   mon.effectName = effect.name;
-  mon.multiplier = effect.multiplier;
+  // Le ×shiny déjà inclus dans le multiplicateur (cf. startShinyPokemon) ne doit jamais être perdu.
+  mon.multiplier = effect.multiplier * (mon.shinyInMultiplier ? SHINY_POINTS_MULTIPLIER : 1);
+  mon.flat = effect.flat || 0;
+}
+
+// ---- PATCH NOTE / REROLL : helpers d'éligibilité et de tirage ----
+// Malus = trait dont la force équivalente (`power`) est < 1 ; LET'S GO GAMBLING n'est un malus
+// que s'il est tombé sous ×1. Neutre, « Transformé » ou une valeur mise à 0 (double ou rien) : pas des traits.
+function isMalusMon(mon) {
+  const eff = EFFECTS.find(e => e.name === mon.effectName);
+  if (!eff || eff.name === 'Neutre') return false;
+  if (eff.gamble) return mon.multiplier / (mon.shinyInMultiplier ? SHINY_POINTS_MULTIPLIER : 1) < 1;
+  return eff.power < 1;
+}
+
+// Un Métamorph transformé garde une valeur figée (« Transformé ») : jamais relancé.
+function isRerollable(mon) {
+  return !mon.metamorphUsed;
+}
+
+// Multiplicateur « du trait » (sans le ×shiny intégré), pour l'affichage de l'ancien trait.
+function traitDisplayMultiplier(mon) {
+  return Math.round((mon.multiplier / (mon.shinyInMultiplier ? SHINY_POINTS_MULTIPLIER : 1)) * 100) / 100;
+}
+
+// Reroll : jamais Neutre, jamais le trait actuel ; tirage pondéré par la rareté des traits
+// (mêmes poids que le tirage normal : les extrêmes restent rares).
+function pickRerolledEffect(currentName) {
+  const pool = EFFECTS.filter(e => e.name !== 'Neutre' && e.name !== currentName);
+  let roll = Math.random() * pool.reduce((sum, e) => sum + e.weight, 0);
+  for (const e of pool) {
+    if (roll < e.weight) return { effect: resolveEffect(e), pool };
+    roll -= e.weight;
+  }
+  return { effect: resolveEffect(pool[pool.length - 1]), pool };
 }
 
 // Construit un Pokémon d'équipe prêt à être poussé dans player.team, à partir d'une
@@ -1727,7 +1802,8 @@ function teamMonFromReward(reward) {
     rarity: reward.rarity,
     basePoints: reward.basePoints,
     effectName: reward.effectName,
-    multiplier: reward.multiplier
+    multiplier: reward.multiplier,
+    flat: reward.flat || 0
   };
   if (reward.shiny) {
     mon.shiny = true;
@@ -1769,7 +1845,7 @@ function buildRewardOption(useCharm, pity, floorRarity, extraBoost, gameMode, mo
     pokemon.basePoints *
     effect.multiplier *
     (shiny ? SHINY_POINTS_MULTIPLIER : 1)
-  );
+  ) + effect.flat;
 
   return {
     pokemonId: pokemon.id,
@@ -1779,6 +1855,7 @@ function buildRewardOption(useCharm, pity, floorRarity, extraBoost, gameMode, mo
     basePoints: pokemon.basePoints,
     effectName: effect.name,
     multiplier: effect.multiplier,
+    flat: effect.flat,
     shiny,
     shinySprite: shiny ? shinySpriteUrl(pokemon.id) : null,
     finalPoints
@@ -1945,7 +2022,7 @@ function buildAdminModeOption() {
   const pokemon = randomFrom(POKEMON_POOLS[rarity]);
   const effect = pickEffect();
   const shiny = rollShiny();
-  const finalPoints = Math.round(pokemon.basePoints * effect.multiplier * (shiny ? SHINY_POINTS_MULTIPLIER : 1));
+  const finalPoints = Math.round(pokemon.basePoints * effect.multiplier * (shiny ? SHINY_POINTS_MULTIPLIER : 1)) + effect.flat;
 
   return {
     pokemonId: pokemon.id,
@@ -1955,6 +2032,7 @@ function buildAdminModeOption() {
     basePoints: pokemon.basePoints,
     effectName: effect.name,
     multiplier: effect.multiplier,
+    flat: effect.flat,
     shiny,
     shinySprite: shiny ? shinySpriteUrl(pokemon.id) : null,
     finalPoints
@@ -2583,6 +2661,7 @@ function startDoubleEncounter(game, player) {
       basePoints: o.basePoints,
       effectName: o.effectName,
       multiplier: o.multiplier,
+      flat: o.flat || 0,
       finalPoints: o.finalPoints
     })),
     team: player.team.map((mon, index) => ({ index, id: mon.id, name: mon.name, sprite: mon.sprite }))
@@ -2673,7 +2752,7 @@ function resolveDoubleOrNothing(game, player, action) {
   }
 
   const success = Math.random() < DOUBLE_OR_NOTHING_SUCCESS_CHANCE; // tiré côté serveur, jamais le client
-  const scoreDelta = applyMonMutation(player, mon, m => { m.multiplier = success ? m.multiplier * 2 : 0; }, game);
+  const scoreDelta = applyMonMutation(player, mon, m => { m.multiplier = success ? m.multiplier * 2 : 0; m.flat = success ? (m.flat || 0) * 2 : 0; }, game);
 
   return {
     result: {
@@ -2710,7 +2789,7 @@ function resolveHiddenTalent(game, player, action) {
   const mon = index !== null ? player.team[index] : null;
   if (!mon) return { error: 'Pokémon invalide.' };
 
-  const newEffect = randomFrom(EFFECTS.filter(e => e.name !== 'Neutre'));
+  const newEffect = resolveEffect(randomFrom(EFFECTS.filter(e => e.name !== 'Neutre')));
   const scoreDelta = applyMonMutation(player, mon, m => assignEffect(m, newEffect), game);
 
   return {
@@ -2718,7 +2797,7 @@ function resolveHiddenTalent(game, player, action) {
       type: EVENT_TYPES.HIDDEN_TALENT,
       pokemonName: mon.name,
       sprite: mon.sprite,
-      effect: { name: newEffect.name, multiplier: newEffect.multiplier },
+      effect: { name: newEffect.name, multiplier: newEffect.multiplier, flat: newEffect.flat },
       scoreDelta,
       score: player.score,
       team: player.team
@@ -3062,9 +3141,9 @@ function buildRoute(length = MAX_TURNS) {
 //   currentOptions: { haut, bas } (secret, jamais envoyé tel quel au client),
 //   hasShinyCharm: bool (Charme Chroma passif, actif toute la partie si choisi au départ),
 //   startItemOptions: [key, key, key] | null (3 objets proposés avant le tour 1, secret intermédiaire),
-//   heldItem: 'xpCandy' | 'mysteryItem' | 'shinyCharm' | 'megaGem' | null (objet retenu pour toute la partie),
+//   heldItem: 'xpCandy' | 'mysteryItem' | 'shinyCharm' | 'megaGem' | 'patchNote' | 'reroll' | null (objet retenu pour toute la partie),
 //   heldItemUsed: bool (objet déjà consommé ou non — utilisable une seule fois, à tout moment),
-//   pendingBonusKey: 'xpCandy' | 'mysteryItem' | 'megaGem' | null (objet en cours d'utilisation, attente de la cible)
+//   pendingBonusKey: 'xpCandy' | 'mysteryItem' | 'megaGem' | 'patchNote' | 'reroll' | null (objet en cours d'utilisation, attente de la cible)
 // }
 // ---------------------------------------------------------------
 const games = {};
@@ -5150,7 +5229,7 @@ io.on('connection', (socket) => {
       pokemon: { name: reward.name, sprite: reward.sprite, shiny: reward.shiny, shinySprite: reward.shinySprite, types: BOSS_MECHANICS.getTypes(reward.pokemonId) },
       rarity: reward.rarity,
       basePoints: reward.basePoints,
-      effect: { name: reward.effectName, multiplier: reward.multiplier },
+      effect: { name: reward.effectName, multiplier: reward.multiplier, flat: reward.flat || 0 },
       pointsGained,
       bossAttackHit,
       typeBonusDelta,
@@ -5281,6 +5360,38 @@ io.on('connection', (socket) => {
       socket.emit('mystery_item_pending', {
         team: player.team.map((mon, index) => ({ index, id: mon.id, name: mon.name, sprite: mon.sprite }))
       });
+      return;
+    }
+
+    // Patch Note : uniquement les Pokémon qui ont un malus (revalidé à la sélection).
+    if (player.heldItem === 'patchNote') {
+      const eligible = player.team
+        .map((mon, index) => ({ index, mon }))
+        .filter(({ mon }) => isMalusMon(mon));
+      if (!eligible.length) {
+        socket.emit('error_message', "Aucun Pokémon de ton équipe n'a de malus : Patch Note conservé.");
+        return;
+      }
+      player.pendingBonusKey = 'patchNote';
+      socket.emit('patch_note_pending', {
+        team: eligible.map(({ index, mon }) => ({ index, id: mon.id, name: mon.name, sprite: mon.sprite }))
+      });
+      return;
+    }
+
+    // Reroll : tout Pokémon de l'équipe sauf un Métamorph déjà transformé.
+    if (player.heldItem === 'reroll') {
+      const eligible = player.team
+        .map((mon, index) => ({ index, mon }))
+        .filter(({ mon }) => isRerollable(mon));
+      if (!eligible.length) {
+        socket.emit('error_message', 'Aucun Pokémon éligible pour le moment.');
+        return;
+      }
+      player.pendingBonusKey = 'reroll';
+      socket.emit('reroll_pending', {
+        team: eligible.map(({ index, mon }) => ({ index, id: mon.id, name: mon.name, sprite: mon.sprite }))
+      });
     }
   });
 
@@ -5398,7 +5509,7 @@ io.on('connection', (socket) => {
   });
 
   // PSL (clé interne 'mysteryItem', conservée pour l'historique) : le joueur choisit QUEL Pokémon
-  // reçoit un trait ; le trait est TOUJOURS 'Beauty privilege' (×1.3), jamais aléatoire.
+  // reçoit un trait ; le trait est TOUJOURS 'Beauty privilege' (×1.6), jamais aléatoire.
   socket.on('mystery_item_select', ({ index } = {}) => {
     const gameId = socket.data.gameId;
     const game = games[gameId];
@@ -5427,7 +5538,7 @@ io.on('connection', (socket) => {
       return;
     }
 
-    const newEffect = EFFECTS.find(e => e.name === 'Beauty privilege');
+    const newEffect = resolveEffect(EFFECTS.find(e => e.name === 'Beauty privilege'));
     if (!newEffect) {
       socket.emit('error_message', 'Trait Beauty privilege introuvable.');
       return;
@@ -5441,7 +5552,103 @@ io.on('connection', (socket) => {
       type: 'mysteryItem',
       pokemonName: mon.name,
       sprite: mon.sprite,
-      effect: { name: newEffect.name, multiplier: newEffect.multiplier },
+      effect: { name: newEffect.name, multiplier: newEffect.multiplier, flat: newEffect.flat },
+      scoreDelta,
+      score: player.score,
+      team: player.team
+    });
+
+    broadcastGameUpdated(game);
+  });
+
+  // Patch Note : retire le malus d'un Pokémon (trait remis à Neutre). Le Pokémon est relu ICI
+  // dans player.team et son éligibilité revalidée ; l'objet n'est consommé qu'au succès.
+  socket.on('patch_note_select', ({ index } = {}) => {
+    const game = games[socket.data.gameId];
+    if (!game) {
+      socket.emit('error_message', 'Partie introuvable.');
+      return;
+    }
+    if (game.status !== 'playing') {
+      socket.emit('error_message', "La partie n'est pas en cours.");
+      return;
+    }
+    const player = game.players.find(p => p.id === socket.id);
+    if (!player) {
+      socket.emit('error_message', 'Tu ne fais pas partie de cette partie.');
+      return;
+    }
+    if (player.pendingBonusKey !== 'patchNote' || player.heldItem !== 'patchNote' || player.heldItemUsed) {
+      socket.emit('error_message', 'Aucun Patch Note en attente.');
+      return;
+    }
+    const mon = Number.isInteger(index) ? player.team[index] : null;
+    if (!mon || !isMalusMon(mon)) {
+      socket.emit('error_message', "Ce Pokémon n'a pas de malus.");
+      return;
+    }
+
+    const removed = { name: mon.effectName, multiplier: traitDisplayMultiplier(mon), flat: mon.flat || 0 };
+    const neutral = resolveEffect(EFFECTS.find(e => e.name === 'Neutre'));
+    const scoreDelta = applyMonMutation(player, mon, m => assignEffect(m, neutral), game);
+
+    player.pendingBonusKey = null;
+    player.heldItemUsed = true;
+
+    socket.emit('bonus_result', {
+      type: 'patchNote',
+      pokemonName: mon.name,
+      sprite: mon.sprite,
+      removed,
+      scoreDelta,
+      score: player.score,
+      team: player.team
+    });
+
+    broadcastGameUpdated(game);
+  });
+
+  // Reroll : relance le trait d'un Pokémon (jamais Neutre, jamais le même). Le tirage est fait
+  // ICI ; le client reçoit la liste des traits possibles pour animer la roulette.
+  socket.on('reroll_select', ({ index } = {}) => {
+    const game = games[socket.data.gameId];
+    if (!game) {
+      socket.emit('error_message', 'Partie introuvable.');
+      return;
+    }
+    if (game.status !== 'playing') {
+      socket.emit('error_message', "La partie n'est pas en cours.");
+      return;
+    }
+    const player = game.players.find(p => p.id === socket.id);
+    if (!player) {
+      socket.emit('error_message', 'Tu ne fais pas partie de cette partie.');
+      return;
+    }
+    if (player.pendingBonusKey !== 'reroll' || player.heldItem !== 'reroll' || player.heldItemUsed) {
+      socket.emit('error_message', 'Aucun Reroll en attente.');
+      return;
+    }
+    const mon = Number.isInteger(index) ? player.team[index] : null;
+    if (!mon || !isRerollable(mon)) {
+      socket.emit('error_message', 'Pokémon invalide.');
+      return;
+    }
+
+    const previous = { name: mon.effectName || 'Neutre', multiplier: traitDisplayMultiplier(mon), flat: mon.flat || 0 };
+    const { effect: newEffect, pool } = pickRerolledEffect(mon.effectName);
+    const scoreDelta = applyMonMutation(player, mon, m => assignEffect(m, newEffect), game);
+
+    player.pendingBonusKey = null;
+    player.heldItemUsed = true;
+
+    socket.emit('bonus_result', {
+      type: 'reroll',
+      pokemonName: mon.name,
+      sprite: mon.sprite,
+      previous,
+      effect: { name: newEffect.name, multiplier: newEffect.multiplier, flat: newEffect.flat },
+      roulette: pool.map(e => ({ name: e.name, multiplier: e.multiplier, flat: e.flat || 0, gamble: !!e.gamble })),
       scoreDelta,
       score: player.score,
       team: player.team
@@ -5572,6 +5779,7 @@ io.on('connection', (socket) => {
       }
       m.basePoints = targetContribution;
       m.multiplier = METAMORPH_TRANSFORM_MULTIPLIER;
+      m.flat = 0; // targetContribution inclut déjà le flat de la cible : jamais recompté
       // Copie les TYPES de la cible ; et reprend son éventuel ×shiny déjà inclus dans targetContribution.
       m.typeSourceId = target.typeSourceId ?? target.id;
       m.shinyInMultiplier = !!target.shinyInMultiplier;
