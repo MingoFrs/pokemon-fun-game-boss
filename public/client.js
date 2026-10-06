@@ -1808,9 +1808,34 @@ function isBonusEffect(multiplier, flat) {
   return flat ? flat > 0 : multiplier >= 1;
 }
 
+// Roues en cours : permet de les finir instantanément (Skip, tour suivant, fin de partie) pour
+// qu'une animation ne dépasse jamais la pause de révélation native du jeu.
+const gambleActiveEls = new Set();
+
+// Termine tout de suite la roue de `el` (et la roue suivante d'une chaîne Reroll -> Gambling) :
+// elle saute directement à son résultat, texte et points révélés.
+function fastForwardGambleRoulette(el) {
+  for (let guard = 0; guard < 3; guard++) {
+    if (el._gambleFinishNow) { const f = el._gambleFinishNow; el._gambleFinishNow = null; f(); continue; }
+    if (el._gambleChain) {
+      if (el._gambleTimer) { clearTimeout(el._gambleTimer); el._gambleTimer = null; }
+      const next = el._gambleChain; el._gambleChain = null; next(); continue;
+    }
+    break;
+  }
+  gambleActiveEls.delete(el);
+}
+
+function finishAllGambleWheels() {
+  Array.from(gambleActiveEls).forEach(fastForwardGambleRoulette);
+}
+
 function stopGambleRoulette(el) {
   if (el._gambleTimer) { clearTimeout(el._gambleTimer); el._gambleTimer = null; }
   if (el._gambleRaf) { cancelAnimationFrame(el._gambleRaf); el._gambleRaf = null; }
+  el._gambleFinishNow = null;
+  el._gambleChain = null;
+  gambleActiveEls.delete(el);
   if (el._gambleWheel) { el._gambleWheel.remove(); el._gambleWheel = null; }
   el.classList.remove('gamble-roulette', 'gamble-roulette--spinning', 'gamble-roulette--landed',
     'gamble-roulette--up', 'gamble-roulette--down');
@@ -1996,7 +2021,8 @@ function spinGambleWheel(el, o) {
   const setRot = (deg) => wheel.rot.setAttribute('transform', `rotate(${deg.toFixed(2)})`);
   const idxUnder = (deg) => Math.floor(((360 - (deg % 360)) % 360) / wheel.seg) % wheel.n; // case sous le pointeur (haut)
   const finish = () => {
-    el._gambleRaf = null;
+    if (el._gambleRaf) { cancelAnimationFrame(el._gambleRaf); el._gambleRaf = null; }
+    el._gambleFinishNow = null;
     el.classList.remove('gamble-roulette--spinning');
     el.classList.add('gamble-roulette--landed');
     wheel.root.classList.remove('gamble-wheel--spinning');
@@ -2014,6 +2040,8 @@ function spinGambleWheel(el, o) {
   const jitter = (Math.random() - 0.5) * 0.7;                       // arrêt rarement pile au centre
   const base = (360 - (o.finalIdx + 0.5 + jitter) * wheel.seg + 360) % 360;
   if (document.documentElement.classList.contains('reduce-motion')) { setRot(base); finish(); return; } // réglage du jeu uniquement
+  gambleActiveEls.add(el);
+  el._gambleFinishNow = () => { setRot(base); finish(); };          // Skip / tour suivant : saute au résultat
 
   const start = Math.random() * 360;
   const end = start + 360 * (o.spins || 5) + ((((base - start) % 360) + 360) % 360);
@@ -2039,7 +2067,7 @@ function spinGambleWheel(el, o) {
 }
 
 // LET'S GO GAMBLING : roue des multiplicateurs ×0.5 -> ×2 (×2 = jackpot, étincelles ; ×0.5 = secousse).
-function playGambleRoulette(el, finalMultiplier, onDone) {
+function playGambleRoulette(el, finalMultiplier, onDone, opts = {}) {
   const items = GAMBLE_MULTIPLIERS.includes(finalMultiplier)
     ? GAMBLE_MULTIPLIERS
     : [...GAMBLE_MULTIPLIERS, finalMultiplier].sort((a, b) => a - b);
@@ -2051,8 +2079,8 @@ function playGambleRoulette(el, finalMultiplier, onDone) {
     live: (m) => `${GAMBLE_EFFECT_NAME} ×${formatMultiplier(m)}`,
     tone: (m) => (m > 1 ? 'up' : (m < 1 ? 'down' : null)),
     size: 210,
-    duration: 4500,
-    spins: 5,
+    duration: opts.duration || 3500,
+    spins: opts.spins || 4,
     rare: (m) => m >= 1.75,
     bad: (m) => m <= 0.5,
     onDone
@@ -2109,14 +2137,17 @@ function playTraitRoulette(el, items, finalEffect, onDone) {
     live: (it) => (it.gamble ? `${GAMBLE_EFFECT_NAME} 🎰` : formatEffect(it.name, it.multiplier, it.flat)),
     tone: (it) => (it.gamble ? null : (isBonusEffect(it.multiplier, it.flat) ? 'up' : 'down')),
     size: 280,
-    duration: 6500,
-    spins: 6,
+    duration: 5000,
+    spins: 5,
     power: 4.5,
     rare: (it) => it.gamble || traitStrength(it) >= 1.35,
     bad: (it) => !it.gamble && traitStrength(it) <= 0.65,
     onDone: () => {
       if (finalEffect.name === GAMBLE_EFFECT_NAME) {
-        el._gambleTimer = setTimeout(() => { el._gambleTimer = null; playGambleRoulette(el, finalEffect.multiplier, onDone); }, 1100);
+        const next = () => { el._gambleChain = null; playGambleRoulette(el, finalEffect.multiplier, onDone, { duration: 3000 }); };
+        el._gambleChain = next;
+        gambleActiveEls.add(el);
+        el._gambleTimer = setTimeout(() => { el._gambleTimer = null; next(); }, 900);
       } else if (onDone) onDone();
     }
   });
@@ -3672,6 +3703,7 @@ btnBonusTargetCancel.addEventListener('click', () => {
 });
 
 btnSkip.addEventListener('click', () => {
+  finishAllGambleWheels(); // la roue saute à son résultat, comme le reste de la révélation
   socket.emit('skip_reveal');
 });
 
@@ -4012,6 +4044,7 @@ socket.on('game_started', (payload) => {
 // display remis à '' au cas où le panneau vient d'un tour caché (mode ADMIN VS JOUEUR,
 // cf. player_turn_hidden) — sinon le sprite resterait masqué même une fois repeuplé.
 socket.on('turn_options', ({ haut, bas }) => {
+  finishAllGambleWheels(); // nouveau tour : aucune roue ne doit continuer à tourner
   choiceHautSpriteEl.style.display = '';
   choiceHautSpriteEl.src = pokemonSprite(haut);
   choiceHautSpriteEl.onerror = haut.shiny ? () => { choiceHautSpriteEl.src = haut.sprite; } : null;
@@ -4181,7 +4214,7 @@ socket.on('choice_result', ({ pokemon, rarity, basePoints, effect, pointsGained,
     playGambleRoulette(resultEffectEl, effect.multiplier, () => {
       resultEffectEl.textContent += shinySuffix;
       resultPointsEl.textContent = pointsGained;
-    });
+    }, { duration: 2600, spins: 3 }); // tient dans REVEAL_DELAY_MS (4 s) avec ~1,4 s pour lire le résultat
   } else {
     resultEffectEl.textContent = formatEffect(effect.name, effect.multiplier, effect.flat) + shinySuffix;
     resultPointsEl.textContent = pointsGained;
@@ -4303,6 +4336,7 @@ socket.on('metamorph_transformed', ({ score, scoreDelta, team, targetName, sprit
 });
 
 function applyGameFinished({ boss, difficulty, gameMode, adminId, reason, players, teamScore, teamRequired, modifiers }) {
+  finishAllGambleWheels();
   // Le rôle a pu changer entre le dernier game_started reçu (aucun risque en pratique
   // puisqu'il est verrouillé après start_game, mais on resynchronise par cohérence).
   currentGameMode = gameMode || currentGameMode;
