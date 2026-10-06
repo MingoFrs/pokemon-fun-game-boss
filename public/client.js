@@ -1530,7 +1530,7 @@ const itemInventoryBarEl = document.getElementById('item-inventory-bar');
 const btnUseItem = document.getElementById('btn-use-item');
 const itemInventoryIconEl = document.getElementById('item-inventory-icon');
 const itemInventoryLabelEl = document.getElementById('item-inventory-label');
-const ITEM_ICONS = { xpCandy: '🍬', mysteryItem: '❓', shinyCharm: '✨', megaGem: '💎' };
+const ITEM_ICONS = { xpCandy: '🍬', mysteryItem: '❓', shinyCharm: '✨', megaGem: '💎', patchNote: '📝', reroll: '🎲' };
 const bonusTargetTitleEl = document.getElementById('bonus-target-title');
 const bonusTargetListEl = document.getElementById('bonus-target-list');
 const bonusResultPanelEl = document.getElementById('bonus-result-panel');
@@ -1663,6 +1663,102 @@ function formatMultiplier(value) {
   return String(parseFloat(rounded.toFixed(2)));
 }
 
+// ---- Traits à points fixes (`flat`) + LET'S GO GAMBLING (roulette) ----
+// Miroir de server.js (GAMBLE_EFFECT_NAME / GAMBLE_MULTIPLIERS) : le serveur tire TOUJOURS le
+// multiplicateur final ; le client ne fait que rejouer une roulette qui s'arrête dessus.
+const GAMBLE_EFFECT_NAME = "LET'S GO GAMBLING";
+const GAMBLE_MULTIPLIERS = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
+
+// Libellé d'un trait : points fixes (« Aura +150 +150 PTS ») ou multiplicateur (« Smurf ×1.25 »).
+function formatEffect(name, multiplier, flat) {
+  return flat ? `${name} ${flat > 0 ? '+' : ''}${flat} PTS` : `${name} ×${formatMultiplier(multiplier)}`;
+}
+
+function isBonusEffect(multiplier, flat) {
+  return flat ? flat > 0 : multiplier >= 1;
+}
+
+function stopGambleRoulette(el) {
+  if (el._gambleTimer) { clearTimeout(el._gambleTimer); el._gambleTimer = null; }
+  el.classList.remove('gamble-roulette', 'gamble-roulette--spinning', 'gamble-roulette--landed',
+    'gamble-roulette--up', 'gamble-roulette--down');
+}
+
+// Roulette générique : les `items` défilent en ralentissant (un tick sonore par case), puis
+// s'arrêtent sur items[finalIndex] (choisi par le serveur, jamais par le client).
+//   render(item) -> texte ; tone(item) -> 'up' | 'down' | null (couleur + son d'arrêt) ;
+//   laps = tours complets avant l'arrêt. onDone est appelé à l'arrêt (jamais si la roulette
+//   est interrompue par une nouvelle roulette/un stopGambleRoulette).
+function playRoulette(el, { items, finalIndex, render, tone, laps = 3, onDone }) {
+  stopGambleRoulette(el);
+  const n = items.length;
+  const paint = (item) => {
+    el.textContent = render(item);
+    const t = tone(item);
+    el.classList.toggle('gamble-roulette--up', t === 'up');
+    el.classList.toggle('gamble-roulette--down', t === 'down');
+  };
+  el.classList.add('gamble-roulette');
+  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    paint(items[finalIndex]);
+    el.classList.add('gamble-roulette--landed');
+    if (onDone) onDone();
+    return;
+  }
+  el.classList.add('gamble-roulette--spinning');
+  const start = Math.floor(Math.random() * n);
+  const steps = n * laps + ((finalIndex - start + n) % n); // la dernière case est toujours finalIndex
+  let i = 0;
+  const tick = () => {
+    paint(items[(start + i) % n]);
+    const t = i / steps;
+    if (i >= steps) {
+      el._gambleTimer = null;
+      el.classList.remove('gamble-roulette--spinning');
+      el.classList.add('gamble-roulette--landed');
+      playRouletteStopSound(tone(items[finalIndex]) !== 'down');
+      if (onDone) onDone();
+      return;
+    }
+    playRouletteTickSound(t);
+    i += 1;
+    el._gambleTimer = setTimeout(tick, 45 + Math.pow(t, 3) * 420); // ~45 ms -> ~465 ms
+  };
+  tick();
+}
+
+// LET'S GO GAMBLING : multiplicateurs ×0.5 -> ×2.
+function playGambleRoulette(el, finalMultiplier, onDone) {
+  const items = GAMBLE_MULTIPLIERS.includes(finalMultiplier)
+    ? GAMBLE_MULTIPLIERS
+    : [...GAMBLE_MULTIPLIERS, finalMultiplier].sort((a, b) => a - b);
+  playRoulette(el, {
+    items,
+    finalIndex: items.indexOf(finalMultiplier),
+    render: (m) => `${GAMBLE_EFFECT_NAME} ×${formatMultiplier(m)}`,
+    tone: (m) => (m > 1 ? 'up' : (m < 1 ? 'down' : null)),
+    laps: 3,
+    onDone
+  });
+}
+
+// Reroll : défilement de TOUS les traits possibles (liste fournie par le serveur) jusqu'au
+// trait tiré ; si c'est LET'S GO GAMBLING, enchaîne la roulette des multiplicateurs.
+function playTraitRoulette(el, items, finalEffect, onDone) {
+  const finalIndex = Math.max(0, items.findIndex(it => it.name === finalEffect.name));
+  playRoulette(el, {
+    items,
+    finalIndex,
+    render: (it) => (it.gamble ? GAMBLE_EFFECT_NAME : formatEffect(it.name, it.multiplier, it.flat)),
+    tone: (it) => (it.gamble ? null : (isBonusEffect(it.multiplier, it.flat) ? 'up' : 'down')),
+    laps: 1,
+    onDone: () => {
+      if (finalEffect.name === GAMBLE_EFFECT_NAME) playGambleRoulette(el, finalEffect.multiplier, onDone);
+      else if (onDone) onDone();
+    }
+  });
+}
+
 const RARITY_LABELS = {
   commun: 'Normal',
   peu_commun: 'Peu commun',
@@ -1698,14 +1794,18 @@ const BONUS_LABELS_CLIENT = {
   xpCandy: 'Bonbon XP',
   mysteryItem: 'PSL',
   shinyCharm: 'Charme Chroma',
-  megaGem: 'Méga Gemme'
+  megaGem: 'Méga Gemme',
+  patchNote: 'Patch Note',
+  reroll: 'Reroll'
 };
 
 const BONUS_DESCRIPTIONS = {
   xpCandy: 'Fait évoluer un Pokémon de ton équipe jusqu\'à sa forme finale.',
-  mysteryItem: 'Donne le trait Beauty privilege (×1.3) à un Pokémon de ton équipe.',
+  mysteryItem: 'Donne le trait Beauty privilege (×1.6) à un Pokémon de ton équipe.',
   shinyCharm: 'Passif, tous les tours : meilleurs Pokémon et ×2 de chances de shiny.',
-  megaGem: 'Fait Méga-Évoluer un Pokémon de ton équipe (×1.5 pts), quand tu veux.'
+  megaGem: 'Fait Méga-Évoluer un Pokémon de ton équipe (×1.5 pts), quand tu veux.',
+  patchNote: 'Retire le malus d\'un Pokémon de ton équipe (trait remis à Neutre).',
+  reroll: 'Relance le trait d\'un Pokémon de ton équipe — roulette, jamais Neutre.'
 };
 
 // ---------- Helpers UI ----------
@@ -2297,8 +2397,8 @@ function renderAdminViewOptions({ playerName, playerScore, haut, bas }) {
     c.rarityEl.dataset.rarity = c.data.rarity;
     c.points.textContent = `${c.data.finalPoints} PTS (base ${c.data.basePoints})`;
     c.effect.textContent = c.data.shiny
-      ? `${c.data.effectName} ×${formatMultiplier(c.data.multiplier)} · Shiny ×${SHINY_POINTS_MULTIPLIER}`
-      : `${c.data.effectName} ×${formatMultiplier(c.data.multiplier)}`;
+      ? `${formatEffect(c.data.effectName, c.data.multiplier, c.data.flat)} · Shiny ×${SHINY_POINTS_MULTIPLIER}`
+      : formatEffect(c.data.effectName, c.data.multiplier, c.data.flat);
     c.sprite.closest('.admin-view-card').classList.toggle('admin-view-card--shiny', !!c.data.shiny);
   });
 }
@@ -2624,8 +2724,19 @@ function renderHiddenTalentResult(payload) {
   const wrap = document.createElement('div');
   wrap.className = 'event-result';
   wrap.appendChild(buildEventSprite(payload.sprite, payload.pokemonName));
-  wrap.appendChild(buildEventText(`${payload.pokemonName} reçoit : ${payload.effect.name} (×${formatMultiplier(payload.effect.multiplier)})`));
-  wrap.appendChild(buildDeltaLine(payload.scoreDelta));
+  if (payload.effect.name === GAMBLE_EFFECT_NAME) {
+    const textEl = buildEventText(`${payload.pokemonName} reçoit : `);
+    const rouletteEl = document.createElement('span');
+    textEl.appendChild(rouletteEl);
+    wrap.appendChild(textEl);
+    const deltaEl = buildDeltaLine(payload.scoreDelta);
+    deltaEl.style.visibility = 'hidden'; // révélé à l'arrêt de la roulette
+    wrap.appendChild(deltaEl);
+    playGambleRoulette(rouletteEl, payload.effect.multiplier, () => { deltaEl.style.visibility = ''; });
+  } else {
+    wrap.appendChild(buildEventText(`${payload.pokemonName} reçoit : ${formatEffect(payload.effect.name, payload.effect.multiplier, payload.effect.flat)}`));
+    wrap.appendChild(buildDeltaLine(payload.scoreDelta));
+  }
   eventBodyEl.appendChild(wrap);
   eventBodyEl.appendChild(buildEventCloseButton());
   updateMyScore(payload.score, payload.scoreDelta);
@@ -2746,14 +2857,19 @@ function renderEventResult(payload) {
 }
 
 
+let activeBonusRouletteEl = null; // span de la roulette Reroll en cours (résultat d'objet)
+
 function showBonusResult(data) {
   const titles = {
     xpCandy: 'Bonbon XP',
     mysteryItem: 'PSL',
     shinyCharm: 'Charme Chroma',
-    megaGem: 'Méga Gemme'
+    megaGem: 'Méga Gemme',
+    patchNote: 'Patch Note',
+    reroll: 'Reroll'
   };
   bonusResultTitleEl.textContent = titles[data.type] || '';
+  if (activeBonusRouletteEl) { stopGambleRoulette(activeBonusRouletteEl); activeBonusRouletteEl = null; } // coupe une roulette précédente
 
   if (data.type === 'shinyCharm') {
     bonusResultSpriteEl.classList.add('screen--hidden');
@@ -2772,8 +2888,28 @@ function showBonusResult(data) {
   } else if (data.type === 'mysteryItem') {
     bonusResultSpriteEl.classList.remove('screen--hidden');
     bonusResultSpriteEl.src = data.sprite;
-    bonusResultDetailEl.textContent = `${data.pokemonName} — ${data.effect.name} ×${formatMultiplier(data.effect.multiplier)}`;
+    bonusResultDetailEl.textContent = `${data.pokemonName} — ${formatEffect(data.effect.name, data.effect.multiplier, data.effect.flat)}`;
     bonusResultFinalEl.textContent = `${data.scoreDelta >= 0 ? '+' : ''}${data.scoreDelta} PTS`;
+  } else if (data.type === 'patchNote') {
+    bonusResultSpriteEl.classList.remove('screen--hidden');
+    bonusResultSpriteEl.src = data.sprite;
+    bonusResultDetailEl.textContent = `${data.pokemonName} — ${formatEffect(data.removed.name, data.removed.multiplier, data.removed.flat)} retiré`;
+    bonusResultFinalEl.textContent = `${data.scoreDelta >= 0 ? '+' : ''}${data.scoreDelta} PTS`;
+  } else if (data.type === 'reroll') {
+    bonusResultSpriteEl.classList.remove('screen--hidden');
+    bonusResultSpriteEl.src = data.sprite;
+    const previousLabel = data.previous.name === 'Neutre'
+      ? 'Neutre'
+      : formatEffect(data.previous.name, data.previous.multiplier, data.previous.flat);
+    bonusResultDetailEl.textContent = `${data.pokemonName} : ${previousLabel} → `;
+    const rouletteEl = document.createElement('span');
+    bonusResultDetailEl.appendChild(rouletteEl);
+    activeBonusRouletteEl = rouletteEl;
+    bonusResultFinalEl.textContent = '…'; // points révélés à l'arrêt de la roulette
+    playTraitRoulette(rouletteEl, data.roulette, data.effect, () => {
+      activeBonusRouletteEl = null;
+      bonusResultFinalEl.textContent = `${data.scoreDelta >= 0 ? '+' : ''}${data.scoreDelta} PTS`;
+    });
   }
 
   bonusResultPanelEl.classList.remove('result-panel--hidden');
@@ -3631,6 +3767,26 @@ socket.on('mystery_item_pending', ({ team }) => {
   showBonusTargetOverlay();
 });
 
+// Patch Note : uniquement les Pokémon qui ont un malus (filtré côté serveur, revalidé à la sélection).
+socket.on('patch_note_pending', ({ team }) => {
+  bonusTargetTitleEl.textContent = 'Choisis un Pokémon à nettoyer';
+  renderBonusTargetList(team, (index) => {
+    hideBonusTargetOverlay();
+    socket.emit('patch_note_select', { index });
+  });
+  showBonusTargetOverlay();
+});
+
+// Reroll : toute l'équipe (sauf Métamorph transformé) ; le trait est tiré par le serveur.
+socket.on('reroll_pending', ({ team }) => {
+  bonusTargetTitleEl.textContent = 'Choisis un Pokémon à relancer';
+  renderBonusTargetList(team, (index) => {
+    hideBonusTargetOverlay();
+    socket.emit('reroll_select', { index });
+  });
+  showBonusTargetOverlay();
+});
+
 // Résultat final de l'objet utilisé (quel que soit son type) : objet consommé, retiré
 // de l'inventaire (bouton désactivé) — jamais lié à un tour précis désormais.
 socket.on('bonus_result', (data) => {
@@ -3651,12 +3807,22 @@ socket.on('choice_result', ({ pokemon, rarity, basePoints, effect, pointsGained,
   resultNameEl.textContent = pokemon.shiny ? `✨ ${pokemon.name.toUpperCase()}` : pokemon.name.toUpperCase();
   renderTypeBadges(resultTypesEl, pokemon.types); // types fournis par le serveur
   resultBaseEl.textContent = basePoints;
-  resultEffectEl.textContent = pokemon.shiny
-    ? `${effect.name} ×${formatMultiplier(effect.multiplier)} · Shiny ×${SHINY_POINTS_MULTIPLIER}`
-    : `${effect.name} ×${formatMultiplier(effect.multiplier)}`;
-  resultEffectEl.classList.toggle('result-effect--bonus', effect.multiplier >= 1);
-  resultEffectEl.classList.toggle('result-effect--malus', effect.multiplier < 1);
-  resultPointsEl.textContent = pointsGained;
+  const effectBonus = isBonusEffect(effect.multiplier, effect.flat);
+  const shinySuffix = pokemon.shiny ? ` · Shiny ×${SHINY_POINTS_MULTIPLIER}` : '';
+  stopGambleRoulette(resultEffectEl); // coupe une roulette encore en cours (tirage précédent)
+  resultEffectEl.classList.toggle('result-effect--bonus', effectBonus);
+  resultEffectEl.classList.toggle('result-effect--malus', !effectBonus);
+  if (effect.name === GAMBLE_EFFECT_NAME) {
+    // LET'S GO GAMBLING : roulette, les points ne sont révélés qu'à l'arrêt.
+    resultPointsEl.textContent = '…';
+    playGambleRoulette(resultEffectEl, effect.multiplier, () => {
+      resultEffectEl.textContent += shinySuffix;
+      resultPointsEl.textContent = pointsGained;
+    });
+  } else {
+    resultEffectEl.textContent = formatEffect(effect.name, effect.multiplier, effect.flat) + shinySuffix;
+    resultPointsEl.textContent = pointsGained;
+  }
   resultBossAttackEl.classList.toggle('screen--hidden', !bossAttackHit);
   // Bonus de type de CE tirage (faiblesse du nouveau Pokémon + variation d'affinité), fourni par le serveur.
   resultTypeBonusEl.textContent = typeBonusDelta ? `Bonus de type : ${typeBonusDelta > 0 ? '+' : ''}${typeBonusDelta} PTS` : '';
@@ -3725,7 +3891,9 @@ function renderFinishedTeam(team) {
         // Détail du score : composantes envoyées par le serveur (jamais recalculées ici).
         const detail = document.createElement('p');
         detail.className = 'finished-team-slot__detail';
-        const parts = [`Base ${mon.basePoints}`, `Trait ×${formatMultiplier(mon.multiplier)}`];
+        const parts = [`Base ${mon.basePoints}`];
+        if (mon.multiplier !== 1 || !mon.flat) parts.push(`Trait ×${formatMultiplier(mon.multiplier)}`);
+        if (mon.flat) parts.push(`Trait ${mon.flat > 0 ? '+' : ''}${mon.flat}`);
         if (mon.shiny && !mon.shinyInMultiplier) parts.push(`Shiny ×${SHINY_POINTS_MULTIPLIER}`);
         if (mon.typeMult && mon.typeMult !== 1) parts.push(`Type ×${formatMultiplier(mon.typeMult)} (${mon.typeBonus > 0 ? '+' : ''}${mon.typeBonus})`);
         detail.textContent = parts.join(' · ');
@@ -3734,8 +3902,8 @@ function renderFinishedTeam(team) {
 
       if (mon.effectName && mon.effectName !== 'Neutre') {
         const traitTag = document.createElement('p');
-        traitTag.className = `finished-team-slot__trait ${mon.multiplier >= 1 ? 'finished-team-slot__trait--bonus' : 'finished-team-slot__trait--malus'}`;
-        traitTag.textContent = `${mon.effectName} ×${formatMultiplier(mon.multiplier)}`;
+        traitTag.className = `finished-team-slot__trait ${isBonusEffect(mon.multiplier, mon.flat) ? 'finished-team-slot__trait--bonus' : 'finished-team-slot__trait--malus'}`;
+        traitTag.textContent = formatEffect(mon.effectName, mon.multiplier, mon.flat);
         slot.appendChild(traitTag);
       }
     }
@@ -5269,6 +5437,20 @@ function playTone({ freq, duration, type = 'sine', volume = 0.15, delay = 0 }) {
 
 function playClickSound() {
   playTone({ freq: 720, duration: 0.06, type: 'sine', volume: 0.12 });
+}
+
+// Roulette : tick court dont la hauteur descend avec la progression (t de 0 à 1) ; le rythme
+// qui ralentit vient du délai entre ticks (cf. playRoulette).
+function playRouletteTickSound(t) {
+  playTone({ freq: 900 - t * 400, duration: 0.035, type: 'square', volume: 0.035 });
+}
+
+// Son d'arrêt : accord montant si le résultat est favorable, descendant sinon.
+function playRouletteStopSound(isBonus) {
+  const notes = isBonus ? [523.25, 659.25, 1046.5] : [392, 311.13, 233.08];
+  notes.forEach((freq, i) => {
+    playTone({ freq, duration: 0.2, type: isBonus ? 'triangle' : 'sawtooth', volume: 0.12, delay: i * 0.08 });
+  });
 }
 
 function playRevealSound() {
