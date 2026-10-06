@@ -1859,26 +1859,36 @@ function playRoulette(el, { items, finalIndex, render, tone, laps = 3, onDone })
   tick();
 }
 
-// ---- LET'S GO GAMBLING : vraie roue SVG (7 cases ×0.5 -> ×2), pointeur fixe en haut ----
-// Le serveur tire le multiplicateur final ; la roue ne fait que tourner et s'arrêter dessus.
+// ---- Roue dorée (LET'S GO GAMBLING + Reroll) : segments colorés, ampoules, pointeur, moyeu ----
+// Le serveur choisit TOUJOURS le résultat ; la roue ne fait que tourner et s'arrêter dessus.
 const GAMBLE_WHEEL_COLORS = { 0.5: '#b83a37', 0.75: '#e8615d', 1: '#6b7587', 1.25: '#2f9d96', 1.5: '#3fd0c9', 1.75: '#f5a623', 2: '#ffd54a' };
-const GAMBLE_WHEEL_LIGHT_TEXT = { 0.5: true, 0.75: true, 1: true };
+let gambleWheelUid = 0;
 
 function ensureGambleWheelStyles() {
   if (document.getElementById('gamble-wheel-style')) return;
   const st = document.createElement('style');
   st.id = 'gamble-wheel-style';
   st.textContent = `
-.gamble-wheel { display: flex; justify-content: center; margin: 8px auto 12px; }
-.gamble-wheel svg { width: 180px; max-width: 70vw; height: auto; overflow: visible; filter: drop-shadow(0 4px 14px rgba(0,0,0,.5)); }
-.gamble-wheel__seg { stroke: #0b0f16; stroke-width: 1.5; }
-.gamble-wheel__seg--win { stroke: #fff; stroke-width: 3.5; }
-.gamble-wheel__label { font: 700 14px 'JetBrains Mono', monospace; text-anchor: middle; dominant-baseline: middle; pointer-events: none; }
-.gamble-wheel__ring { fill: none; stroke: #ffd54a; stroke-width: 4; }
-.gamble-wheel__hub { fill: #141a24; stroke: #ffd54a; stroke-width: 3; }
-.gamble-wheel__pointer { fill: #ffd54a; stroke: #0b0f16; stroke-width: 2; stroke-linejoin: round; }
+.gamble-wheel { position: relative; display: flex; justify-content: center; margin: 8px auto 12px; }
+.gamble-wheel svg { width: var(--gw-size, 210px); max-width: 82vw; height: auto; overflow: visible; filter: drop-shadow(0 6px 16px rgba(0,0,0,.55)); }
+.gw-seg { stroke: rgba(0,0,0,.45); stroke-width: 1.2; }
+.gw-seg--win { stroke: #fff; stroke-width: 3.5; }
+.gw-label { font-family: 'JetBrains Mono', monospace; font-weight: 700; dominant-baseline: middle; pointer-events: none; }
+.gw-bulb { fill: #fff3b0; filter: drop-shadow(0 0 2.5px #ffe27a); }
+.gamble-wheel--spinning .gw-bulb--a { animation: gwBlinkA .32s steps(1) infinite; }
+.gamble-wheel--spinning .gw-bulb--b { animation: gwBlinkB .32s steps(1) infinite; }
+.gamble-wheel--landed .gw-bulb { animation: gwFlash .22s ease 8 alternate; }
 .gamble-wheel--landed svg { animation: gambleWheelPop .7s ease-out 1; }
+.gamble-wheel--rare svg { animation: gambleWheelPop .7s ease-out 1, gwRareGlow 1.1s ease-in-out .7s infinite; }
+.gamble-wheel--bad svg { animation: gwShake .5s ease 1; }
+.gw-spark { position: absolute; left: 50%; top: 50%; width: 7px; height: 7px; border-radius: 50%; background: #ffd54a; box-shadow: 0 0 8px #ffd54a; pointer-events: none; animation: gwSpark 1.1s ease-out forwards; }
+@keyframes gwBlinkA { 0% { opacity: 1; } 50% { opacity: .2; } }
+@keyframes gwBlinkB { 0% { opacity: .2; } 50% { opacity: 1; } }
+@keyframes gwFlash { from { opacity: .25; } to { opacity: 1; } }
 @keyframes gambleWheelPop { 0% { transform: scale(1); } 40% { transform: scale(1.1); } 100% { transform: scale(1); } }
+@keyframes gwRareGlow { 0%, 100% { filter: drop-shadow(0 0 8px rgba(255,213,74,.5)); } 50% { filter: drop-shadow(0 0 26px rgba(255,213,74,1)); } }
+@keyframes gwShake { 0%, 100% { transform: translateX(0); } 20% { transform: translateX(-7px); } 40% { transform: translateX(6px); } 60% { transform: translateX(-4px); } 80% { transform: translateX(3px); } }
+@keyframes gwSpark { from { transform: translate(-50%, -50%) scale(1); opacity: 1; } to { transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) scale(.2); opacity: 0; } }
 .gamble-roulette { min-width: 12ch; text-align: center; }
 .result-line .gamble-roulette { color: #ffd54a; }
 .result-line .gamble-roulette.gamble-roulette--up { color: var(--accent-bas); }
@@ -1887,107 +1897,227 @@ function ensureGambleWheelStyles() {
   document.head.appendChild(st);
 }
 
-function buildGambleWheel(items) {
+// Texte lisible (blanc/noir) sur une couleur de segment hexadécimale.
+function wheelTextOn(hex) {
+  const n = parseInt(hex.slice(1), 16);
+  const lum = 0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255);
+  return lum > 150 ? '#0b0f16' : '#ffffff';
+}
+
+// Construit la roue. o = { items, fill(item, i) -> '#hex', label(item) -> texte du segment, size }
+function buildGambleWheel(o) {
   const NS = 'http://www.w3.org/2000/svg';
-  const n = items.length, seg = 360 / n, R = 90;
-  const mk = (tag, attrs) => { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); return e; };
-  const pt = (deg) => { const r = deg * Math.PI / 180; return [(R * Math.sin(r)).toFixed(2), (-R * Math.cos(r)).toFixed(2)]; };
+  const n = o.items.length, seg = 360 / n, R = 96, uid = ++gambleWheelUid;
+  const mk = (tag, attrs, parent) => {
+    const e = document.createElementNS(NS, tag);
+    for (const k in attrs) e.setAttribute(k, attrs[k]);
+    if (parent) parent.appendChild(e);
+    return e;
+  };
+  const pt = (deg, r) => { const a = deg * Math.PI / 180; return [(r * Math.sin(a)).toFixed(2), (-r * Math.cos(a)).toFixed(2)]; };
 
   const root = document.createElement('div');
-  root.className = 'gamble-wheel';
+  root.className = 'gamble-wheel gamble-wheel--spinning';
+  root.style.setProperty('--gw-size', `${o.size || 210}px`);
   root.setAttribute('aria-hidden', 'true');
-  const svg = mk('svg', { viewBox: '-100 -112 200 212' });
-  const rot = mk('g', { transform: 'rotate(0)' });
+  const svg = mk('svg', { viewBox: '-122 -146 244 268' }, root);
+
+  const defs = mk('defs', {}, svg);
+  const gold = mk('linearGradient', { id: `gwGold${uid}`, x1: '0', y1: '0', x2: '1', y2: '1' }, defs);
+  [['0', '#fff1a8'], ['0.45', '#e0a82e'], ['1', '#8a5a00']].forEach(([off, c]) => mk('stop', { offset: off, 'stop-color': c }, gold));
+  const shine = mk('radialGradient', { id: `gwShine${uid}`, cx: '0.5', cy: '0.4', r: '0.65' }, defs);
+  [['0', 'rgba(255,255,255,.38)'], ['0.55', 'rgba(255,255,255,0)'], ['1', 'rgba(0,0,0,.28)']].forEach(([off, c]) => mk('stop', { offset: off, 'stop-color': c }, shine));
+  const pin = mk('linearGradient', { id: `gwPin${uid}`, x1: '0', y1: '0', x2: '1', y2: '1' }, defs);
+  [['0', '#ff6a5e'], ['1', '#b3140f']].forEach(([off, c]) => mk('stop', { offset: off, 'stop-color': c }, pin));
+
+  // Plateau (tourne) : segments + libellés
+  const rot = mk('g', { transform: 'rotate(0)' }, svg);
   const segs = [];
-  items.forEach((m, i) => {
-    const [x1, y1] = pt(i * seg), [x2, y2] = pt((i + 1) * seg);
-    const path = mk('path', { d: `M0 0 L${x1} ${y1} A${R} ${R} 0 0 1 ${x2} ${y2} Z`, fill: GAMBLE_WHEEL_COLORS[m] || (m > 1 ? '#3fd0c9' : m < 1 ? '#e8615d' : '#6b7587'), class: 'gamble-wheel__seg' });
-    rot.appendChild(path);
-    segs.push(path);
-    const label = mk('text', { transform: `rotate(${(i + 0.5) * seg}) translate(0 -62)`, class: 'gamble-wheel__label', fill: GAMBLE_WHEEL_LIGHT_TEXT[m] ? '#fff' : '#0b0f16' });
-    label.textContent = `×${formatMultiplier(m)}`;
-    rot.appendChild(label);
+  const fs = n > 10 ? 11.5 : 16;
+  o.items.forEach((item, i) => {
+    const [x1, y1] = pt(i * seg, R), [x2, y2] = pt((i + 1) * seg, R);
+    const fill = o.fill(item, i);
+    segs.push(mk('path', { d: `M0 0 L${x1} ${y1} A${R} ${R} 0 0 1 ${x2} ${y2} Z`, fill, class: 'gw-seg' }, rot));
+    const c = (i + 0.5) * seg;
+    const t = mk('text', { transform: `rotate(${(c - 90).toFixed(2)}) translate(${R - 9} 0)`, 'text-anchor': 'end', 'font-size': fs, fill: wheelTextOn(fill), class: 'gw-label' }, rot);
+    t.textContent = o.label(item);
   });
-  svg.appendChild(rot);
-  svg.appendChild(mk('circle', { r: R, class: 'gamble-wheel__ring' }));
-  svg.appendChild(mk('circle', { r: 11, class: 'gamble-wheel__hub' }));
-  svg.appendChild(mk('polygon', { points: '-10,-106 10,-106 0,-82', class: 'gamble-wheel__pointer' }));
-  root.appendChild(svg);
+  mk('circle', { r: R, fill: `url(#gwShine${uid})`, 'pointer-events': 'none' }, rot); // relief (tourne avec)
+
+  // Cadre doré fixe + ampoules
+  mk('circle', { r: 104, fill: 'none', stroke: `url(#gwGold${uid})`, 'stroke-width': 16 }, svg);
+  mk('circle', { r: 112, fill: 'none', stroke: '#6b4300', 'stroke-width': 1.5 }, svg);
+  mk('circle', { r: 96, fill: 'none', stroke: '#6b4300', 'stroke-width': 1.5 }, svg);
+  const bulbs = 24;
+  for (let i = 0; i < bulbs; i++) {
+    const [bx, by] = pt(i * (360 / bulbs), 104);
+    mk('circle', { cx: bx, cy: by, r: 3.1, class: `gw-bulb ${i % 2 ? 'gw-bulb--a' : 'gw-bulb--b'}` }, svg);
+  }
+  // Moyeu doré
+  mk('circle', { r: 17, fill: `url(#gwGold${uid})`, stroke: '#6b4300', 'stroke-width': 2 }, svg);
+  mk('circle', { r: 8, fill: '#7a4d00', stroke: '#fff1a8', 'stroke-width': 1.5 }, svg);
+  // Pointeur « épingle » rouge, pointe vers la roue
+  mk('path', { d: 'M0 -90 C-17 -108 -17 -139 0 -139 C17 -139 17 -108 0 -90 Z', fill: `url(#gwPin${uid})`, stroke: '#6b0f0b', 'stroke-width': 2, 'stroke-linejoin': 'round' }, svg);
+  mk('circle', { cx: 0, cy: -121, r: 5.5, fill: '#fff' }, svg);
+
   return { root, rot, segs, seg, n };
 }
 
-// LET'S GO GAMBLING : la roue tourne ~4,5 s en ralentissant (tick à chaque case franchie),
-// s'arrête sur le multiplicateur du serveur, puis le texte `el` affiche le résultat.
-function playGambleRoulette(el, finalMultiplier, onDone) {
+function burstWheelSparks(root) {
+  for (let i = 0; i < 26; i++) {
+    const sp = document.createElement('span');
+    sp.className = 'gw-spark';
+    const ang = Math.random() * Math.PI * 2, dist = 70 + Math.random() * 90;
+    sp.style.setProperty('--dx', `${(Math.cos(ang) * dist).toFixed(0)}px`);
+    sp.style.setProperty('--dy', `${(Math.sin(ang) * dist).toFixed(0)}px`);
+    sp.style.animationDelay = `${(Math.random() * 0.25).toFixed(2)}s`;
+    root.appendChild(sp);
+    setTimeout(() => sp.remove(), 1600);
+  }
+}
+
+// Moteur générique : la roue tourne en ralentissant, tick à chaque case franchie, s'arrête sur
+// items[finalIdx]. o = { items, finalIdx, fill, label, live(item)->texte, tone(item)->'up'|'down'|null,
+//   size, duration, spins, power (frein), rare(item), bad(item), onDone }
+function spinGambleWheel(el, o) {
   stopGambleRoulette(el);
   ensureGambleWheelStyles();
-  const items = GAMBLE_MULTIPLIERS.includes(finalMultiplier)
-    ? GAMBLE_MULTIPLIERS
-    : [...GAMBLE_MULTIPLIERS, finalMultiplier].sort((a, b) => a - b);
-  const finalIdx = items.indexOf(finalMultiplier);
-  const wheel = buildGambleWheel(items);
-  const anchor = el.parentElement || el;
-  anchor.insertAdjacentElement('beforebegin', wheel.root);
+  const wheel = buildGambleWheel(o);
+  (el.parentElement || el).insertAdjacentElement('beforebegin', wheel.root);
   el._gambleWheel = wheel.root;
 
-  const paint = (m) => {
-    el.textContent = `${GAMBLE_EFFECT_NAME} ×${formatMultiplier(m)}`;
-    el.classList.toggle('gamble-roulette--up', m > 1);
-    el.classList.toggle('gamble-roulette--down', m < 1);
+  const final = o.items[o.finalIdx];
+  const paint = (item) => {
+    el.textContent = o.live(item);
+    const t = o.tone(item);
+    el.classList.toggle('gamble-roulette--up', t === 'up');
+    el.classList.toggle('gamble-roulette--down', t === 'down');
   };
   const setRot = (deg) => wheel.rot.setAttribute('transform', `rotate(${deg.toFixed(2)})`);
-  const idxUnder = (deg) => Math.floor((((360 - (deg % 360)) % 360)) / wheel.seg) % wheel.n; // case sous le pointeur (haut)
+  const idxUnder = (deg) => Math.floor(((360 - (deg % 360)) % 360) / wheel.seg) % wheel.n; // case sous le pointeur (haut)
   const finish = () => {
     el._gambleRaf = null;
     el.classList.remove('gamble-roulette--spinning');
     el.classList.add('gamble-roulette--landed');
-    wheel.segs[finalIdx].classList.add('gamble-wheel__seg--win');
+    wheel.root.classList.remove('gamble-wheel--spinning');
     wheel.root.classList.add('gamble-wheel--landed');
-    paint(finalMultiplier);
-    playRouletteStopSound(finalMultiplier >= 1);
-    if (onDone) onDone();
+    wheel.segs[o.finalIdx].classList.add('gw-seg--win');
+    paint(final);
+    const rare = o.rare && o.rare(final);
+    if (rare) { wheel.root.classList.add('gamble-wheel--rare'); burstWheelSparks(wheel.root); }
+    if (o.bad && o.bad(final)) wheel.root.classList.add('gamble-wheel--bad');
+    playRouletteStopSound(o.tone(final) !== 'down');
+    if (o.onDone) o.onDone();
   };
 
   el.classList.add('gamble-roulette');
-  const jitter = (Math.random() - 0.5) * 0.7;                     // arrêt pas toujours pile au centre
-  const landAngle = (finalIdx + 0.5 + jitter) * wheel.seg;       // angle de la case visée (depuis le haut)
-  const base = (360 - landAngle + 360) % 360;
-  const reduced = document.documentElement.classList.contains('reduce-motion'); // réglage du jeu uniquement
-  if (reduced) { setRot(base); finish(); return; }
+  const jitter = (Math.random() - 0.5) * 0.7;                       // arrêt rarement pile au centre
+  const base = (360 - (o.finalIdx + 0.5 + jitter) * wheel.seg + 360) % 360;
+  if (document.documentElement.classList.contains('reduce-motion')) { setRot(base); finish(); return; } // réglage du jeu uniquement
 
   const start = Math.random() * 360;
-  const end = start + 360 * 5 + ((((base - start) % 360) + 360) % 360);
-  const DURATION = 4500;
+  const end = start + 360 * (o.spins || 5) + ((((base - start) % 360) + 360) % 360);
+  const DURATION = o.duration || 4500, POW = o.power || 4;
   const t0 = performance.now();
-  let lastIdx = -1;
+  let lastIdx = -1, lastTick = 0;
   el.classList.add('gamble-roulette--spinning');
   const frame = (now) => {
     if (!el.isConnected) { stopGambleRoulette(el); return; }
     const t = Math.min(1, (now - t0) / DURATION);
-    const eased = 1 - Math.pow(1 - t, 4);                         // easeOutQuart : démarre vite, freine fort
-    const deg = start + (end - start) * eased;
+    const deg = start + (end - start) * (1 - Math.pow(1 - t, POW)); // démarre vite, freine longtemps
     setRot(deg);
     const idx = idxUnder(deg);
-    if (idx !== lastIdx) { lastIdx = idx; paint(items[idx]); if (t < 1) playRouletteTickSound(t); }
+    if (idx !== lastIdx) {
+      lastIdx = idx;
+      paint(o.items[idx]);
+      if (t < 1 && now - lastTick > 35) { lastTick = now; playRouletteTickSound(t); }
+    }
     if (t < 1) el._gambleRaf = requestAnimationFrame(frame);
     else finish();
   };
   el._gambleRaf = requestAnimationFrame(frame);
 }
 
-// Reroll : défilement de TOUS les traits possibles (liste fournie par le serveur) jusqu'au
-// trait tiré ; si c'est LET'S GO GAMBLING, enchaîne la roulette des multiplicateurs.
-function playTraitRoulette(el, items, finalEffect, onDone) {
-  const finalIndex = Math.max(0, items.findIndex(it => it.name === finalEffect.name));
-  playRoulette(el, {
+// LET'S GO GAMBLING : roue des multiplicateurs ×0.5 -> ×2 (×2 = jackpot, étincelles ; ×0.5 = secousse).
+function playGambleRoulette(el, finalMultiplier, onDone) {
+  const items = GAMBLE_MULTIPLIERS.includes(finalMultiplier)
+    ? GAMBLE_MULTIPLIERS
+    : [...GAMBLE_MULTIPLIERS, finalMultiplier].sort((a, b) => a - b);
+  spinGambleWheel(el, {
     items,
-    finalIndex,
-    render: (it) => (it.gamble ? GAMBLE_EFFECT_NAME : formatEffect(it.name, it.multiplier, it.flat)),
+    finalIdx: items.indexOf(finalMultiplier),
+    fill: (m) => GAMBLE_WHEEL_COLORS[m] || (m > 1 ? '#3fd0c9' : m < 1 ? '#e8615d' : '#6b7587'),
+    label: (m) => `×${formatMultiplier(m)}`,
+    live: (m) => `${GAMBLE_EFFECT_NAME} ×${formatMultiplier(m)}`,
+    tone: (m) => (m > 1 ? 'up' : (m < 1 ? 'down' : null)),
+    size: 210,
+    duration: 4500,
+    spins: 5,
+    rare: (m) => m >= 1.75,
+    bad: (m) => m <= 0.5,
+    onDone
+  });
+}
+
+// ---- Reroll : roue de TOUS les traits possibles ----
+function traitStrength(it) {
+  if (it.gamble) return 1.5;
+  return it.flat ? 1 + it.flat / 500 : it.multiplier; // même échelle que `power` côté serveur
+}
+
+// Alterne bon / mauvais autour de la roue (couleurs vives, quasi-ratés fréquents), 🎰 au milieu.
+function orderTraitsForWheel(items) {
+  const bonus = items.filter(it => !it.gamble && traitStrength(it) >= 1).sort((a, b) => traitStrength(b) - traitStrength(a));
+  const malus = items.filter(it => !it.gamble && traitStrength(it) < 1).sort((a, b) => traitStrength(a) - traitStrength(b));
+  const gamble = items.filter(it => it.gamble);
+  const out = [];
+  const max = Math.max(bonus.length, malus.length);
+  for (let i = 0; i < max; i++) {
+    if (bonus[i]) out.push(bonus[i]);
+    if (malus[i]) out.push(malus[i]);
+    if (i === Math.floor(max / 2)) out.push(...gamble);
+  }
+  gamble.forEach(g => { if (!out.includes(g)) out.push(g); });
+  return out;
+}
+
+function traitWheelFill(it, i) {
+  if (it.gamble) return '#ffd54a';                                 // doré = jackpot potentiel
+  const st = traitStrength(it);
+  if (st >= 1.6) return '#f2578c';                                 // rose = très rare
+  if (st >= 1.35) return '#b98cf2';                                // violet = rare
+  if (st >= 1) return i % 2 ? '#2fb89a' : '#3fd0c9';               // bon
+  if (st <= 0.65) return '#7a1f1d';                                // très mauvais
+  return i % 2 ? '#d8504c' : '#b83a37';                            // mauvais
+}
+
+function traitWheelLabel(it) {
+  if (it.gamble) return '🎰';
+  return it.flat ? `${it.flat > 0 ? '+' : ''}${it.flat}` : `×${formatMultiplier(it.multiplier)}`;
+}
+
+// Reroll : la roue des traits tourne jusqu'au trait tiré ; si c'est LET'S GO GAMBLING,
+// une seconde roue (multiplicateurs) prend le relais.
+function playTraitRoulette(el, items, finalEffect, onDone) {
+  const ordered = orderTraitsForWheel(items);
+  const finalIdx = Math.max(0, ordered.findIndex(it => it.name === finalEffect.name));
+  spinGambleWheel(el, {
+    items: ordered,
+    finalIdx,
+    fill: traitWheelFill,
+    label: traitWheelLabel,
+    live: (it) => (it.gamble ? `${GAMBLE_EFFECT_NAME} 🎰` : formatEffect(it.name, it.multiplier, it.flat)),
     tone: (it) => (it.gamble ? null : (isBonusEffect(it.multiplier, it.flat) ? 'up' : 'down')),
-    laps: 1,
+    size: 280,
+    duration: 6500,
+    spins: 6,
+    power: 4.5,
+    rare: (it) => it.gamble || traitStrength(it) >= 1.35,
+    bad: (it) => !it.gamble && traitStrength(it) <= 0.65,
     onDone: () => {
-      if (finalEffect.name === GAMBLE_EFFECT_NAME) playGambleRoulette(el, finalEffect.multiplier, onDone);
-      else if (onDone) onDone();
+      if (finalEffect.name === GAMBLE_EFFECT_NAME) {
+        el._gambleTimer = setTimeout(() => { el._gambleTimer = null; playGambleRoulette(el, finalEffect.multiplier, onDone); }, 1100);
+      } else if (onDone) onDone();
     }
   });
 }
