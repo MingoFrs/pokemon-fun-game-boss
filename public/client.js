@@ -10,7 +10,11 @@ const socket = io();
 const loadingOverlayEl = document.getElementById('loading-overlay');
 const loadingTextEl = document.getElementById('loading-text');
 const LOADING_SHOW_DELAY_MS = 150;
-const LOADING_MAX_WAIT_MS = 8000;
+const LOADING_MAX_WAIT_MS = 4000;
+// Seuls ces événements (démarrage / reprise d'une partie) bloquent l'écran le temps de charger leurs sprites.
+// Tous les autres (tours, résultats, événements...) chargent en arrière-plan SANS overlay : sinon, sur
+// connexion lente (mobile), l'écran de chargement réapparaissait à chaque tour.
+const BLOCKING_SPRITE_EVENTS = new Set(['game_started', 'rejoin_success', 'guess_game_started', 'auction_game_started', 'daily_state']);
 const LOADING_BOOT_MAX_MS = 5000;
 const preloadedSprites = new Set();
 const preloadingSprites = new Set();
@@ -39,11 +43,10 @@ function refreshLoadingOverlay() {
   }
 }
 
-function preloadSprite(url) {
+function preloadSprite(url, blocking) {
   if (typeof url !== 'string' || !url || preloadedSprites.has(url) || preloadingSprites.has(url)) return;
   preloadingSprites.add(url);
-  loadingPending++;
-  loadingTotal++;
+  if (blocking) { loadingPending++; loadingTotal++; }
   let settled = false;
   const img = new Image();
   const finish = () => {
@@ -52,8 +55,7 @@ function preloadSprite(url) {
     clearTimeout(timer);
     preloadingSprites.delete(url);
     preloadedSprites.add(url);
-    loadingPending--;
-    refreshLoadingOverlay();
+    if (blocking) { loadingPending--; refreshLoadingOverlay(); }
   };
   const timer = setTimeout(finish, LOADING_MAX_WAIT_MS);
   img.onload = finish;
@@ -61,30 +63,30 @@ function preloadSprite(url) {
   img.src = url;
 }
 
-function collectSprites(value, depth) {
+function collectSprites(value, depth, blocking) {
   if (!value || typeof value !== 'object' || depth > 6) return;
   if (Array.isArray(value)) {
-    value.forEach(v => collectSprites(v, depth + 1));
+    value.forEach(v => collectSprites(v, depth + 1, blocking));
     return;
   }
   for (const key of Object.keys(value)) {
     const v = value[key];
-    if ((key === 'sprite' || key === 'shinySprite') && typeof v === 'string') preloadSprite(v);
-    else if (v && typeof v === 'object') collectSprites(v, depth + 1);
+    if ((key === 'sprite' || key === 'shinySprite') && typeof v === 'string') preloadSprite(v, blocking);
+    else if (v && typeof v === 'object') collectSprites(v, depth + 1, blocking);
   }
 }
 
-function onIncomingSocketEvent(args) {
-  try { collectSprites(args, 0); } catch (e) {}
+function onIncomingSocketEvent(event, args) {
+  try { collectSprites(args, 0, BLOCKING_SPRITE_EVENTS.has(event)); } catch (e) {}
   refreshLoadingOverlay();
 }
 
 if (typeof socket.onAny === 'function') {
-  socket.onAny((event, ...args) => onIncomingSocketEvent(args)); // socket.io v3+ : appelé avant les handlers
+  socket.onAny((event, ...args) => onIncomingSocketEvent(event, args)); // socket.io v3+ : appelé avant les handlers
 } else {
   const originalOnEvent = socket.onevent; // socket.io v2
   socket.onevent = function (packet) {
-    onIncomingSocketEvent((packet && packet.data ? packet.data.slice(1) : []));
+    onIncomingSocketEvent(packet && packet.data ? packet.data[0] : '', (packet && packet.data ? packet.data.slice(1) : []));
     return originalOnEvent.apply(this, arguments);
   };
 }
@@ -6136,8 +6138,8 @@ accountFrameButtons.forEach(btn => {
 // premières images réellement affichées restent prioritaires, jamais concurrencées par
 // ce préchargement de fond.
 (function preloadSpritesInBackground() {
-  const BATCH_SIZE = 12;
-  const BATCH_DELAY_MS = 120;
+  const BATCH_SIZE = 4;
+  const BATCH_DELAY_MS = 600;
 
   // Même construction d'URL que spriteUrl() côté serveur (server.js) : le préchargement
   // n'a aucune donnée Pokémon complète à disposition, juste des dex id bruts.
@@ -6145,21 +6147,34 @@ accountFrameButtons.forEach(btn => {
     return `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/${dexId}.png`;
   }
 
+  // Mobile / écran tactile / petit écran / connexion lente / économiseur de données : AUCUN préchargement
+  // global (plus de 1000 images grand format saturaient la connexion et ralentissaient la partie).
+  const conn = navigator.connection || {};
+  const lowBandwidth = conn.saveData === true
+    || /(^|-)(slow-2g|2g|3g)$/.test(conn.effectiveType || '')
+    || (window.matchMedia && window.matchMedia('(pointer: coarse)').matches)
+    || window.innerWidth < 820;
+  if (lowBandwidth) return;
+
   fetch('/api/sprite-ids')
     .then(res => res.ok ? res.json() : [])
     .then(ids => {
       if (!Array.isArray(ids) || ids.length === 0) return;
       let i = 0;
       function loadNextBatch() {
+        // En partie : on met le préchargement en pause pour ne jamais concurrencer les vrais sprites.
+        const screen = document.body.dataset.screen;
+        if (document.hidden || (screen && screen !== 'home' && screen !== 'lobby')) { setTimeout(loadNextBatch, 3000); return; }
         const batch = ids.slice(i, i + BATCH_SIZE);
         batch.forEach(id => {
           const img = new Image();
+          img.decoding = 'async';
           img.src = spriteUrlFromId(id); // sprite normal uniquement (le shiny, 2% de tirage, n'est pas préchargé pour limiter la bande passante)
         });
         i += BATCH_SIZE;
         if (i < ids.length) setTimeout(loadNextBatch, BATCH_DELAY_MS);
       }
-      loadNextBatch();
+      setTimeout(loadNextBatch, 4000); // laisse d'abord l'accueil se charger
     })
     .catch(() => {
       // Échec silencieux (offline, manifeste indisponible...) : simple dégradation vers
