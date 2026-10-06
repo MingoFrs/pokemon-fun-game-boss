@@ -5314,3 +5314,17 @@ body.fly-mode #boss-attack-banner { display: none !important; }
   #daily-final .daily-team { gap: 8px; }
   #daily-final .daily-team__sprite { width: 48px; height: 48px; }
 }
+
+/* Titre équipé : petit, discret, sous le pseudo (lobby + en partie). */
+.player-item__who { display: flex; flex-direction: column; min-width: 0; }
+.player-item__title {
+  margin-top: 2px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  line-height: 1.2;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

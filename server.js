@@ -3533,7 +3533,7 @@ function generateGameId() {
 }
 
 function makePlayer(id, name, token, avatar, accessToken) {
-  return {
+  const player = {
     id,
     name,
     // Avatar de compte (optionnel, cf. AVATARS) : jamais une valeur arbitraire du
@@ -3546,6 +3546,7 @@ function makePlayer(id, name, token, avatar, accessToken) {
     // absent (joueur invité) signifie simplement "pas d'XP cette partie", jamais une
     // erreur.
     accountAccessToken: accessToken || null,
+    titleLabel: '', // titre équipé (cosmétique), chargé côté serveur depuis le compte — jamais fourni par le client
     token: token || generateToken(), // filet de sécurité si un vieux client n'en envoie pas
     disconnected: false, // cf. RECONNECT_GRACE_MS — true pendant le délai de grâce
     disconnectTimer: null,
@@ -3567,6 +3568,26 @@ function makePlayer(id, name, token, avatar, accessToken) {
     crossedFatesPartner: null, // id du joueur lié (CROSSED_FATES), consommé au prochain choix de CE joueur
     secretPokemonIndex: null // mode "guess" uniquement : case choisie sur guessBoard, jamais révélée à l'adversaire
   };
+  if (accessToken) setImmediate(() => loadPlayerTitle(player)); // après l'ajout du joueur à sa partie
+  return player;
+}
+
+// Titre équipé du compte (profiles.title), résolu ICI à partir du token vérifié : un client ne peut
+// donc pas s'attribuer un titre qu'il n'a pas. Silencieux en cas d'échec (le titre est purement cosmétique).
+async function loadPlayerTitle(player) {
+  if (!supabase || !createAuthClient || !player.accountAccessToken) return;
+  try {
+    const { data: { user } } = await createAuthClient().auth.getUser(player.accountAccessToken);
+    if (!user) return;
+    const { data } = await supabase.from('profiles').select('title').eq('id', user.id).limit(1);
+    const label = titleLabelFor(data && data[0] ? data[0].title : '');
+    if (label === player.titleLabel) return;
+    player.titleLabel = label;
+    const game = Object.values(games).find(g => g.players && g.players.includes(player));
+    if (!game) return;
+    if (game.status === 'waiting') broadcastPlayers(game);
+    else if (game.gameMode !== 'guess' && game.gameMode !== 'auction') broadcastGameUpdated(game);
+  } catch (err) { /* cosmétique : ignoré */ }
 }
 
 // Ne renvoie jamais currentOptions au client (secret tant que le choix n'est pas fait).
@@ -3577,6 +3598,7 @@ function getPublicPlayers(game) {
     id: p.id,
     name: p.name,
     avatar: p.avatar,
+    titleLabel: p.titleLabel || '',
     disconnected: p.disconnected,
     score: p.score,
     team: p.team,

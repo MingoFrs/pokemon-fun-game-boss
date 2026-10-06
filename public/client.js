@@ -2458,6 +2458,8 @@ function buildPlayerRow(p) {
   avatarImg.className = 'player-item__avatar';
   avatarImg.alt = '';
 
+  const who = document.createElement('div');
+  who.className = 'player-item__who';
   const name = document.createElement('span');
   const nameText = document.createTextNode('');
   const hostTag = document.createElement('span');
@@ -2470,11 +2472,14 @@ function buildPlayerRow(p) {
   check.className = 'player-check';
   check.textContent = '✓';
   name.append(nameText, hostTag, offlineTag, check);
+  const titleEl = document.createElement('div'); // titre équipé, petit, sous le pseudo
+  titleEl.className = 'player-item__title screen--hidden';
+  who.append(name, titleEl);
 
   const score = document.createElement('span');
   score.className = 'player-score';
 
-  identity.appendChild(name);
+  identity.appendChild(who);
   row.appendChild(identity);
   row.appendChild(score);
   li.appendChild(row);
@@ -2482,7 +2487,7 @@ function buildPlayerRow(p) {
   const teamRow = document.createElement('div');
   teamRow.className = 'player-item__team';
 
-  return { li, identity, avatarImg, nameText, hostTag, offlineTag, check, score, teamRow, teamCount: 0, avatarKey: null };
+  return { li, identity, avatarImg, nameText, titleEl, hostTag, offlineTag, check, score, teamRow, teamCount: 0, avatarKey: null };
 }
 
 function updatePlayerRow(refs, p) {
@@ -2500,6 +2505,9 @@ function updatePlayerRow(refs, p) {
   }
 
   if (refs.nameText.data !== p.name) refs.nameText.data = p.name;
+  const titleLabel = p.titleLabel || '';
+  if (refs.titleEl.textContent !== titleLabel) refs.titleEl.textContent = titleLabel;
+  refs.titleEl.classList.toggle('screen--hidden', !titleLabel);
   refs.hostTag.classList.toggle('screen--hidden', p.id !== hostId);
   refs.offlineTag.classList.toggle('screen--hidden', !p.disconnected);
   refs.check.classList.toggle('screen--hidden', !p.hasChosen);
