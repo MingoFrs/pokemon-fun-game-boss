@@ -410,7 +410,8 @@ const ACHIEVEMENT_ICONS = {
   gamble_x05: '📉',
   aura_duo: '☯️',
   six_traits: '🎭',
-  p2l_victory: '🍀'
+  p2l_victory: '🍀',
+  all_traits: '📖'
 };
 
 async function fetchAndRenderAccountAchievements(account) {

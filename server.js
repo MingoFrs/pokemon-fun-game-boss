@@ -253,6 +253,7 @@ const ACHIEVEMENTS = [
   { key: 'aura_duo', category: 'difficile', title: 'Équilibre des Auras', label: 'Yin & Yang', description: 'Aies Aura +150 et Aura -100 dans la même équipe.', check: ctx => ctx.auraDuo },
   { key: 'six_traits', category: 'difficile', title: 'Casting Complet', label: 'Six traits', description: 'Termine une partie avec 6 Pokémon ayant chacun un trait (aucun Neutre).', check: ctx => ctx.sixTraits },
   { key: 'p2l_victory', category: 'difficile', title: 'Porté par la Chance', label: 'Gagner avec P2L', description: 'Gagne une partie avec un Pokémon P2L dans ton équipe.', check: ctx => ctx.p2lVictory },
+  { key: 'all_traits', category: 'difficile', title: 'Collectionneur de Traits', label: 'Trait-dex complet', description: `Obtiens les ${EFFECTS.length} traits du Trait-dex (cumul de toutes tes parties).`, check: ctx => ctx.traitsSeen.size >= EFFECTS.length },
   { key: 'score_10000', category: 'difficile', title: 'Astre du Score', label: 'Score astronomique', description: 'Atteins un score de 10000 en une seule partie.', check: ctx => ctx.bestScore >= 10000 }
 ];
 
@@ -278,6 +279,7 @@ function buildAchievementContext(allRows) {
     hasShiny: false,
     hasMega: false,
     zaMegaIds: new Set(),
+    traitsSeen: new Set(),
     gambleX2: false,
     gambleX05: false,
     auraDuo: false,
@@ -314,6 +316,7 @@ function buildAchievementContext(allRows) {
       row.team.forEach(mon => { if (mon && isZaMegaId(mon.id)) ctx.zaMegaIds.add(mon.id); });
       // Traits : lus sur le snapshot de l'équipe (effectName / gambleRoll / flat, cf. teamMonFromReward).
       const names = row.team.map(mon => mon && mon.effectName);
+      names.forEach(n => { if (n && EFFECTS.some(e => e.name === n)) ctx.traitsSeen.add(n); }); // Trait-dex
       if (row.team.some(mon => mon && mon.gambleRoll === 2)) ctx.gambleX2 = true;
       if (row.team.some(mon => mon && mon.gambleRoll === 0.5)) ctx.gambleX05 = true;
       if (names.includes('Aura +150') && names.includes('Aura -100')) ctx.auraDuo = true;
