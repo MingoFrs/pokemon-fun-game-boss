@@ -18,7 +18,7 @@
      première image chargée (cf. préchargement en arrière-plan dans client.js). -->
 <link rel="dns-prefetch" href="https://raw.githubusercontent.com">
 <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=9">
+<link rel="stylesheet" href="style.css?v=10">
 <!-- Applique thème de fond + réduction d'animations AVANT le premier rendu, pour
      éviter un flash visuel (contenu défini par le panneau Réglages, cf. client.js). -->
 <script>
@@ -27,6 +27,9 @@
     var s = JSON.parse(localStorage.getItem('rdb_settings_v1')) || {};
     if (s.theme) document.documentElement.dataset.theme = s.theme;
     if (s.reduceMotion) document.documentElement.classList.add('reduce-motion');
+    if (s.highContrast) document.documentElement.classList.add('high-contrast');
+    if (s.colorblind) document.documentElement.classList.add('colorblind');
+    if (s.largeText) document.documentElement.classList.add('large-text');
   } catch (e) {}
 })();
 </script>
@@ -142,6 +145,14 @@
               <button type="button" class="btn btn--ghost btn--block" data-push="toggle">🔔 Activer les rappels</button>
               <p class="daily-line daily-line--muted" data-push="hint"></p>
             </div>
+          </div>
+
+          <div id="quests-card" class="card card--quests">
+            <h2>🎯 Quêtes du jour</h2>
+            <p id="quests-hint" class="card__hint">3 quêtes par jour, récompense en XP. Renouvelées à minuit.</p>
+            <ul id="quests-list" class="quests-list" aria-label="Quêtes du jour"></ul>
+            <div id="quests-bonus" class="quests-bonus screen--hidden"></div>
+            <p id="quests-status" class="quests-status" role="status"></p>
           </div>
         </div>
 
@@ -1072,6 +1083,30 @@
         </div>
 
         <div class="settings-block">
+          <p class="settings-section__title">♿ Accessibilité</p>
+          <label class="settings-toggle">
+            <span class="settings-toggle__label">Contraste élevé</span>
+            <input type="checkbox" id="settings-high-contrast" class="settings-toggle__input">
+            <span class="settings-toggle__track"><span class="settings-toggle__thumb"></span></span>
+          </label>
+          <label class="settings-toggle">
+            <span class="settings-toggle__label">Palette adaptée au daltonisme</span>
+            <input type="checkbox" id="settings-colorblind" class="settings-toggle__input">
+            <span class="settings-toggle__track"><span class="settings-toggle__thumb"></span></span>
+          </label>
+          <label class="settings-toggle">
+            <span class="settings-toggle__label">Texte agrandi</span>
+            <input type="checkbox" id="settings-large-text" class="settings-toggle__input">
+            <span class="settings-toggle__track"><span class="settings-toggle__thumb"></span></span>
+          </label>
+          <label class="settings-toggle">
+            <span class="settings-toggle__label">Annonces pour lecteur d'écran</span>
+            <input type="checkbox" id="settings-sr-announce" class="settings-toggle__input">
+            <span class="settings-toggle__track"><span class="settings-toggle__thumb"></span></span>
+          </label>
+        </div>
+
+        <div class="settings-block">
           <p class="settings-section__title">🔄 Partie</p>
           <label class="settings-toggle">
             <span class="settings-toggle__label">Reconnexion automatique</span>
@@ -1129,5 +1164,7 @@
 <script src="fly-client.js?v=3"></script>
 <script src="share-result.js?v=1"></script>
 <script src="daily-client.js?v=5"></script>
+<script src="quests-client.js?v=1"></script>
+<script src="a11y.js?v=1"></script>
 </body>
 </html>

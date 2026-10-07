@@ -44,7 +44,8 @@
     el.className = 'sr-only';
     el.setAttribute('role', role);
     el.setAttribute('aria-live', live);
-    el.setAttribute('aria-atomic', 'true');
+    el.setAttribute('aria-atomic', 'false'); // chaque message = un nœud ajouté, lu dans l'ordre sans s'écraser
+    el.setAttribute('aria-relevant', 'additions');
     document.body.appendChild(el);
     return el;
   }
@@ -54,9 +55,11 @@
   function announce(text, urgent) {
     if (!text || !srEnabled()) return;
     const el = urgent ? assertive : polite;
-    el.textContent = '';
-    // Le vidage puis la réécriture décalée force les lecteurs d'écran à relire un message identique.
-    setTimeout(() => { el.textContent = String(text); }, 60);
+    const msg = document.createElement('p');
+    msg.textContent = String(text);
+    el.appendChild(msg);
+    setTimeout(() => { if (msg.parentNode) msg.parentNode.removeChild(msg); }, 15000);
+    while (el.children.length > 8) el.removeChild(el.firstChild);
   }
   window.rdbAnnounce = announce;
 

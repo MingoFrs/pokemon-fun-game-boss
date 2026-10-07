@@ -5386,3 +5386,102 @@ body.fly-mode #boss-attack-banner { display: none !important; }
   background: rgba(134, 197, 192, 0.14);
   border-color: rgba(134, 197, 192, 0.55);
 }
+
+/* ================= Accessibilité ================= */
+.sr-only {
+  position: absolute !important;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.skip-link {
+  position: fixed; left: 12px; top: -80px; z-index: 10000;
+  padding: 10px 16px;
+  background: var(--bg-panel-raised); color: var(--text-primary);
+  border: 2px solid var(--accent-haut); border-radius: 8px;
+  text-decoration: none; transition: top 0.15s;
+}
+.skip-link:focus { top: 12px; }
+:focus-visible { outline: 2px solid var(--accent-haut); outline-offset: 2px; }
+button:focus-visible, a:focus-visible, [role="tab"]:focus-visible, .choice-card:focus-visible,
+input:focus-visible, select:focus-visible, textarea:focus-visible, summary:focus-visible {
+  outline: 2px solid var(--accent-haut) !important;
+  outline-offset: 2px;
+}
+[tabindex="-1"]:focus { outline: none !important; }
+
+/* Contraste élevé (réglage ou préférence système « plus de contraste »). */
+html.high-contrast {
+  --text-primary: #ffffff;
+  --text-muted: #cfd6e3;
+  --border: #7d899e;
+  --border-soft: #4a566b;
+  --bg-panel: #0b0f17;
+  --bg-panel-alt: #121826;
+  --bg-panel-raised: #172033;
+  --accent-haut: #ffbf5c;
+  --accent-bas: #6ff0e8;
+  --danger: #ff8f8a;
+}
+@media (prefers-contrast: more) {
+  html:not(.colorblind) {
+    --text-primary: #ffffff; --text-muted: #cfd6e3; --border: #7d899e; --border-soft: #4a566b;
+  }
+}
+html.high-contrast *, html.high-contrast *::before, html.high-contrast *::after { text-shadow: none !important; }
+html.high-contrast .btn, html.high-contrast .card, html.high-contrast .finished-card { border-width: 2px; }
+html.high-contrast :focus-visible { outline-width: 3px !important; outline-color: #ffffff !important; }
+html.high-contrast .player-item__title, html.high-contrast .card__hint, html.high-contrast .account-history-hint { color: var(--text-muted); opacity: 1; }
+
+/* Palette daltonisme (Okabe-Ito) : bleu / orange / vermillon, plus signes non colorés. */
+html.colorblind {
+  --accent-haut: #e69f00;
+  --accent-bas: #56b4e9;
+  --danger: #d55e00;
+}
+html.colorblind #screen-finished, html.colorblind #screen-fly-finished {
+  --soft-teal: #8fcdf0; --soft-red: #f0a070; --soft-gold: #e8d36a;
+}
+html.colorblind .finished-outcome--victory::before,
+html.colorblind .finished-card--victory .finished-card__badge::before { content: "✓ "; }
+html.colorblind .finished-outcome--defeat::before,
+html.colorblind .finished-card--defeat .finished-card__badge::before { content: "✗ "; }
+html.colorblind .quest--done .quest__count::before { content: "✓ "; }
+html.colorblind .finished-recap__value--up::before { content: "▲ "; }
+html.colorblind .finished-recap__value--down::before { content: "▼ "; }
+
+/* Texte agrandi. */
+html.large-text body { zoom: 1.12; }
+@supports not (zoom: 1) { html.large-text { font-size: 112.5%; } }
+
+/* Respect de la préférence système « réduire les animations ». */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ================= Quêtes journalières ================= */
+.card--quests { grid-column: 1 / -1; }
+.quests-list { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 14px; }
+.quest { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; background: var(--bg-panel-alt); border: 1px solid var(--border-soft); border-radius: 10px; }
+.quest--claimed { opacity: 0.7; }
+.quest__head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.quest__title { font-size: 14px; color: var(--text-primary); }
+.quest__xp { font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); white-space: nowrap; }
+.quest__bar { height: 6px; background: var(--bg-panel); border: 1px solid var(--border-soft); border-radius: 999px; overflow: hidden; }
+.quest__bar-fill { display: block; height: 100%; background: var(--accent-bas); opacity: 0.75; border-radius: 999px; transition: width 0.3s; }
+.quest--done .quest__bar-fill { opacity: 1; }
+.quest__foot { display: flex; justify-content: space-between; align-items: center; gap: 12px; min-height: 28px; }
+.quest__count { font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); }
+.quest__state { font-size: 12px; color: var(--text-muted); }
+.quest__claim { padding: 6px 12px; font-size: 13px; min-height: 0; }
+.quests-bonus { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 14px; padding: 10px 14px; border: 1px dashed var(--border); border-radius: 10px; font-size: 13px; color: var(--text-muted); }
+.quests-bonus--ready { border-style: solid; border-color: rgba(201, 178, 122, 0.55); color: var(--text-primary); }
+.quests-status { margin: 10px 0 0; min-height: 1.2em; font-size: 13px; color: var(--text-muted); }
