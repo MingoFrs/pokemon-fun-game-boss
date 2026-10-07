@@ -5514,3 +5514,15 @@ html.large-text body { zoom: 1.12; }
 .quests-bonus { margin-top: 10px; padding: 8px 12px; font-size: 12px; flex-wrap: wrap; }
 .quests-status { margin-top: 8px; }
 .quests-status:empty { display: none; }
+
+/* Accueil (grand écran) : mode normal en haut ; défi quotidien en bas à gauche, quêtes en bas à droite. */
+@media (min-width: 1280px) {
+  .home-hero { flex-basis: 36%; }
+  .home-panel > * { max-width: 780px; }
+  .card--daily, .card--quests { grid-column: auto; }
+  .home-panel > .field, .home-panel > .account-entry { max-width: 440px; }
+}
+/* Écrans moyens / mobiles : cartes pleine largeur, empilées (comportement précédent). */
+@media (max-width: 1279px) {
+  .card--daily, .card--quests { grid-column: 1 / -1; }
+}
