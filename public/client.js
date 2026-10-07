@@ -2300,7 +2300,8 @@ function renderModifiers(mods) {
       modifiersActiveListEl.appendChild(li);
     }
   });
-  modifiersNoteEl.classList.toggle('screen--hidden', currentModifiers.length === 0);
+  // « Hors-classement » : tout modificateur sauf Miroir (qui garde XP / historique).
+  modifiersNoteEl.classList.toggle('screen--hidden', !currentModifiers.some(k => k !== 'mirror'));
 }
 
 // Pastilles des modificateurs actifs (panneau du boss en partie, écran de fin).
@@ -4346,7 +4347,7 @@ function applyGameFinished({ boss, difficulty, gameMode, adminId, reason, player
   finishedDifficultyEl.textContent = DIFFICULTY_LABELS[difficulty] || '';
   lastGameModifiers = Array.isArray(modifiers) ? modifiers : [];
   renderModifierBadges(finishedModifiersEl, lastGameModifiers);
-  finishedModifiersNoteEl.classList.toggle('screen--hidden', lastGameModifiers.length === 0);
+  finishedModifiersNoteEl.classList.toggle('screen--hidden', !lastGameModifiers.some(k => k !== 'mirror'));
   renderTypeBadges(finishedBossTypesEl, boss.types);
   const tb = observed && observed.typeBonus;
   if (tb && boss.typeRules) {

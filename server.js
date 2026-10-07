@@ -2080,8 +2080,11 @@ const GAME_MODIFIERS = [
   { key: 'kanto_only', icon: '🔴', label: 'Retour à Kanto', description: 'Seuls les Pokémon de la 1re génération (et leurs Méga) sont tirés.' },
   { key: 'elite', icon: '👑', label: "Sélection d'élite", description: 'Plus de communs ni de peu communs : rare et au-dessus uniquement.' },
   { key: 'sprint', icon: '⚡', label: 'Sprint', description: '3 tours seulement, objectif du boss réduit de moitié.' },
-  { key: 'mega_rush', icon: '💎', label: 'Méga-déferlante', description: 'Les Méga-Évolutions rejoignent les tirages (~13 % par Pokémon).' }
+  { key: 'mega_rush', icon: '💎', label: 'Méga-déferlante', description: 'Les Méga-Évolutions rejoignent les tirages (~13 % par Pokémon).' },
+  { key: 'mirror', icon: '🪞', label: 'Miroir', description: 'Tous les joueurs reçoivent exactement le même tirage à chaque tour : le meilleur score gagne (la partie reste classée).' }
 ];
+// Modificateurs qui NE rendent PAS la partie hors-classement (XP, historique, succès conservés).
+const RANKED_SAFE_MODIFIERS = ['mirror'];
 const GAME_MODIFIER_KEYS = GAME_MODIFIERS.map(m => m.key);
 const MODIFIER_GAME_MODES = ['normal', 'coop'];
 const SPRINT_TURNS = 3;
@@ -3648,7 +3651,23 @@ function broadcastGameUpdated(game) {
 // Le Charme Chroma (passif, choisi avant le tour 1) agit sur TOUS les tours : meilleures
 // raretés et chances de shiny ×2.
 function assignTurnOptions(game) {
+  // Modificateur MIROIR : UN seul tirage par tour, copié à l'identique pour tous les joueurs (seuls leurs
+  // choix HAUT/BAS et leurs objets les différencient). Les effets qui modifient le tirage d'un joueur
+  // (Charme Chroma, Tour chanceux, Destins croisés, pitié) sont donc neutralisés pour garder l'égalité.
+  const mirrorDraw = gameHasModifier(game, 'mirror')
+    ? pickPlayerTurnOptions(false, 0, undefined, undefined, game.gameMode, game.modifiers)
+    : null;
   game.players.forEach(p => {
+    if (mirrorDraw) {
+      p.currentOptions = { ...mirrorDraw, haut: { ...mirrorDraw.haut }, bas: { ...mirrorDraw.bas } };
+      p.rarityFloor = null;
+      p.rarityBoost = null;
+      io.to(p.id).emit('turn_options', {
+        haut: { name: p.currentOptions.haut.name, sprite: p.currentOptions.haut.sprite, shiny: p.currentOptions.haut.shiny, shinySprite: p.currentOptions.haut.shinySprite },
+        bas: { name: p.currentOptions.bas.name, sprite: p.currentOptions.bas.sprite, shiny: p.currentOptions.bas.shiny, shinySprite: p.currentOptions.bas.shinySprite }
+      });
+      return;
+    }
     // Le Charme Chroma est un objet PASSIF (cf. PASSIVE_ITEMS) : actif dès le tour 1 si le
     // joueur l'a choisi au départ, sans aucune restriction de tour.
     const useCharm = !!p.hasShinyCharm;
@@ -3853,9 +3872,22 @@ function finishGame(game) {
   const joueur = game.gameMode === 'admin' ? game.players.find(p => p.id !== game.adminId) : null;
   const joueurWon = joueur ? joueur.score >= game.boss.requiredPoints : null;
 
+  // Modificateur MIROIR (mode normal, 2 joueurs ou plus) : tirages identiques pour tous, donc le MEILLEUR
+  // SCORE gagne (égalité = victoire partagée), indépendamment de l'objectif du boss.
+  const mirrorBest = (game.gameMode === 'normal' && gameHasModifier(game, 'mirror') && game.players.length >= 2)
+    ? Math.max(...game.players.map(p => p.score))
+    : null;
+
   const results = game.players.map(p => {
     if (game.gameMode === 'admin' && p.id === game.adminId) {
       return { id: p.id, name: p.name, avatar: p.avatar, score: p.score, team: p.team, result: joueurWon ? 'defeat' : 'victory' };
+    }
+    if (mirrorBest !== null) {
+      return {
+        id: p.id, name: p.name, avatar: p.avatar, score: p.score, team: p.team,
+        typeBonus: p.typeBonus || null,
+        result: p.score >= mirrorBest ? 'victory' : 'defeat'
+      };
     }
     return {
       id: p.id,
@@ -4701,7 +4733,7 @@ io.on('connection', (socket) => {
       p.secretPokemonIndex = null;
       // Partie à modificateurs = hors-classement : lu par recordGameResult (aucune XP, aucun
       // historique, donc ni succès, ni stats, ni Pokédex). Remis à false sinon.
-      p.modifiedGame = !!(game.modifiers && game.modifiers.length);
+      p.modifiedGame = !!(game.modifiers && game.modifiers.some(k => !RANKED_SAFE_MODIFIERS.includes(k)));
     });
 
     // Mode ADMIN VS JOUEUR : décision de gameplay volontaire — jamais d'objet dans ce
