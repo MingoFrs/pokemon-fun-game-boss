@@ -1209,7 +1209,11 @@ function spriteUrl(dexId) {
   return `/sprites/${dexId}.webp`;
 }
 
+// Aucun sprite shiny n'existe (même chez PokeAPI) pour ces Méga Z-A, dont Méga-Carchacrok Z (10309) :
+// on renvoie le sprite normal plutôt qu'une image cassée.
+const SHINY_SPRITE_MISSING = new Set([10309, 10318, 10322, 10323]);
 function shinySpriteUrl(dexId) {
+  if (SHINY_SPRITE_MISSING.has(Number(dexId))) return spriteUrl(dexId);
   return `/sprites/shiny/${dexId}.webp`;
 }
 
