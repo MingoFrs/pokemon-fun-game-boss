@@ -97,7 +97,24 @@ let createAuthClient = null;
 try {
   const { createClient } = require('@supabase/supabase-js');
   if (process.env.SUPABASE_URL && process.env.SUPABASE_SECRET_KEY) {
-    const clientOptions = { auth: { autoRefreshToken: false, persistSession: false } };
+    // Retry sur 401 transitoire ("JWT issued at future" : décalage d'horloge entre noeuds Supabase).
+    // Un 401 est rejeté AVANT exécution : rejouer GET/POST/PATCH/DELETE est sans risque.
+    const supabaseFetch = async (url, init) => {
+      let res;
+      for (let i = 0; i < 5; i++) {
+        try { res = await fetch(url, init); }
+        catch (e) { if (i === 4) throw e; await new Promise(r => setTimeout(r, 300 * 2 ** i)); continue; }
+        if (res.status !== 401 && res.status < 502) return res;
+        if (res.status === 401) {
+          const txt = await res.clone().text().catch(() => '');
+          if (!/future|JWT|iat/i.test(txt)) return res;   // vrai 401 (clé invalide) : pas de retry
+        }
+        if (i === 4) return res;
+        await new Promise(r => setTimeout(r, 300 * 2 ** i + Math.random() * 150));
+      }
+      return res;
+    };
+    const clientOptions = { auth: { autoRefreshToken: false, persistSession: false }, global: { fetch: supabaseFetch } };
     supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SECRET_KEY, clientOptions);
     createAuthClient = () => createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SECRET_KEY, clientOptions);
   } else {

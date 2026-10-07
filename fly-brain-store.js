@@ -68,17 +68,66 @@ function createBrainStore({ supabase = null, config = defaultConfig, makePolicy,
   // Retourne 'memory_only' | 'loaded' | 'created' | 'invalid' | 'schema_outdated' | 'db_error'.
   // Tout statut sauf 'loaded' => cerveau neuf en mémoire => échauffement. Pour 'invalid' / 'schema_outdated' /
   // 'db_error', la sauvegarde est DÉSACTIVÉE : on n'écrase jamais une ligne qu'on n'a pas pu lire ou comprendre.
+  // 'db_error' (401 transitoire, réseau) : relectures en arrière-plan ; au succès le cerveau en base est adopté.
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const TRANSIENT = /JWT|future|fetch failed|timeout|ECONN|ETIMEDOUT|EAI_AGAIN|502|503|504|network/i;
+
+  async function readRow(tries = 5) {
+    let last;
+    for (let i = 0; i < tries; i++) {
+      let res;
+      try { res = await supabase.from('fly_brain').select('*').eq('id', 1).maybeSingle(); }
+      catch (e) { res = { data: null, error: e }; }
+      if (!res.error) return res;
+      last = res;
+      const msg = String(res.error.message || res.error);
+      if (!(res.status === 401 || res.status >= 500 || TRANSIENT.test(msg))) return res;   // erreur permanente
+      logger.warn(`[fly] lecture fly_brain : échec transitoire (${msg}), tentative ${i + 1}/${tries}`);
+      if (i < tries - 1) await sleep(400 * 2 ** i + Math.random() * 200);
+    }
+    return last;
+  }
+
+  // Applique une ligne lue. Retourne 'loaded' | 'schema_outdated' | 'invalid'.
+  function applyRow(data) {
+    if (!NEW_COLUMNS.every(k => k in data)) return 'schema_outdated';
+    try { policy.setState(fromRow(data)); } catch (e) { logger.error('[fly] état du cerveau en base INVALIDE :', e.message); return 'invalid'; }
+    store.generation = Math.max(1, data.generation | 0);
+    store.totals = { games: data.total_games | 0, wins: data.total_wins | 0, losses: data.total_losses | 0, draws: data.total_draws | 0 };
+    store.recent = cleanRecent(data.recent_results);
+    store.persistent = true;
+    return 'loaded';
+  }
+
+  let recoveryTimer = null;
+  function scheduleRecovery() {
+    if (recoveryTimer || !supabase) return;
+    recoveryTimer = setInterval(async () => {
+      const { data, error } = await readRow(2);
+      if (error) return;                                   // on retentera dans 30 s
+      if (!data) return;                                   // ligne absente : laissé au prochain redémarrage
+      const st = applyRow(data);
+      if (st !== 'loaded') { logger.error(`[fly] récupération impossible (${st}).`); clearInterval(recoveryTimer); recoveryTimer = null; return; }
+      store.epoch++;                                       // parties démarrées avec le cerveau provisoire : ignorées à leur fin
+      store.saveDisabled = false;
+      clearInterval(recoveryTimer); recoveryTimer = null;
+      logger.log('[fly] récupération : cerveau relu depuis la base, sauvegarde réactivée.');
+    }, 30000);
+    if (recoveryTimer.unref) recoveryTimer.unref();
+  }
+
   store.load = async function load() {
     if (!supabase) {
       logger.warn('[fly] Supabase indisponible : cerveau en mémoire seule (perdu au redémarrage).');
       runWarmup();
       return 'memory_only';
     }
-    const { data, error } = await supabase.from('fly_brain').select('*').eq('id', 1).maybeSingle();
+    const { data, error } = await readRow();
     if (error) {
       store.saveDisabled = true;
-      logger.error('[fly] lecture fly_brain impossible, sauvegarde désactivée :', error.message);
+      logger.error('[fly] lecture fly_brain impossible, sauvegarde désactivée (relecture auto toutes les 30 s) :', error.message);
       runWarmup();
+      scheduleRecovery();
       return 'db_error';
     }
     if (!data) {
@@ -92,25 +141,13 @@ function createBrainStore({ supabase = null, config = defaultConfig, makePolicy,
       store.persistent = true;
       return 'created';
     }
-    if (!NEW_COLUMNS.every(k => k in data)) {
-      store.saveDisabled = true;
-      logger.error('[fly] schéma fly_brain obsolète (colonnes generation / total_* absentes) : exécute fly-brain-v2.sql. Sauvegarde désactivée.');
-      runWarmup();
-      return 'schema_outdated';
-    }
-    try {
-      policy.setState(fromRow(data));
-    } catch (e) {
-      store.saveDisabled = true;
-      logger.error('[fly] état du cerveau en base INVALIDE, sauvegarde désactivée (ligne conservée) :', e.message);
-      runWarmup();
-      return 'invalid';
-    }
-    store.generation = Math.max(1, data.generation | 0);
-    store.totals = { games: data.total_games | 0, wins: data.total_wins | 0, losses: data.total_losses | 0, draws: data.total_draws | 0 };
-    store.recent = cleanRecent(data.recent_results);
-    store.persistent = true;
-    return 'loaded';
+    const st = applyRow(data);
+    if (st === 'loaded') return 'loaded';
+    store.saveDisabled = true;
+    if (st === 'schema_outdated') logger.error('[fly] schéma fly_brain obsolète (colonnes generation / total_* absentes) : exécute fly-brain-v2.sql. Sauvegarde désactivée.');
+    else logger.error('[fly] sauvegarde désactivée (ligne conservée).');
+    runWarmup();
+    return st;
   };
 
   // ---- Écritures ----
