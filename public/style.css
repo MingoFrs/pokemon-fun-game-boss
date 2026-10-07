@@ -5328,3 +5328,61 @@ body.fly-mode #boss-attack-banner { display: none !important; }
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* ---------- Écrans de fin : palette adoucie (moins de jaune / turquoise saturés) ---------- */
+#screen-finished, #screen-fly-finished {
+  --soft-teal: #86c5c0;
+  --soft-gold: #c9b27a;
+  --soft-red: #d98a86;
+}
+.finished-outcome--victory { color: var(--soft-teal, var(--accent-bas)); text-shadow: none; }
+.finished-outcome--defeat { color: var(--soft-red, var(--danger)); text-shadow: none; }
+
+/* Difficulté : pastille neutre au lieu d'un contour jaune / turquoise / rose vif. */
+#screen-finished .finished-difficulty-badge {
+  color: var(--text-muted);
+  border-color: var(--border);
+  background: var(--bg-panel);
+  box-shadow: none;
+}
+/* Modificateurs (écran de fin + panneau du boss) : discrets. */
+.modifier-badge {
+  border-color: var(--border);
+  color: var(--text-muted);
+  background: var(--bg-panel-alt);
+}
+.finished-type-bonus { color: var(--text-muted); font-weight: 500; }
+
+/* Classement : bordures atténuées. */
+.finished-card--victory { border-color: rgba(134, 197, 192, 0.35); }
+.finished-card--defeat { border-color: rgba(217, 138, 134, 0.35); }
+.finished-card--victory .finished-card__badge { color: var(--soft-teal, var(--accent-bas)); }
+.finished-card--defeat .finished-card__badge { color: var(--soft-red, var(--danger)); }
+.finished-card--rank-1 { border-color: rgba(201, 178, 122, 0.5); box-shadow: none; }
+.finished-card--rank-1 .finished-card__rank { color: var(--soft-gold, #c9b27a); }
+.finished-card--rank-2 { border-color: rgba(201, 210, 222, 0.35); }
+.finished-card--rank-3 { border-color: rgba(214, 154, 92, 0.35); }
+.finished-recap__value--up { color: var(--soft-teal, var(--accent-bas)); }
+.finished-recap__value--down { color: var(--soft-red, var(--danger)); }
+
+/* Boutons : fond sombre + liseré doux au lieu d'aplats orange / turquoise. */
+#screen-finished .btn--haut,
+#screen-fly-finished .btn--haut {
+  background: var(--bg-panel-raised);
+  border: 1px solid rgba(245, 166, 35, 0.4);
+  color: var(--text-primary);
+}
+#screen-finished .btn--haut:hover:not(:disabled),
+#screen-fly-finished .btn--haut:hover:not(:disabled) {
+  background: var(--bg-panel-alt);
+  border-color: rgba(245, 166, 35, 0.7);
+}
+#screen-finished .btn--bas {
+  background: rgba(134, 197, 192, 0.08);
+  border: 1px solid rgba(134, 197, 192, 0.3);
+  color: var(--soft-teal);
+}
+#screen-finished .btn--bas:hover:not(:disabled) {
+  background: rgba(134, 197, 192, 0.14);
+  border-color: rgba(134, 197, 192, 0.55);
+}
