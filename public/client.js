@@ -241,6 +241,7 @@ const friendInviteToastContainerEl = document.getElementById('friend-invite-toas
 const accountPokedexCountEl = document.getElementById('account-pokedex-count');
 const accountPokedexSearchEl = document.getElementById('account-pokedex-search');
 const accountPokedexGridEl = document.getElementById('account-pokedex-grid');
+const accountPokedexObjectivesEl = document.getElementById('account-pokedex-objectives');
 const accountPokedexGenTabsEl = document.getElementById('account-pokedex-gen-tabs');
 const accountStatsContentEl = document.getElementById('account-stats-content');
 const accountAvatarSearchEl = document.getElementById('account-avatar-search');
@@ -541,10 +542,10 @@ function renderAccountTitles() {
   }));
 
   // Débloqués d'abord, puis verrouillés (ordre serveur conservé à l'intérieur de chaque groupe).
-  const ordered = achievements.filter(a => a.unlocked).concat(achievements.filter(a => !a.unlocked));
+  const ordered = achievements.filter(a => a.unlocked).concat(achievements.filter(a => !a.unlocked && a.category !== 'pokedex'));
   ordered.forEach(a => {
     accountTitlesListEl.appendChild(buildTitleOption({
-      icon: ACHIEVEMENT_ICONS[a.key] || '🏆',
+      icon: ACHIEVEMENT_ICONS[a.key] || (a.category === 'pokedex' ? '📖' : '🏆'),
       name: a.unlocked ? a.title : '???',
       hint: a.unlocked ? `Succès : ${a.label}` : `Succès requis : ${a.description}`,
       selected: a.unlocked && selected === a.key,
@@ -804,6 +805,64 @@ function renderPokedexGen(genNumber) {
   accountPokedexCountEl.textContent = `${nationalOwned} / ${nationalDexCache.dex.length} au total — ${gen.label} : ${genOwned}/${entries.length}`;
 }
 
+// Objectifs Pokédex : progression par type vers un titre (« 10 Pokémon Feu » → Dresseur Feu...).
+function renderPokedexObjectives(obj) {
+  const el = accountPokedexObjectivesEl;
+  if (!el) return;
+  el.innerHTML = '';
+  if (!obj || !obj.total || !Array.isArray(obj.types)) return;
+  const rows = [{ label: 'Pokédex total', count: obj.total.count, tiers: obj.total.tiers }].concat(obj.types);
+  const earned = rows.reduce((n, r) => n + r.tiers.filter(t => t.unlocked).length, 0);
+  const totalTiers = rows.reduce((n, r) => n + r.tiers.length, 0);
+
+  const details = document.createElement('details');
+  details.className = 'pokedex-objectives__details';
+  const summary = document.createElement('summary');
+  summary.textContent = `🎯 Objectifs Pokédex · ${earned}/${totalTiers} titres`;
+  details.appendChild(summary);
+
+  const grid = document.createElement('div');
+  grid.className = 'pokedex-objectives__grid';
+  rows.forEach(r => {
+    const next = r.tiers.find(t => !t.unlocked);
+    const target = next ? next.n : r.tiers[r.tiers.length - 1].n;
+    const item = document.createElement('div');
+    item.className = 'pokedex-objective' + (next ? '' : ' pokedex-objective--done');
+
+    const head = document.createElement('div');
+    head.className = 'pokedex-objective__head';
+    const name = document.createElement('span');
+    name.textContent = r.type ? typeLabel(r.type) : r.label;
+    const count = document.createElement('span');
+    count.className = 'pokedex-objective__count';
+    count.textContent = `${Math.min(r.count, target)} / ${target}`;
+    head.append(name, count);
+
+    const bar = document.createElement('div');
+    bar.className = 'pokedex-objective__bar';
+    bar.setAttribute('role', 'progressbar');
+    bar.setAttribute('aria-label', `${name.textContent} : prochain titre`);
+    bar.setAttribute('aria-valuemin', '0');
+    bar.setAttribute('aria-valuemax', String(target));
+    bar.setAttribute('aria-valuenow', String(Math.min(r.count, target)));
+    const fill = document.createElement('span');
+    fill.style.width = Math.round((Math.min(r.count, target) / target) * 100) + '%';
+    bar.appendChild(fill);
+
+    const foot = document.createElement('div');
+    foot.className = 'pokedex-objective__foot';
+    const got = r.tiers.filter(t => t.unlocked).map(t => t.title);
+    foot.textContent = next
+      ? (got.length ? `🏅 ${got.join(' · ')} — prochain : ${next.title}` : `Titre : ${next.title}`)
+      : `🏅 ${got.join(' · ')}`;
+
+    item.append(head, bar, foot);
+    grid.appendChild(item);
+  });
+  details.appendChild(grid);
+  el.appendChild(details);
+}
+
 async function fetchAndRenderPokedex(account) {
   accountPokedexGridEl.innerHTML = '';
   accountPokedexCountEl.textContent = 'Chargement...';
@@ -822,6 +881,7 @@ async function fetchAndRenderPokedex(account) {
     pokedexSeenCache = data.seen.sort((a, b) => a.id - b.id);
     pokedexOwnedMap = new Map(pokedexSeenCache.map(m => [m.id, m]));
     pokedexTraitsOwned = data.traits || {};
+    renderPokedexObjectives(data.objectives);
     renderPokedexGenTabs();
     renderPokedexGen(currentPokedexGen);
   } catch (err) {

@@ -236,7 +236,8 @@ async function recordGameResult(player, xpAmount, details) {
       score: details.score ?? null,
       opponent_name: details.opponentName ?? null,
       difficulty: details.difficulty ?? null,
-      team: details.team ?? null
+      team: details.team ?? null,
+      modifiers: Array.isArray(player.gameModifiers) ? player.gameModifiers : []
     });
 
     // Succès (fire-and-forget comme le reste de cette fonction) : jamais bloquant, jamais
@@ -302,6 +303,40 @@ const ACHIEVEMENTS = [
   { key: 'score_10000', category: 'difficile', title: 'Astre du Score', label: 'Score astronomique', description: 'Atteins un score de 10000 en une seule partie.', check: ctx => ctx.bestScore >= 10000 }
 ];
 
+// ---- OBJECTIFS POKÉDEX : « 10 Pokémon feu différents » → titre (catégorie 'pokedex') ----
+// Comptés sur les espèces de base (id < 10000, formes/Méga exclues), toutes parties classées confondues.
+const DEX_TYPE_LABELS = {
+  normal: 'Normal', fire: 'Feu', water: 'Eau', electric: 'Électrik', grass: 'Plante', ice: 'Glace',
+  fighting: 'Combat', poison: 'Poison', ground: 'Sol', flying: 'Vol', psychic: 'Psy', bug: 'Insecte',
+  rock: 'Roche', ghost: 'Spectre', dark: 'Ténèbres', dragon: 'Dragon', steel: 'Acier', fairy: 'Fée'
+};
+const DEX_TYPE_TIERS = [{ n: 10, prefix: 'Dresseur' }, { n: 25, prefix: 'Maître' }];
+const DEX_TOTAL_TIERS = [{ n: 50, title: 'Curieux' }, { n: 150, title: 'Explorateur' }, { n: 300, title: 'Encyclopédiste' }];
+const dexTypesOf = id => { try { return BOSS_MECHANICS.getTypes(id) || []; } catch (e) { return []; } };
+function computeDexTypeCounts(ids) {
+  const counts = {};
+  ids.forEach(id => dexTypesOf(id).forEach(t => { counts[t] = (counts[t] || 0) + 1; }));
+  return counts;
+}
+Object.keys(DEX_TYPE_LABELS).forEach(type => {
+  DEX_TYPE_TIERS.forEach(t => {
+    const label = DEX_TYPE_LABELS[type];
+    ACHIEVEMENTS.push({
+      key: `dex_${type}_${t.n}`, category: 'pokedex', title: `${t.prefix} ${label}`,
+      label: `Pokédex ${label} ×${t.n}`,
+      description: `Obtiens ${t.n} Pokémon de type ${label} différents (cumul de toutes tes parties).`,
+      check: ctx => (ctx.dexTypeCounts[type] || 0) >= t.n
+    });
+  });
+});
+DEX_TOTAL_TIERS.forEach(t => {
+  ACHIEVEMENTS.push({
+    key: `dex_total_${t.n}`, category: 'pokedex', title: t.title, label: `Pokédex ${t.n}`,
+    description: `Obtiens ${t.n} Pokémon différents (cumul de toutes tes parties).`,
+    check: ctx => ctx.dexTotal >= t.n
+  });
+});
+
 // Libellé du titre équipé à partir de la clé stockée ('' si aucun / clé inconnue).
 function titleLabelFor(key) {
   const a = key ? ACHIEVEMENTS.find(x => x.key === key) : null;
@@ -324,6 +359,9 @@ function buildAchievementContext(allRows) {
     hasShiny: false,
     hasMega: false,
     zaMegaIds: new Set(),
+    dexIds: new Set(),
+    dexTypeCounts: {},
+    dexTotal: 0,
     traitsSeen: new Set(),
     gambleX2: false,
     gambleX05: false,
@@ -359,6 +397,7 @@ function buildAchievementContext(allRows) {
       if (row.team.some(mon => mon.shiny)) ctx.hasShiny = true;
       if (row.team.some(mon => mon.rarity === 'mega')) ctx.hasMega = true;
       row.team.forEach(mon => { if (mon && isZaMegaId(mon.id)) ctx.zaMegaIds.add(mon.id); });
+      row.team.forEach(mon => { if (mon && Number.isInteger(mon.id) && mon.id < 10000) ctx.dexIds.add(mon.id); });
       // Traits : lus sur le snapshot de l'équipe (effectName / gambleRoll / flat, cf. teamMonFromReward).
       const names = row.team.map(mon => mon && mon.effectName);
       names.forEach(n => { if (n && EFFECTS.some(e => e.name === n)) ctx.traitsSeen.add(n); }); // Trait-dex
@@ -380,6 +419,8 @@ function buildAchievementContext(allRows) {
     }
   });
 
+  ctx.dexTotal = ctx.dexIds.size;
+  ctx.dexTypeCounts = computeDexTypeCounts(ctx.dexIds);
   return ctx;
 }
 
@@ -859,11 +900,34 @@ app.post('/api/profile/pokedex', async (req, res) => {
     return;
   }
 
-  const { data, error } = await supabase.from('game_history').select('team').eq('user_id', user.id);
+  const { data, error } = await supabase.from('game_history').select('team, game_mode').eq('user_id', user.id);
   if (error) {
     res.status(400).json({ error: 'Le Pokédex n\'a pas pu être récupéré.' });
     return;
   }
+
+  // Objectifs Pokédex (titres) : réconcilie d'abord les succès (silencieux), puis lit ceux débloqués.
+  let objectives = null;
+  try {
+    await checkAndUnlockAchievements(user.id, null);
+    const { data: unlockedRows } = await supabase.from('achievements').select('achievement_key').eq('user_id', user.id);
+    const unlocked = new Set((unlockedRows || []).map(a => a.achievement_key));
+    const dexIds = new Set();
+    (data || []).filter(r => r.game_mode !== 'fly').forEach(r => {
+      if (Array.isArray(r.team)) r.team.forEach(m => { if (m && Number.isInteger(m.id) && m.id < 10000) dexIds.add(m.id); });
+    });
+    const typeCounts = computeDexTypeCounts(dexIds);
+    objectives = {
+      total: {
+        count: dexIds.size,
+        tiers: DEX_TOTAL_TIERS.map(t => ({ n: t.n, title: t.title, unlocked: unlocked.has(`dex_total_${t.n}`) }))
+      },
+      types: Object.keys(DEX_TYPE_LABELS).map(type => ({
+        type, label: DEX_TYPE_LABELS[type], count: typeCounts[type] || 0,
+        tiers: DEX_TYPE_TIERS.map(t => ({ n: t.n, title: `${t.prefix} ${DEX_TYPE_LABELS[type]}`, unlocked: unlocked.has(`dex_${type}_${t.n}`) }))
+      }))
+    };
+  } catch (e) { objectives = null; }
 
   const seen = new Map(); // id -> { id, name, sprite, shiny }
   (data || []).forEach(row => {
@@ -897,7 +961,7 @@ app.post('/api/profile/pokedex', async (req, res) => {
     });
   });
 
-  res.json({ seen: Array.from(seen.values()), traits });
+  res.json({ seen: Array.from(seen.values()), traits, objectives });
 });
 
 // Stats de profil : Pokémon le plus tiré, taux de victoire par mode, meilleur score par
@@ -4734,6 +4798,7 @@ io.on('connection', (socket) => {
       // Partie à modificateurs = hors-classement : lu par recordGameResult (aucune XP, aucun
       // historique, donc ni succès, ni stats, ni Pokédex). Remis à false sinon.
       p.modifiedGame = !!(game.modifiers && game.modifiers.some(k => !RANKED_SAFE_MODIFIERS.includes(k)));
+      p.gameModifiers = Array.isArray(game.modifiers) ? [...game.modifiers] : []; // historisé (cf. Hall of Fame)
     });
 
     // Mode ADMIN VS JOUEUR : décision de gameplay volontaire — jamais d'objet dans ce
@@ -6250,6 +6315,9 @@ const dailyApi = registerDaily({
     xpVictoryBonus: XP_VICTORY_BONUS
   }
 });
+
+// ---- HALL OF FAME : meilleures équipes du jour (parties classées SANS modificateur, mode normal) ----
+require('./hall-of-fame').registerHallOfFame({ app, supabase, dayKey: dailyApi.dayKey, titleLabelFor });
 
 // ---- QUÊTES JOURNALIÈRES (3 par jour, progression calculée depuis game_history / daily_scores) ----
 require('./quests').registerQuests({ app, supabase, createAuthClient, dayKey: dailyApi.dayKey });

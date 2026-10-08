@@ -18,7 +18,7 @@
      première image chargée (cf. préchargement en arrière-plan dans client.js). -->
 <link rel="dns-prefetch" href="https://raw.githubusercontent.com">
 <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=13">
+<link rel="stylesheet" href="style.css?v=14">
 <!-- Applique thème de fond + réduction d'animations AVANT le premier rendu, pour
      éviter un flash visuel (contenu défini par le panneau Réglages, cf. client.js). -->
 <script>
@@ -162,6 +162,18 @@
             <ul id="quests-list" class="quests-list" aria-label="Quêtes du jour"></ul>
             <div id="quests-bonus" class="quests-bonus screen--hidden"></div>
             <p id="quests-status" class="quests-status" role="status"></p>
+          </div>
+
+          <div id="hof-card" class="card card--hof">
+            <h2>🏆 Hall of Fame</h2>
+            <p class="card__hint">Meilleures équipes classées (Route du Boss, sans modificateur). Lecture seule.</p>
+            <div class="hof-tabs" role="tablist" aria-label="Période">
+              <button type="button" role="tab" aria-selected="true" class="hof-tab hof-tab--active" data-hof-scope="today">Aujourd'hui</button>
+              <button type="button" role="tab" aria-selected="false" tabindex="-1" class="hof-tab" data-hof-scope="yesterday">Hier</button>
+            </div>
+            <ol id="hof-list" class="hof-list" aria-label="Meilleures équipes"></ol>
+            <p id="hof-empty" class="card__hint screen--hidden"></p>
+            <p id="hof-status" class="quests-status" role="status"></p>
           </div>
         </div>
 
@@ -1024,6 +1036,7 @@
 
           <div class="account-subpage screen--hidden" data-account-subpage="pokedex">
             <p id="account-pokedex-count" class="account-history-hint">0 / 0 Pokémon obtenus</p>
+            <div id="account-pokedex-objectives" class="pokedex-objectives"></div>
             <input id="account-pokedex-search" type="text" class="account-avatar-search" placeholder="Rechercher un Pokémon...">
             <div id="account-pokedex-gen-tabs" class="pokedex-gen-tabs"></div>
             <div id="account-pokedex-grid" class="pokedex-grid"></div>
@@ -1169,11 +1182,12 @@
 <div id="friend-invite-toast-container" class="achievement-toast-container" aria-live="polite"></div>
 
 <script src="/socket.io/socket.io.js"></script>
-<script src="client.js?v=13"></script>
+<script src="client.js?v=14"></script>
 <script src="fly-client.js?v=3"></script>
 <script src="share-result.js?v=1"></script>
 <script src="daily-client.js?v=6"></script>
 <script src="quests-client.js?v=1"></script>
+<script src="hof-client.js?v=1"></script>
 <script src="a11y.js?v=1"></script>
 </body>
 </html>
