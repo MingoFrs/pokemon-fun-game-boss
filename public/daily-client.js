@@ -218,7 +218,19 @@
   function renderCard() {
     if (!info) return;
     const b = info.boss;
-    el.cardBoss.textContent = `Boss du jour : ${b.name} · ${DIFFICULTY_LABELS[b.group] || ''} · objectif ${b.requiredPoints} PTS. Mêmes Pokémon pour tous, 1 seul essai par compte, victoire ou défaite classée.`;
+    el.cardBoss.textContent = 'Mêmes Pokémon pour tous, 1 seul essai par compte, victoire ou défaite classée.';
+    // Bannière du boss : image + nom + difficulté + objectif.
+    const bossBox = $('daily-boss');
+    if (bossBox) {
+      const img = $('daily-boss-img');
+      if (b.sprite && img.getAttribute('src') !== b.sprite) img.src = b.sprite;
+      $('daily-boss-name').textContent = b.name;
+      const diff = $('daily-boss-diff');
+      diff.textContent = DIFFICULTY_LABELS[b.group] || '';
+      diff.className = 'daily-boss__badge daily-boss__badge--' + (b.group || 'medium');
+      $('daily-boss-goal').textContent = 'Objectif : ' + Number(b.requiredPoints).toLocaleString('fr-FR') + ' PTS';
+      bossBox.classList.remove('screen--hidden');
+    }
     const m = info.mine;
     const sk = info.streak;
     if (token() && sk && sk.current > 0) {
