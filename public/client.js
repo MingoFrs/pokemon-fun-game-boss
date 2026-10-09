@@ -256,7 +256,7 @@ const accountSubpageEls = Array.from(document.querySelectorAll('.account-subpage
 // server.js) : UNIQUEMENT pour afficher la barre de progression jusqu'au niveau suivant
 // — le serveur reste seul à calculer et stocker le niveau réel (renvoyé directement dans
 // account.level à chaque login/session, jamais recalculé ici pour la valeur affichée).
-const XP_LEVEL_STEP = 100;
+const XP_LEVEL_STEP = 25; // doit rester identique à server.js
 function xpForLevel(level) {
   return Math.round(XP_LEVEL_STEP * level * (level - 1) / 2);
 }

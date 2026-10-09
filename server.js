@@ -175,7 +175,9 @@ const AVATARS = [
 // depuis le niveau 1 (palier 1 = 100 XP, palier 2 = 200 XP de plus, etc. — jamais un
 // palier fixe, sinon monter de niveau deviendrait de plus en plus rapide en valeur
 // relative au lieu de rester un effort croissant).
-const XP_LEVEL_STEP = 100;
+// Pas réduit de 100 à 25 (progression 4× plus rapide) : niveau 5 = 250 XP, 10 = 1 125 XP, 30 = 10 875 XP.
+// Le niveau n'est jamais stocké (calculé depuis l'XP) : tous les comptes existants sont recalculés d'office.
+const XP_LEVEL_STEP = 25;
 function xpForLevel(level) {
   return Math.round(XP_LEVEL_STEP * level * (level - 1) / 2);
 }
