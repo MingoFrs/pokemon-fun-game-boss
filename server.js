@@ -303,6 +303,39 @@ const ACHIEVEMENTS = [
   { key: 'score_10000', category: 'difficile', title: 'Astre du Score', label: 'Score astronomique', description: 'Atteins un score de 10000 en une seule partie.', check: ctx => ctx.bestScore >= 10000 }
 ];
 
+// ---- SUCCÈS CHROMATIQUES : compteur cumulé de shiny + rareté du shiny obtenu ----
+const SHINY_RARITY_ORDER = ['commun', 'peu_commun', 'rare', 'epique', 'pseudo_legendaire', 'mega', 'legendaire', 'fabuleux', 'ultra_chimere'];
+const shinyRank = r => SHINY_RARITY_ORDER.indexOf(r);
+[
+  { key: 'shiny_3', category: 'facile', title: "Collectionneur d'Éclats", label: 'Trois éclats', description: 'Obtiens 3 Pokémon shiny au total (cumul de toutes tes parties).', check: ctx => ctx.shinyTotal >= 3 },
+  { key: 'shiny_10', category: 'difficile', title: 'Chasseur Confirmé', label: 'Dix éclats', description: 'Obtiens 10 Pokémon shiny au total.', check: ctx => ctx.shinyTotal >= 10 },
+  { key: 'shiny_25', category: 'difficile', title: 'Légende Chromatique', label: 'Vingt-cinq éclats', description: 'Obtiens 25 Pokémon shiny au total.', check: ctx => ctx.shinyTotal >= 25 },
+  { key: 'shiny_epic', category: 'difficile', title: 'Éclat Épique', label: 'Shiny épique', description: 'Obtiens un Pokémon shiny de rareté Épique ou supérieure.', check: ctx => ctx.shinyBestRank >= shinyRank('epique') },
+  { key: 'shiny_legend', category: 'difficile', title: 'Éclat Légendaire', label: 'Shiny légendaire', description: 'Obtiens un Pokémon shiny de rareté Légendaire ou supérieure.', check: ctx => ctx.shinyBestRank >= shinyRank('legendaire') },
+  { key: 'shiny_mega', category: 'difficile', title: 'Éclat Méga', label: 'Shiny Méga', description: 'Obtiens une Méga-Évolution shiny.', check: ctx => ctx.shinyMega }
+].forEach(a => ACHIEVEMENTS.push(a));
+
+// Statistiques chromatiques d'un joueur à partir de ses équipes finales (hors mode fly).
+function computeShinyStats(rows) {
+  const byRarity = {};
+  const species = new Map(); // id -> { id, name, sprite, shinySprite, rarity, count }
+  let total = 0;
+  (rows || []).filter(r => r.game_mode !== 'fly').forEach(r => {
+    if (!Array.isArray(r.team)) return;
+    r.team.forEach(m => {
+      if (!m || !m.shiny) return;
+      total += 1;
+      const rar = m.rarity || 'commun';
+      byRarity[rar] = (byRarity[rar] || 0) + 1;
+      const cur = species.get(m.id);
+      if (cur) { cur.count += 1; if (shinyRank(rar) > shinyRank(cur.rarity)) cur.rarity = rar; }
+      else species.set(m.id, { id: m.id, name: m.name, sprite: m.sprite || null, shinySprite: m.shinySprite || null, rarity: rar, count: 1 });
+    });
+  });
+  const list = Array.from(species.values()).sort((a, b) => shinyRank(b.rarity) - shinyRank(a.rarity) || b.count - a.count || a.id - b.id);
+  return { total, species: list.length, byRarity, list: list.slice(0, 200) };
+}
+
 // ---- OBJECTIFS POKÉDEX : « 10 Pokémon feu différents » → titre (catégorie 'pokedex') ----
 // Comptés sur les espèces de base (id < 10000, formes/Méga exclues), toutes parties classées confondues.
 const DEX_TYPE_LABELS = {
@@ -359,6 +392,9 @@ function buildAchievementContext(allRows) {
     hasShiny: false,
     hasMega: false,
     zaMegaIds: new Set(),
+    shinyTotal: 0,
+    shinyBestRank: -1,
+    shinyMega: false,
     dexIds: new Set(),
     dexTypeCounts: {},
     dexTotal: 0,
@@ -398,6 +434,12 @@ function buildAchievementContext(allRows) {
       if (row.team.some(mon => mon.rarity === 'mega')) ctx.hasMega = true;
       row.team.forEach(mon => { if (mon && isZaMegaId(mon.id)) ctx.zaMegaIds.add(mon.id); });
       row.team.forEach(mon => { if (mon && Number.isInteger(mon.id) && mon.id < 10000) ctx.dexIds.add(mon.id); });
+      row.team.forEach(mon => {
+        if (!mon || !mon.shiny) return;
+        ctx.shinyTotal += 1;
+        ctx.shinyBestRank = Math.max(ctx.shinyBestRank, shinyRank(mon.rarity));
+        if (mon.rarity === 'mega') ctx.shinyMega = true;
+      });
       // Traits : lus sur le snapshot de l'équipe (effectName / gambleRoll / flat, cf. teamMonFromReward).
       const names = row.team.map(mon => mon && mon.effectName);
       names.forEach(n => { if (n && EFFECTS.some(e => e.name === n)) ctx.traitsSeen.add(n); }); // Trait-dex
@@ -961,7 +1003,7 @@ app.post('/api/profile/pokedex', async (req, res) => {
     });
   });
 
-  res.json({ seen: Array.from(seen.values()), traits, objectives });
+  res.json({ seen: Array.from(seen.values()), traits, objectives, shinies: computeShinyStats(data) });
 });
 
 // Stats de profil : Pokémon le plus tiré, taux de victoire par mode, meilleur score par

@@ -242,6 +242,7 @@ const accountPokedexCountEl = document.getElementById('account-pokedex-count');
 const accountPokedexSearchEl = document.getElementById('account-pokedex-search');
 const accountPokedexGridEl = document.getElementById('account-pokedex-grid');
 const accountPokedexObjectivesEl = document.getElementById('account-pokedex-objectives');
+const accountPokedexShiniesEl = document.getElementById('account-pokedex-shinies');
 const accountPokedexGenTabsEl = document.getElementById('account-pokedex-gen-tabs');
 const accountStatsContentEl = document.getElementById('account-stats-content');
 const accountAvatarSearchEl = document.getElementById('account-avatar-search');
@@ -405,6 +406,12 @@ const ACHIEVEMENT_ICONS = {
   first_legendary: '✨',
   first_epic: '💎',
   first_shiny: '🌟',
+  shiny_3: '✨',
+  shiny_10: '✨',
+  shiny_25: '🌠',
+  shiny_epic: '💎',
+  shiny_legend: '👑',
+  shiny_mega: '💠',
   games_5: '📅',
   guess_win: '🕵️',
   admin_win: '🤖',
@@ -805,6 +812,58 @@ function renderPokedexGen(genNumber) {
   accountPokedexCountEl.textContent = `${nationalOwned} / ${nationalDexCache.dex.length} au total — ${gen.label} : ${genOwned}/${entries.length}`;
 }
 
+// Collection chromatique : compteur cumulé de shiny + rareté de chacun (données serveur, hors mode fly).
+function renderPokedexShinies(sh) {
+  const el = accountPokedexShiniesEl;
+  if (!el) return;
+  el.innerHTML = '';
+  if (!sh || !sh.total) return;
+
+  const details = document.createElement('details');
+  details.className = 'pokedex-shinies__details';
+  details.open = true;
+  const summary = document.createElement('summary');
+  summary.textContent = `✨ Chromatiques : ${sh.total} obtenu${sh.total > 1 ? 's' : ''} · ${sh.species} espèce${sh.species > 1 ? 's' : ''}`;
+  details.appendChild(summary);
+
+  // Répartition par rareté (de la plus rare à la plus commune).
+  const order = ['ultra_chimere', 'fabuleux', 'legendaire', 'mega', 'pseudo_legendaire', 'epique', 'rare', 'peu_commun', 'commun'];
+  const chips = document.createElement('div');
+  chips.className = 'pokedex-shinies__chips';
+  order.filter(r => sh.byRarity && sh.byRarity[r]).forEach(r => {
+    const chip = document.createElement('span');
+    chip.className = 'shiny-chip';
+    chip.dataset.rarity = r;
+    chip.textContent = `${RARITY_LABELS[r] || r} ×${sh.byRarity[r]}`;
+    chips.appendChild(chip);
+  });
+  details.appendChild(chips);
+
+  const grid = document.createElement('div');
+  grid.className = 'pokedex-shinies__grid';
+  (sh.list || []).forEach(m => {
+    const card = document.createElement('div');
+    card.className = 'shiny-card';
+    const img = document.createElement('img');
+    img.src = m.shinySprite || m.sprite || '';
+    img.alt = '';
+    img.loading = 'lazy';
+    img.width = 56; img.height = 56;
+    img.onerror = () => { if (m.sprite && img.src !== m.sprite) img.src = m.sprite; };
+    const name = document.createElement('span');
+    name.className = 'shiny-card__name';
+    name.textContent = m.name + (m.count > 1 ? ` ×${m.count}` : '');
+    const rar = document.createElement('span');
+    rar.className = 'shiny-card__rarity';
+    rar.dataset.rarity = m.rarity;
+    rar.textContent = RARITY_LABELS[m.rarity] || m.rarity;
+    card.append(img, name, rar);
+    grid.appendChild(card);
+  });
+  details.appendChild(grid);
+  el.appendChild(details);
+}
+
 // Objectifs Pokédex : progression par type vers un titre (« 10 Pokémon Feu » → Dresseur Feu...).
 function renderPokedexObjectives(obj) {
   const el = accountPokedexObjectivesEl;
@@ -881,6 +940,7 @@ async function fetchAndRenderPokedex(account) {
     pokedexSeenCache = data.seen.sort((a, b) => a.id - b.id);
     pokedexOwnedMap = new Map(pokedexSeenCache.map(m => [m.id, m]));
     pokedexTraitsOwned = data.traits || {};
+    renderPokedexShinies(data.shinies);
     renderPokedexObjectives(data.objectives);
     renderPokedexGenTabs();
     renderPokedexGen(currentPokedexGen);

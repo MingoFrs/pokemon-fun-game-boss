@@ -18,7 +18,7 @@
      première image chargée (cf. préchargement en arrière-plan dans client.js). -->
 <link rel="dns-prefetch" href="https://raw.githubusercontent.com">
 <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=14">
+<link rel="stylesheet" href="style.css?v=15">
 <!-- Applique thème de fond + réduction d'animations AVANT le premier rendu, pour
      éviter un flash visuel (contenu défini par le panneau Réglages, cf. client.js). -->
 <script>
@@ -1036,6 +1036,7 @@
 
           <div class="account-subpage screen--hidden" data-account-subpage="pokedex">
             <p id="account-pokedex-count" class="account-history-hint">0 / 0 Pokémon obtenus</p>
+            <div id="account-pokedex-shinies" class="pokedex-shinies"></div>
             <div id="account-pokedex-objectives" class="pokedex-objectives"></div>
             <input id="account-pokedex-search" type="text" class="account-avatar-search" placeholder="Rechercher un Pokémon...">
             <div id="account-pokedex-gen-tabs" class="pokedex-gen-tabs"></div>
@@ -1102,6 +1103,16 @@
             <input type="checkbox" id="settings-sound" class="settings-toggle__input">
             <span class="settings-toggle__track"><span class="settings-toggle__thumb"></span></span>
           </label>
+          <label class="settings-range">
+            <span class="settings-toggle__label">Volume des sons</span>
+            <input type="range" id="settings-volume" min="0" max="100" step="5" value="80">
+          </label>
+          <label class="settings-toggle">
+            <span class="settings-toggle__label">Vibrations (mobile)</span>
+            <input type="checkbox" id="settings-haptics" class="settings-toggle__input">
+            <span class="settings-toggle__track"><span class="settings-toggle__thumb"></span></span>
+          </label>
+          <p id="settings-haptics-hint" class="settings-hint screen--hidden"></p>
         </div>
 
         <div class="settings-block">
@@ -1182,12 +1193,13 @@
 <div id="friend-invite-toast-container" class="achievement-toast-container" aria-live="polite"></div>
 
 <script src="/socket.io/socket.io.js"></script>
-<script src="client.js?v=14"></script>
+<script src="client.js?v=15"></script>
 <script src="fly-client.js?v=3"></script>
 <script src="share-result.js?v=1"></script>
 <script src="daily-client.js?v=6"></script>
 <script src="quests-client.js?v=1"></script>
 <script src="hof-client.js?v=1"></script>
+<script src="feedback.js?v=1"></script>
 <script src="a11y.js?v=1"></script>
 </body>
 </html>

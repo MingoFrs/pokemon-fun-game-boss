@@ -135,6 +135,7 @@
     try {
       const { ok, json } = await post('/api/quests/claim', { accessToken: token(), questKey: key });
       statusEl.textContent = ok ? '+' + json.xp + ' XP réclamés !' : (json.error || 'Réclamation impossible.');
+      if (ok && window.rdbFeedback) window.rdbFeedback('reward');
       if (ok && typeof window.refreshAccountSettingsSection === 'function') {
         try { window.refreshAccountSettingsSection(); } catch (e) {}
       }

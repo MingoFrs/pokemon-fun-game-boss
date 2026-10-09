@@ -5623,3 +5623,26 @@ html.large-text body { zoom: 1.12; }
 .pokedex-objective__bar { height: 5px; background: var(--bg-panel-alt); border: 1px solid var(--border-soft); border-radius: 999px; overflow: hidden; }
 .pokedex-objective__bar > span { display: block; height: 100%; background: var(--accent-bas); opacity: 0.8; border-radius: 999px; }
 .pokedex-objective__foot { font-size: 11px; color: var(--text-muted); line-height: 1.35; }
+
+/* ================= Réglages : volume / vibrations ================= */
+.settings-range { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 6px 0; }
+.settings-range input[type="range"] { flex: 0 1 160px; accent-color: var(--accent-bas); }
+.settings-hint { margin: 2px 0 8px; font-size: 12px; color: var(--text-muted); }
+
+/* ================= Collection chromatique (Pokédex) ================= */
+.pokedex-shinies { margin: 10px 0; }
+.pokedex-shinies__details { background: var(--bg-panel-alt); border: 1px solid var(--border-soft); border-radius: 10px; padding: 8px 12px; }
+.pokedex-shinies__details > summary { cursor: pointer; font-size: 13px; color: var(--text-primary); }
+.pokedex-shinies__chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 4px; }
+.shiny-chip { font-family: var(--font-mono); font-size: 11px; padding: 2px 10px; border-radius: 999px; border: 1px solid var(--border); color: var(--text-muted); background: var(--bg-panel); }
+.pokedex-shinies__grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; margin-top: 10px; max-height: 320px; overflow-y: auto; }
+.shiny-card { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 6px; text-align: center; background: var(--bg-panel); border: 1px solid rgba(255, 213, 74, 0.28); border-radius: 8px; }
+.shiny-card img { width: 56px; height: 56px; object-fit: contain; }
+.shiny-card__name { font-size: 12px; line-height: 1.2; overflow-wrap: anywhere; }
+.shiny-card__rarity { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.04em; color: var(--text-muted); }
+.shiny-chip[data-rarity="peu_commun"], .shiny-card__rarity[data-rarity="peu_commun"] { color: var(--rarity-peu-commun); }
+.shiny-chip[data-rarity="rare"], .shiny-card__rarity[data-rarity="rare"] { color: var(--rarity-rare); }
+.shiny-chip[data-rarity="epique"], .shiny-card__rarity[data-rarity="epique"] { color: var(--rarity-epique); }
+.shiny-chip[data-rarity="pseudo_legendaire"], .shiny-card__rarity[data-rarity="pseudo_legendaire"] { color: var(--rarity-pseudo); }
+.shiny-chip[data-rarity="mega"], .shiny-card__rarity[data-rarity="mega"] { color: var(--rarity-mega); }
+.shiny-chip[data-rarity="legendaire"], .shiny-card__rarity[data-rarity="legendaire"] { color: var(--rarity-legendaire); }
