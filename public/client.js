@@ -2329,6 +2329,7 @@ function clearError() {
 
 function showScreen(screen) {
   [screenHome, screenLobby, screenGame, screenFinished, screenGuess, screenGuessFinished, screenAuction, screenAuctionFinished, screenSpectate].forEach(s => s.classList.add('screen--hidden'));
+  document.querySelectorAll('.screen').forEach(s => s.classList.add('screen--hidden')); // écrans des modules (Roulette de Stats…)
   screen.classList.remove('screen--hidden');
   // Reflété en attribut sur <body> : la mise en page large écran (cf. style.css) en
   // dépend pour savoir si l'écran actif est l'accueil (hero éclaté) ou un écran de jeu
@@ -3894,6 +3895,20 @@ socket.on('rejoin_success', (payload) => {
   currentActivePlayerIds = payload.activePlayerIds || [];
   rememberActiveGame(payload.gameId);
   loadChatHistory(payload.chatMessages); // reprend la discussion en cours, jamais un reset (cf. resetChatPanel)
+
+  // Mode "Roulette de Stats" : en partie, l'écran est reconstruit par sd_state (statdraft-client.js).
+  if (payload.gameMode === 'statdraft') {
+    if (payload.status === 'waiting') {
+      resetGameUI();
+      gameCodeEl.textContent = payload.gameId;
+      renderLobbyPlayers(payload.players);
+      renderDifficulty(payload.difficulty);
+      renderGameMode(payload.gameMode);
+      updateHostControls();
+      showScreen(screenLobby);
+    }
+    return;
+  }
 
   // Mode "Devine le Pokémon" : structure d'état complètement différente (planche/secret/
   // tour chronométré, aucun boss/route/équipe) — reconstruction dédiée, jamais via

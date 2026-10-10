@@ -19,6 +19,7 @@
 <link rel="dns-prefetch" href="https://raw.githubusercontent.com">
 <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css?v=16">
+<link rel="stylesheet" href="statdraft.css?v=1">
 <!-- Applique thème de fond + réduction d'animations AVANT le premier rendu, pour
      éviter un flash visuel (contenu défini par le panneau Réglages, cf. client.js). -->
 <script>
@@ -309,6 +310,7 @@
             <button type="button" class="gamemode-btn" data-mode="auction">Draft/Enchères</button>
             <button type="button" class="gamemode-btn" data-mode="coop">Coop</button>
             <button type="button" class="gamemode-btn" data-mode="fly">Humanité vs Mouche</button>
+            <button type="button" class="gamemode-btn" data-mode="statdraft">Roulette de Stats</button>
           </div>
         </div>
 
@@ -322,6 +324,16 @@
           <div id="modifiers-options" class="modifiers-options"></div>
           <ul id="modifiers-active-list" class="modifiers-active-list"></ul>
           <p id="modifiers-note" class="modifiers-note screen--hidden">Partie hors-classement : aucune XP, aucun succès, stats et Pokédex inchangés.</p>
+        </div>
+
+        <!-- Mode "Roulette de Stats" uniquement (cf. statdraft-client.js) : objectifs par difficulté + modificateurs propres au mode. -->
+        <div id="sd-lobby-panel" class="modifiers-panel screen--hidden">
+          <p class="eyebrow">Roulette de Stats · objectif de total par difficulté</p>
+          <div id="sd-targets" class="sd-targets"></div>
+          <p class="eyebrow">Modificateurs de partie</p>
+          <div id="sd-mod-options" class="modifiers-options"></div>
+          <ul id="sd-mod-active" class="modifiers-active-list"></ul>
+          <p id="sd-mod-note" class="modifiers-note screen--hidden">Partie hors-classement : aucune XP.</p>
         </div>
 
         <!-- Visible uniquement si le mode est admin/guess ET qu'il y a plus de 2 joueurs
@@ -631,6 +643,59 @@
   </section>
 
   <!-- ============ MODE "DEVINE LE POKÉMON" ============ -->
+
+  <section id="screen-statdraft" class="screen screen--hidden">
+    <div class="sd-top">
+      <div class="sd-top__info">
+        <p id="sd-round" class="sd-round">Roulette de Stats</p>
+        <p class="sd-target">Objectif <strong id="sd-target-value"></strong></p>
+      </div>
+      <div id="sd-mods" class="sd-mods"></div>
+      <button id="sd-btn-leave" type="button" class="btn btn--ghost">Quitter</button>
+    </div>
+    <div id="sd-timer" class="sd-timer screen--hidden" aria-hidden="true">
+      <div id="sd-timer-bar" class="sd-timer__bar"></div>
+      <span id="sd-timer-text" class="sd-timer__text"></span>
+    </div>
+
+    <div class="sd-grid">
+      <div id="sd-stage" class="sd-stage">
+        <div class="sd-wheel-wrap" aria-hidden="true">
+          <div class="sd-pointer"></div>
+          <div id="sd-wheel" class="sd-wheel"></div>
+          <div id="sd-hub" class="sd-hub"><span class="sd-hub__q">?</span></div>
+        </div>
+        <p id="sd-status" class="sd-status" role="status" aria-live="polite"></p>
+
+        <div id="sd-card" class="sd-card screen--hidden">
+          <div class="sd-card__head">
+            <img id="sd-card-sprite" class="sd-card__sprite" src="" alt="">
+            <div>
+              <h2 id="sd-card-name" class="sd-card__name"></h2>
+              <div id="sd-card-types" class="type-badges"></div>
+              <p id="sd-card-shiny" class="sd-card__shiny screen--hidden"></p>
+            </div>
+          </div>
+          <div id="sd-opts" class="sd-opts"></div>
+          <div id="sd-controls" class="sd-controls"></div>
+        </div>
+      </div>
+
+      <aside id="sd-side" class="sd-side">
+        <div id="sd-build" class="sd-build"></div>
+        <div id="sd-others" class="sd-others screen--hidden"></div>
+        <div id="sd-reveal" class="sd-reveal screen--hidden"></div>
+      </aside>
+    </div>
+
+    <div id="sd-final" class="sd-final screen--hidden">
+      <p id="sd-final-outcome" class="finished-outcome"></p>
+      <div id="sd-final-list" class="sd-final-list"></div>
+      <button id="sd-btn-replay" type="button" class="btn btn--haut btn--block screen--hidden">Rejouer</button>
+      <p id="sd-final-wait" class="lobby-status screen--hidden">L'hôte peut relancer une partie.</p>
+      <button id="sd-btn-final-leave" type="button" class="btn btn--ghost btn--block">Quitter</button>
+    </div>
+  </section>
 
   <section id="screen-guess" class="screen screen--hidden">
     <header class="guess-header">
@@ -1195,6 +1260,7 @@
 <script src="/socket.io/socket.io.js"></script>
 <script src="client.js?v=17"></script>
 <script src="fly-client.js?v=3"></script>
+<script src="statdraft-client.js?v=1"></script>
 <script src="share-result.js?v=1"></script>
 <script src="daily-client.js?v=6"></script>
 <script src="quests-client.js?v=1"></script>

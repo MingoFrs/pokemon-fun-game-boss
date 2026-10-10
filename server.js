@@ -3462,7 +3462,7 @@ function serializeGameForPersistence(game) {
 }
 
 async function persistGame(game) {
-  if (!supabase || game.status !== 'playing' || game.gameMode === 'fly') return;
+  if (!supabase || game.status !== 'playing' || game.gameMode === 'fly' || game.gameMode === 'statdraft') return;
   try {
     await supabase.from('active_games').upsert({
       game_id: game.id,
@@ -3576,7 +3576,7 @@ async function loadPersistedGames() {
 // mode admin sera ajoutée aux étapes suivantes (génération des options, diffusion
 // différenciée admin/joueur, interfaces dédiées).
 // -----------------------------------------------------------------
-const GAME_MODES = ['normal', 'admin', 'guess', 'auction', 'coop', 'fly'];
+const GAME_MODES = ['normal', 'admin', 'guess', 'auction', 'coop', 'fly', 'statdraft'];
 
 // Objectif D'ÉQUIPE en mode Coop (cf. finishGame) : la vie de base du boss (100%, déjà
 // buffée dans BOSSES comme en mode normal) PLUS +50% de cette vie de base pour CHAQUE
@@ -3760,6 +3760,7 @@ function broadcastPlayers(game) {
 }
 
 function broadcastGameUpdated(game) {
+  if (game.gameMode === 'statdraft') { SD.broadcastPresence(game); return; } // mode isolé : ses propres événements sd_*
   const payload = {
     status: game.status,
     turn: game.turn,
@@ -4181,6 +4182,7 @@ function finalizePlayerRemoval(game, gameId, leavingPlayer) {
     if (game.guessTurnTimer) clearTimeout(game.guessTurnTimer); // sinon timer zombie qui retient `game` en mémoire et peut encore tenter d'émettre sur un salon mort
     clearSpectators(game, gameId);
     FLY.dispose(game); // mode fly : abandon = aucun apprentissage
+    SD.dispose(game); // mode Roulette de Stats : timer de tirage
     delete games[gameId];
     deletePersistedGame(gameId);
     return;
@@ -4227,6 +4229,12 @@ function finalizePlayerRemoval(game, gameId, leavingPlayer) {
   // seul — fin de partie immédiate, chacun repart avec l'équipe qu'il avait.
   if (game.status === 'playing' && game.gameMode === 'auction') {
     finishAuctionGameByForfeit(game, leavingPlayer);
+    return;
+  }
+
+  // Mode ROULETTE DE STATS : la partie continue avec les joueurs restants (cf. statdraft-game.js).
+  if (game.status === 'playing' && game.gameMode === 'statdraft') {
+    SD.onPlayerRemoved(game, leavingPlayer);
     return;
   }
 
@@ -4592,6 +4600,10 @@ io.on('connection', (socket) => {
       socket.emit('error_message', 'Cette partie est un duel Humanité vs Mouche : elle ne peut pas être rejointe.');
       return;
     }
+    if (game.gameMode === 'statdraft' && game.status !== 'waiting' && socket.data.gameId !== id) {
+      socket.emit('error_message', 'Roulette de Stats : partie en cours, elle ne peut pas être rejointe ni observée.');
+      return;
+    }
     if (game.status !== 'waiting') {
       // Partie déjà démarrée : mode spectateur, tous modes confondus. Un spectateur
       // n'entre JAMAIS dans game.players : voir clearSpectators/removeSpectator plus
@@ -4668,6 +4680,7 @@ io.on('connection', (socket) => {
       auctionType: game.auctionType,
       modifiers: game.modifiers || []
     });
+    if (game.gameMode === 'statdraft') SD.syncLobby(game, socket); // modificateurs du mode Roulette de Stats
 
     broadcastPlayers(game);
   });
@@ -4817,6 +4830,16 @@ io.on('connection', (socket) => {
     }
     if (game.gameMode === 'fly' && (game.players.length !== 1 || (game.spectators && game.spectators.length > 0))) {
       socket.emit('error_message', 'Humanité vs Mouche : 1 seul joueur, sans spectateur.');
+      return;
+    }
+    // Mode Roulette de Stats : 1 joueur minimum (2 avec Frankenstein), aucun boss/route/objet — cf. statdraft-game.js.
+    if (game.gameMode === 'statdraft') {
+      const sdError = SD.validateStart(game);
+      if (sdError) {
+        socket.emit('error_message', sdError);
+        return;
+      }
+      SD.begin(game); // passe la partie en 'playing' et lance le 1er tirage
       return;
     }
 
@@ -5250,6 +5273,8 @@ io.on('connection', (socket) => {
     });
 
     FLY.dispose(oldGame);
+    SD.carry(oldGame, newGame); // modificateurs Roulette de Stats conservés
+    SD.dispose(oldGame);
     if (oldGame.turnTimer) clearTimeout(oldGame.turnTimer); // filet de sécurité : status 'finished' devrait déjà l'avoir nettoyé
     if (oldGame.guessTurnTimer) clearTimeout(oldGame.guessTurnTimer);
     delete games[oldGameId];
@@ -5267,6 +5292,7 @@ io.on('connection', (socket) => {
       auctionType: newGame.auctionType,
       modifiers: newGame.modifiers || []
     });
+    if (newGame.gameMode === 'statdraft') SD.syncLobby(newGame);
   });
 
   // Choix de la difficulté du boss dans le lobby. Réservé à l'hôte, uniquement avant
@@ -5369,6 +5395,7 @@ io.on('connection', (socket) => {
     game.activePlayerIds = null;
     game.auctionType = null; // repart de zéro si l'hôte change de mode puis revient sur "auction"
     io.to(gameId).emit('game_mode_updated', { gameMode: game.gameMode, adminId: game.adminId, activePlayerIds: game.activePlayerIds, auctionType: game.auctionType });
+    if (game.gameMode === 'statdraft') SD.syncLobby(game);
   });
 
   // Choix du type d'enchère (mode "auction" uniquement), avant le lancement. Cf.
@@ -6269,6 +6296,7 @@ io.on('connection', (socket) => {
       fly: game.gameMode === 'fly' ? FLY.publicState(game) : undefined
     });
     if (game.gameMode === 'fly') FLY.resyncTurn(game, socket.id);
+    if (game.gameMode === 'statdraft') { SD.syncLobby(game, socket); SD.resync(game, socket, player); }
 
     // Mode "auction" : renvoie le lot en cours à CE seul joueur, avec la même règle de
     // visibilité que broadcastAuctionLot (jamais le Pokémon s'il ne doit pas le voir).
@@ -6371,6 +6399,20 @@ const FLY = createFlyGame({
     maybeScheduleTurnTransition: g => maybeScheduleTurnTransition(g),
     getTypes: flyGetTypes
   }
+});
+
+// ---- MODE 'statdraft' (Roulette de Stats) : 6 tirages, une stat de base par tirage, objectif 500/550/625/700 ----
+const { createStatDraft } = require('./statdraft-game');
+const SD = createStatDraft({
+  io, app, games, supabase, createAuthClient,
+  pool: Object.values(POKEMON_POOLS).flat(), // { id, name, bst } ; formes de base uniquement (id < 10000), filtrées dans le module
+  entries: POKEMON_ENTRIES,
+  getTypes: flyGetTypes,
+  spriteUrl, shinySpriteUrl,
+  dataDir: path.join(__dirname, 'data'),
+  xpParticipation: XP_PARTICIPATION, xpVictoryBonus: XP_VICTORY_BONUS,
+  broadcastPlayers: g => broadcastPlayers(g),
+  log: console
 });
 
 // ---- DÉFI QUOTIDIEN : même boss + mêmes 6 tours pour tous (RNG à graine, jour Europe/Paris), classement du jour ----
