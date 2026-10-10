@@ -335,7 +335,7 @@ function computeShinyStats(rows) {
     });
   });
   const list = Array.from(species.values()).sort((a, b) => shinyRank(b.rarity) - shinyRank(a.rarity) || b.count - a.count || a.id - b.id);
-  return { total, species: list.length, byRarity, list: list.slice(0, 200) };
+  return { total, species: list.length, byRarity, list };
 }
 
 // ---- OBJECTIFS POKÉDEX : « 10 Pokémon feu différents » → titre (catégorie 'pokedex') ----
@@ -1367,6 +1367,31 @@ try {
 } catch (err) {
   console.error('[points] Démarrage impossible : ' + err.message);
   process.exit(1);
+}
+
+// Lignées SEMI-LÉGENDAIRES (pseudo-légendaires) complètes : les 1er et 2e stades sont rangés dans la même
+// catégorie que la forme finale (tirages, Pokédex, succès). Seule l'ÉTIQUETTE de rareté change : les points
+// de base restent ceux calculés par stats.js (BST), donc aucun gonflement de score. Les Méga (id >= 10000)
+// gardent leur propre catégorie.
+const PSEUDO_LEGENDARY_LINES = [
+  [147, 148, 149], // Minidraco, Draco, Dracolosse
+  [246, 247, 248], // Embrylex, Ymphect, Tyranocif
+  [371, 372, 373], // Draby, Drackhaus, Drattak
+  [374, 375, 376], // Terhal, Métang, Métalosse
+  [443, 444, 445], // Griknot, Carmache, Carchacrok
+  [633, 634, 635], // Solochi, Diamat, Trioxhydre
+  [704, 705, 706], // Mucuscule, Colimucus, Muplodocus
+  [782, 783, 784], // Bébécaille, Écaïd, Ékaïser
+  [885, 886, 887], // Fantyrm, Dispareptil, Lanssorien
+  [996, 997, 998]  // Frigodo, Cryodo, Glaivodo
+];
+{
+  const pseudoIds = new Set(PSEUDO_LEGENDARY_LINES.flat());
+  let moved = 0;
+  POKEMON_ENTRIES.forEach(e => {
+    if (pseudoIds.has(e.id) && e.rarity !== 'pseudo_legendaire') { e.rarity = 'pseudo_legendaire'; moved++; }
+  });
+  if (moved) console.log(`[points] ${moved} pré-évolution(s) de semi-légendaires rangée(s) en pseudo_legendaire.`);
 }
 
 // ---- Mécaniques de TYPE des boss (cf. boss-mechanics.js / boss-mechanics-config.js) ----

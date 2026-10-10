@@ -5646,3 +5646,21 @@ html.large-text body { zoom: 1.12; }
 .shiny-chip[data-rarity="pseudo_legendaire"], .shiny-card__rarity[data-rarity="pseudo_legendaire"] { color: var(--rarity-pseudo); }
 .shiny-chip[data-rarity="mega"], .shiny-card__rarity[data-rarity="mega"] { color: var(--rarity-mega); }
 .shiny-chip[data-rarity="legendaire"], .shiny-card__rarity[data-rarity="legendaire"] { color: var(--rarity-legendaire); }
+
+/* ================= Pokédex chromatique (même grille que le Pokédex normal) ================= */
+.pokedex-mode { display: flex; gap: 8px; margin: 4px 0 8px; }
+.pokedex-mode__btn {
+  padding: 7px 16px; font-size: 13px; cursor: pointer;
+  background: transparent; color: var(--text-muted);
+  border: 1px solid var(--border-soft); border-radius: 999px;
+}
+.pokedex-mode__btn--active { color: var(--text-primary); border-color: var(--border); background: var(--bg-panel-alt); }
+.pokedex-shiny-total { margin: 4px 0; }
+.pokedex-cell--shiny { border-color: rgba(255, 213, 74, 0.4); }
+.pokedex-cell__rarity { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.04em; color: var(--text-muted); }
+.pokedex-cell__rarity[data-rarity="peu_commun"] { color: var(--rarity-peu-commun); }
+.pokedex-cell__rarity[data-rarity="rare"] { color: var(--rarity-rare); }
+.pokedex-cell__rarity[data-rarity="epique"] { color: var(--rarity-epique); }
+.pokedex-cell__rarity[data-rarity="pseudo_legendaire"] { color: var(--rarity-pseudo); }
+.pokedex-cell__rarity[data-rarity="mega"] { color: var(--rarity-mega); }
+.pokedex-cell__rarity[data-rarity="legendaire"] { color: var(--rarity-legendaire); }

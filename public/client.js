@@ -614,7 +614,7 @@ async function loadNationalDexIfNeeded() {
 function renderPokedexGenTabs() {
   accountPokedexGenTabsEl.innerHTML = '';
   nationalDexCache.generations.forEach(gen => {
-    const owned = nationalDexCache.dex.filter(p => p.id >= gen.from && p.id <= gen.to && pokedexOwnedMap.has(p.id)).length;
+    const owned = nationalDexCache.dex.filter(p => p.id >= gen.from && p.id <= gen.to && ownedMap().has(p.id)).length;
     const total = gen.to - gen.from + 1;
     const tab = document.createElement('button');
     tab.type = 'button';
@@ -627,7 +627,7 @@ function renderPokedexGenTabs() {
   // Onglets Méga : formes Méga classiques puis Méga de Pokémon Légendes Z-A (cf. megas côté serveur).
   POKEDEX_MEGA_TABS.forEach(def => {
     const entries = pokedexMegaEntries(def.key);
-    const owned = entries.filter(p => pokedexOwnedMap.has(p.id)).length;
+    const owned = entries.filter(p => ownedMap().has(p.id)).length;
     const tab = document.createElement('button');
     tab.type = 'button';
     tab.className = 'pokedex-gen-tab pokedex-gen-tab--mega' + (def.key === currentPokedexGen ? ' pokedex-gen-tab--selected' : '');
@@ -636,6 +636,7 @@ function renderPokedexGenTabs() {
     tab.addEventListener('click', () => renderPokedexGen(def.key));
     accountPokedexGenTabsEl.appendChild(tab);
   });
+  if (pokedexMode === 'shiny') return; // pas de Trait-dex en mode chromatique
   // Onglet Trait-dex : collection des traits (débloqué à la première obtention).
   const traitDefs = nationalDexCache.traits || [];
   const traitsOwned = traitDefs.filter(t => pokedexTraitsOwned[t.name]).length;
@@ -728,10 +729,11 @@ function pokedexMegaEntries(key) {
 }
 
 function buildPokedexCell(entry) {
-  const owned = pokedexOwnedMap.get(entry.id);
+  const owned = ownedMap().get(entry.id);
   const cell = document.createElement('div');
-  cell.className = 'pokedex-cell' + (owned ? ' pokedex-cell--owned' : ' pokedex-cell--locked');
-  cell.title = owned ? entry.name : 'Non obtenu';
+  const shinyMode = pokedexMode === 'shiny';
+  cell.className = 'pokedex-cell' + (owned ? ' pokedex-cell--owned' : ' pokedex-cell--locked') + (owned && shinyMode ? ' pokedex-cell--shiny' : '');
+  cell.title = owned ? (shinyMode ? `${entry.name} — ${RARITY_LABELS[owned.rarity] || owned.rarity}` : entry.name) : 'Non obtenu';
 
   const num = document.createElement('span');
   num.className = 'pokedex-cell__num';
@@ -743,6 +745,7 @@ function buildPokedexCell(entry) {
   if (owned) {
     const img = document.createElement('img');
     img.src = owned.sprite || pokemonSpriteUrl(entry.id);
+    img.onerror = () => { img.onerror = null; img.src = owned.fallbackSprite || pokemonSpriteUrl(entry.id); };
     img.alt = entry.name;
     img.loading = 'lazy';
     imgWrap.appendChild(img);
@@ -771,6 +774,14 @@ function buildPokedexCell(entry) {
   name.className = 'pokedex-cell__name';
   name.textContent = owned ? entry.name : '???';
   cell.appendChild(name);
+
+  if (owned && shinyMode) {
+    const rar = document.createElement('span');
+    rar.className = 'pokedex-cell__rarity';
+    rar.dataset.rarity = owned.rarity;
+    rar.textContent = (RARITY_LABELS[owned.rarity] || owned.rarity) + (owned.count > 1 ? ` ×${owned.count}` : '');
+    cell.appendChild(rar);
+  }
 
   return cell;
 }
@@ -806,62 +817,78 @@ function renderPokedexGen(genNumber) {
     filtered.forEach(entry => accountPokedexGridEl.appendChild(buildPokedexCell(entry)));
   }
 
-  const genOwned = entries.filter(p => pokedexOwnedMap.has(p.id)).length;
+  const genOwned = entries.filter(p => ownedMap().has(p.id)).length;
   // Total national = formes du dex national uniquement (les Méga ont leurs propres onglets).
-  const nationalOwned = nationalDexCache.dex.filter(p => pokedexOwnedMap.has(p.id)).length;
-  accountPokedexCountEl.textContent = `${nationalOwned} / ${nationalDexCache.dex.length} au total — ${gen.label} : ${genOwned}/${entries.length}`;
+  const nationalOwned = nationalDexCache.dex.filter(p => ownedMap().has(p.id)).length;
+  accountPokedexCountEl.textContent = `${nationalOwned} / ${nationalDexCache.dex.length} ${pokedexMode === 'shiny' ? 'chromatiques ' : ''}au total — ${gen.label} : ${genOwned}/${entries.length}`;
 }
 
-// Collection chromatique : compteur cumulé de shiny + rareté de chacun (données serveur, hors mode fly).
-function renderPokedexShinies(sh) {
+// ---- Pokédex chromatique : MÊME présentation que le Pokédex normal (onglets par génération, Méga,
+// grille complète avec silhouettes « ? » pour les shiny non obtenus, recherche, compteurs). ----
+let pokedexMode = 'normal'; // 'normal' | 'shiny'
+let shinyOwnedMap = new Map(); // id -> { id, name, sprite (shiny), fallbackSprite, rarity, count, shiny }
+let shinyStats = { total: 0, species: 0, byRarity: {}, list: [] };
+
+const ownedMap = () => (pokedexMode === 'shiny' ? shinyOwnedMap : pokedexOwnedMap);
+
+function setPokedexShinies(sh) {
+  shinyStats = sh || { total: 0, species: 0, byRarity: {}, list: [] };
+  shinyOwnedMap = new Map((shinyStats.list || []).map(m => [m.id, {
+    id: m.id, name: m.name, sprite: m.shinySprite || m.sprite, fallbackSprite: m.sprite,
+    rarity: m.rarity, count: m.count, shiny: true
+  }]));
+}
+
+function renderPokedexModeSwitch() {
   const el = accountPokedexShiniesEl;
   if (!el) return;
   el.innerHTML = '';
-  if (!sh || !sh.total) return;
 
-  const details = document.createElement('details');
-  details.className = 'pokedex-shinies__details';
-  details.open = true;
-  const summary = document.createElement('summary');
-  summary.textContent = `✨ Chromatiques : ${sh.total} obtenu${sh.total > 1 ? 's' : ''} · ${sh.species} espèce${sh.species > 1 ? 's' : ''}`;
-  details.appendChild(summary);
-
-  // Répartition par rareté (de la plus rare à la plus commune).
-  const order = ['ultra_chimere', 'fabuleux', 'legendaire', 'mega', 'pseudo_legendaire', 'epique', 'rare', 'peu_commun', 'commun'];
-  const chips = document.createElement('div');
-  chips.className = 'pokedex-shinies__chips';
-  order.filter(r => sh.byRarity && sh.byRarity[r]).forEach(r => {
-    const chip = document.createElement('span');
-    chip.className = 'shiny-chip';
-    chip.dataset.rarity = r;
-    chip.textContent = `${RARITY_LABELS[r] || r} ×${sh.byRarity[r]}`;
-    chips.appendChild(chip);
+  const bar = document.createElement('div');
+  bar.className = 'pokedex-mode';
+  bar.setAttribute('role', 'tablist');
+  bar.setAttribute('aria-label', 'Type de Pokédex');
+  [['normal', 'Pokédex'], ['shiny', `✨ Chromatique ${shinyStats.species}`]].forEach(([mode, label]) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.setAttribute('role', 'tab');
+    btn.setAttribute('aria-selected', String(pokedexMode === mode));
+    btn.className = 'pokedex-mode__btn' + (pokedexMode === mode ? ' pokedex-mode__btn--active' : '');
+    btn.textContent = label;
+    btn.addEventListener('click', () => { if (pokedexMode !== mode) setPokedexMode(mode); });
+    bar.appendChild(btn);
   });
-  details.appendChild(chips);
+  el.appendChild(bar);
 
-  const grid = document.createElement('div');
-  grid.className = 'pokedex-shinies__grid';
-  (sh.list || []).forEach(m => {
-    const card = document.createElement('div');
-    card.className = 'shiny-card';
-    const img = document.createElement('img');
-    img.src = m.shinySprite || m.sprite || '';
-    img.alt = '';
-    img.loading = 'lazy';
-    img.width = 56; img.height = 56;
-    img.onerror = () => { if (m.sprite && img.src !== m.sprite) img.src = m.sprite; };
-    const name = document.createElement('span');
-    name.className = 'shiny-card__name';
-    name.textContent = m.name + (m.count > 1 ? ` ×${m.count}` : '');
-    const rar = document.createElement('span');
-    rar.className = 'shiny-card__rarity';
-    rar.dataset.rarity = m.rarity;
-    rar.textContent = RARITY_LABELS[m.rarity] || m.rarity;
-    card.append(img, name, rar);
-    grid.appendChild(card);
-  });
-  details.appendChild(grid);
-  el.appendChild(details);
+  // Mode chromatique : total cumulé + répartition par rareté.
+  if (pokedexMode === 'shiny') {
+    const info = document.createElement('p');
+    info.className = 'account-history-hint pokedex-shiny-total';
+    info.textContent = shinyStats.total
+      ? `✨ ${shinyStats.total} chromatique${shinyStats.total > 1 ? 's' : ''} obtenu${shinyStats.total > 1 ? 's' : ''} au total (toutes parties confondues)`
+      : '✨ Aucun chromatique pour le moment : ils apparaissent dans ton équipe finale (~2 % par tirage).';
+    el.appendChild(info);
+    const order = ['ultra_chimere', 'fabuleux', 'legendaire', 'mega', 'pseudo_legendaire', 'epique', 'rare', 'peu_commun', 'commun'];
+    const chips = document.createElement('div');
+    chips.className = 'pokedex-shinies__chips';
+    order.filter(r => shinyStats.byRarity && shinyStats.byRarity[r]).forEach(r => {
+      const chip = document.createElement('span');
+      chip.className = 'shiny-chip';
+      chip.dataset.rarity = r;
+      chip.textContent = `${RARITY_LABELS[r] || r} ×${shinyStats.byRarity[r]}`;
+      chips.appendChild(chip);
+    });
+    if (chips.children.length) el.appendChild(chips);
+  }
+}
+
+function setPokedexMode(mode) {
+  pokedexMode = mode;
+  if (mode === 'shiny' && currentPokedexGen === TRAITDEX_KEY) currentPokedexGen = 1;
+  if (accountPokedexObjectivesEl) accountPokedexObjectivesEl.classList.toggle('screen--hidden', mode === 'shiny');
+  renderPokedexModeSwitch();
+  renderPokedexGenTabs();
+  renderPokedexGen(currentPokedexGen);
 }
 
 // Objectifs Pokédex : progression par type vers un titre (« 10 Pokémon Feu » → Dresseur Feu...).
@@ -940,8 +967,10 @@ async function fetchAndRenderPokedex(account) {
     pokedexSeenCache = data.seen.sort((a, b) => a.id - b.id);
     pokedexOwnedMap = new Map(pokedexSeenCache.map(m => [m.id, m]));
     pokedexTraitsOwned = data.traits || {};
-    renderPokedexShinies(data.shinies);
+    setPokedexShinies(data.shinies);
+    renderPokedexModeSwitch();
     renderPokedexObjectives(data.objectives);
+    if (accountPokedexObjectivesEl) accountPokedexObjectivesEl.classList.toggle('screen--hidden', pokedexMode === 'shiny');
     renderPokedexGenTabs();
     renderPokedexGen(currentPokedexGen);
   } catch (err) {
