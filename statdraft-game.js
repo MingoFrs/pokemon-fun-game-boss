@@ -3,8 +3,9 @@
 // MODE "ROULETTE DE STATS" (gameMode === 'statdraft')
 //
 // Principe : 6 tirages. À chaque tirage, une roulette désigne UN Pokémon (le même pour tous).
-// Chaque joueur choisit UNE des 6 stats de base de ce Pokémon : elle remplit la case
-// correspondante (PV -> PV, Atq -> Atq, ...) de SA base stats. Une case remplie est définitive.
+// Les 6 stats du Pokémon sont CACHÉES : chaque joueur choisit à l'instinct (en connaissant le Pokémon)
+// UNE stat, qui remplit la case correspondante (PV -> PV, Atq -> Atq, ...) de SA base stats. La valeur
+// est révélée une fois le choix fait. Une case remplie est définitive.
 // Objectif : total des 6 cases >= objectif de la difficulté (500 / 550 / 625 / 700).
 //
 // Module isolé (même logique que fly-game.js) : état dans game.sd, événements "sd_*", aucun timer
@@ -26,7 +27,7 @@ const REROLLS = 2;          // modificateur "reroll"
 const TYPE_MULT = 1.2;      // modificateur "typed"
 const SHINY_MULT = 1.15;    // modificateur "shiny"
 const SHINY_CHANCE = 0.2;
-const FOG_HIDDEN = 3;       // modificateur "fog"
+const SCOUT_REVEALED = 2;   // modificateur "scout" : stats révélées par tirage (toutes cachées sinon)
 const WHEEL_SIZE = 12;
 const JACKPOT_TOP_RATIO = 0.1; // modificateur "jackpot" : dernier tirage dans le top 10 % de BST
 const CANDS_PER_ROUND = 1 + REROLLS;
@@ -35,7 +36,7 @@ const MODIFIERS = [
   { key: 'reroll', icon: '🔄', label: 'Relances', description: `${REROLLS} relances de roulette par partie : tu changes de Pokémon avant de valider (le suivant est le même pour tous ceux qui relancent).` },
   { key: 'joker', icon: '🃏', label: 'Joker', description: 'Une seule fois : place une stat dans une AUTRE case que la sienne (ex. la Vitesse d\'un Pokémon dans ta case PV).' },
   { key: 'typed', icon: '🎯', label: 'Cases typées', description: `Chaque case reçoit un type au hasard : ×${TYPE_MULT} si le Pokémon tiré a ce type. Découpe tes choix autour des bonus.` },
-  { key: 'fog', icon: '🌫️', label: 'Brouillard', description: `${FOG_HIDDEN} stats sur 6 sont cachées à chaque tirage (« ? »). Tu peux quand même les choisir : quitte ou double.` },
+  { key: 'scout', icon: '🔍', label: 'Éclaireur', description: `${SCOUT_REVEALED} stats sur 6, tirées au hasard, sont révélées à chaque tirage. Les autres restent cachées.` },
   { key: 'blitz', icon: '⏱️', label: 'Éclair', description: `${TIMING.blitzMs / 1000} secondes pour choisir au lieu de ${TIMING.pickMs / 1000}. Sans choix : stat au hasard.` },
   { key: 'jackpot', icon: '💎', label: 'Jackpot final', description: 'Le 6e et dernier tirage est un Pokémon du top 10 % des stats totales : de quoi tout renverser.' },
   { key: 'shiny', icon: '✨', label: 'Chromatique', description: `20 % de chances qu'un Pokémon tiré soit chromatique : toutes ses stats ×${SHINY_MULT}.` },
@@ -169,14 +170,14 @@ function createStatDraft({ io, app, games, supabase, createAuthClient, pool, ent
   } else {
     say.log(`[statdraft] ${mons.length} Pokémon dans la roulette, top 10 % = BST >= ${jackpotMin}.`);
     try {
-      const sim = simulate();
-      say.log('[statdraft] Calibrage (stratégie simple, sans modificateur) : moyenne ' + sim.avg.toFixed(0)
-        + ' | ' + Object.keys(TARGETS).map(d => `${d} ${TARGETS[d]} : ${(sim.pass[d] * 100).toFixed(0)} %`).join(' | '));
+      const fmt = sim => 'moyenne ' + sim.avg.toFixed(0) + ' | ' + Object.keys(TARGETS).map(d => `${d} ${TARGETS[d]} : ${(sim.pass[d] * 100).toFixed(0)} %`).join(' | ');
+      say.log('[statdraft] Calibrage (stats cachées, sans modificateur). Hasard pur : ' + fmt(simulate(false)));
+      say.log('[statdraft] Calibrage : vision parfaite des stats (borne haute, un joueur réel est entre les deux) : ' + fmt(simulate(true)));
     } catch (e) { /* log de calibrage : purement informatif */ }
   }
 
   // Simulation de calibrage : à chaque tirage, prend la stat la plus au-dessus de la moyenne de sa case.
-  function simulate() {
+  function simulate(perfect) {
     const mean = {};
     STAT_KEYS.forEach(k => { mean[k] = mons.reduce((s, m) => s + stats.get(m.id)[k], 0) / mons.length; });
     const N = 4000;
@@ -189,7 +190,8 @@ function createStatDraft({ io, app, games, supabase, createAuthClient, pool, ent
       for (let r = 0; r < ROUNDS; r++) {
         const st = stats.get(mons[randomInt(mons.length)].id);
         let best = null;
-        left.forEach(k => { if (best === null || st[k] - mean[k] > st[best] - mean[best]) best = k; });
+        if (perfect) left.forEach(k => { if (best === null || st[k] - mean[k] > st[best] - mean[best]) best = k; });
+        else { const arr = [...left]; best = arr[randomInt(arr.length)]; }
         left.delete(best);
         sum += st[best];
       }
@@ -353,7 +355,8 @@ function createStatDraft({ io, app, games, supabase, createAuthClient, pool, ent
     sd.round += 1;
     sd.phase = 'spin';
     sd.cands = drawCands(game, sd.round);
-    sd.hidden = hasMod(sd, 'fog') ? sample(STAT_KEYS, FOG_HIDDEN) : [];
+    const shown = hasMod(sd, 'scout') ? sample(STAT_KEYS, SCOUT_REVEALED) : [];
+    sd.hidden = STAT_KEYS.filter(k => !shown.includes(k)); // par défaut, TOUTES les stats sont cachées
     Object.keys(sd.builds).forEach(k => { sd.builds[k].locked = false; sd.builds[k].candIdx = 0; sd.builds[k].lastPick = null; });
     sd.wheel = makeWheel(sd.cands[0]);
     sd.phaseEndsAt = Date.now() + TIMING.spinMs;
@@ -393,6 +396,7 @@ function createStatDraft({ io, app, games, supabase, createAuthClient, pool, ent
       stat: statKey, slot: slotKey, base, value, bonuses,
       cross: statKey !== slotKey,
       auto: !!auto,
+      allStats: { ...stats.get(cand.id) }, // dévoilées avec le choix (jamais avant)
       pokemon: { id: cand.id, name: cand.name, sprite: cand.shiny ? shinySpriteUrl(cand.id) : spriteUrl(cand.id), shiny: cand.shiny }
     };
     build.slots[slotKey] = item;

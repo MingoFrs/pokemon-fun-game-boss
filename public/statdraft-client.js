@@ -89,7 +89,7 @@
       const n = typeof lastLobbyPlayers !== 'undefined' ? lastLobbyPlayers.length : 1;
       gamemodeHintEl.textContent = S.mods.includes('team') && n < 2
         ? 'Frankenstein nécessite au moins 2 joueurs.'
-        : '6 tirages : à chaque roulette, choisis UNE stat du Pokémon — elle remplit la case du même nom. Atteins l\'objectif de la difficulté.';
+        : '6 tirages : les stats du Pokémon sont cachées. Devine sa meilleure stat : elle remplit la case du même nom. Atteins l\'objectif de la difficulté.';
     }
   }
 
@@ -195,11 +195,21 @@
   // ------------------------------------------------------------------
   // Roulette
   // ------------------------------------------------------------------
+  const pointerEl = document.querySelector('#sd-stage .sd-pointer');
+  const easeOut = t => 1 - Math.pow(1 - t, 4); // décélération progressive : vitesse visible longtemps, arrêt doux
+
+  function tickPointer() {
+    if (!pointerEl) return;
+    pointerEl.classList.add('sd-pointer--tick');
+    setTimeout(() => pointerEl.classList.remove('sd-pointer--tick'), 70);
+  }
+
   function spinWheel(wheel, ms, done) {
     const token = ++S.spinToken;
     S.spinning = true;
     el.hub.innerHTML = '<span class="sd-hub__q">?</span>';
     el.wheel.innerHTML = '';
+    el.wheel.classList.remove('sd-wheel--landed');
     const n = wheel.items.length;
     const step = 360 / n;
     wheel.items.forEach((it, i) => {
@@ -209,20 +219,21 @@
       const img = document.createElement('img');
       img.src = it.sprite;
       img.alt = '';
-      img.loading = 'eager';
       seg.appendChild(img);
       el.wheel.appendChild(seg);
     });
+    const reduce = document.documentElement.classList.contains('reduce-motion');
+    // 6 tours + arrêt sur la case gagnante (léger décalage dans la case pour un arrêt naturel).
+    const finalRot = 360 * 6 + ((360 - wheel.winnerIndex * step) % 360) + (Math.random() - 0.5) * step * 0.5;
+    const dur = reduce ? 0 : Math.max(1500, ms - 600);
     el.wheel.style.transition = 'none';
     el.wheel.style.transform = 'rotate(0deg)';
-    void el.wheel.offsetWidth; // force le point de départ avant la transition
-    const reduce = document.documentElement.classList.contains('reduce-motion');
-    const final = 360 * 5 + ((360 - wheel.winnerIndex * step) % 360);
-    const dur = reduce ? 0 : Math.max(800, ms - 700);
-    el.wheel.style.transition = reduce ? 'none' : `transform ${dur}ms cubic-bezier(0.12, 0.7, 0.12, 1)`;
-    el.wheel.style.transform = `rotate(${final}deg)`;
-    setTimeout(() => {
-      if (token !== S.spinToken) return;
+
+    let finished = false;
+    const land = () => {
+      if (finished || token !== S.spinToken) return;
+      finished = true;
+      el.wheel.style.transform = `rotate(${finalRot}deg)`;
       S.spinning = false;
       const w = wheel.items[wheel.winnerIndex];
       el.hub.innerHTML = '';
@@ -231,9 +242,29 @@
       img.alt = w.name;
       el.hub.appendChild(img);
       el.wheel.classList.add('sd-wheel--landed');
-      setTimeout(() => el.wheel.classList.remove('sd-wheel--landed'), 700);
       if (done) done();
-    }, reduce ? 60 : dur + 120);
+    };
+
+    if (reduce) { setTimeout(land, 60); return; }
+    const t0 = performance.now();
+    let lastSeg = 0;
+    let lastTick = 0;
+    const frame = () => {
+      const now = performance.now();
+      if (finished || token !== S.spinToken) return;
+      const t = Math.min(1, (now - t0) / dur);
+      const rot = finalRot * easeOut(t);
+      el.wheel.style.transform = `rotate(${rot}deg)`;
+      const segIdx = Math.floor((rot + step / 2) / step);
+      if (segIdx !== lastSeg) {
+        lastSeg = segIdx;
+        if (now - lastTick > 90) { lastTick = now; tickPointer(); } // pas de tic quand ça défile trop vite
+      }
+      if (t < 1) requestAnimationFrame(frame);
+      else land();
+    };
+    requestAnimationFrame(frame);
+    setTimeout(land, dur + 400); // onglet en arrière-plan (rAF suspendu) : on atterrit quand même
   }
 
   // ------------------------------------------------------------------
@@ -293,7 +324,7 @@
       const tag = document.createElement('span');
       tag.className = 'sd-opt__tag';
       if (filled && !S.jokerOn) tag.textContent = 'rempli';
-      else if (!o.hidden && !S.jokerOn && o.bonuses.length) tag.textContent = o.bonuses.map(b => (b === 'type' ? '🎯' : '✨')).join('');
+      else if (!S.jokerOn && o.bonuses.length) tag.textContent = o.bonuses.map(b => (b === 'type' ? '🎯' : '✨')).join('');
       row.append(label, bar, val, tag);
       row.addEventListener('click', () => {
         if (!canAct()) return;
@@ -500,7 +531,7 @@
       if (S.config && S.config.team && !isMyTurnToPick()) txt = `${sidName(S.chooserSid)} choisit pour l'équipe.`;
       else if (S.my && S.my.locked) txt = 'Choix verrouillé. En attente des autres…';
       else if (S.config && S.config.team) txt = 'À toi de choisir pour l\'équipe !';
-      else txt = 'Choisis une stat : elle ira dans la case du même nom.';
+      else txt = 'Stats cachées : à toi de deviner où ce Pokémon est fort.';
     } else if (S.phase === 'reveal') txt = 'Choix révélés.';
     el.status.textContent = txt;
   }
@@ -526,7 +557,22 @@
       const bonus = pk.bonuses && pk.bonuses.length ? ` ${pk.bonuses.map(b => (b === 'type' ? '🎯' : '✨')).join('')}` : '';
       const cross = pk.cross ? ` → ${LABELS[pk.slot]} 🃏` : '';
       what.textContent = `${pk.pokemon.name} · ${LABELS[pk.stat]} ${pk.base}${pk.value !== pk.base ? ' → ' + pk.value : ''}${bonus}${cross}${pk.auto ? ' (auto)' : ''}`;
-      row.append(img, who, what);
+      const info = document.createElement('div');
+      info.className = 'sd-pick__body';
+      info.append(who, what);
+      if (pk.allStats) {
+        const chips = document.createElement('div');
+        chips.className = 'sd-chips sd-pick__stats';
+        KEYS.forEach(k => {
+          const c = document.createElement('span');
+          c.className = 'sd-chip sd-chip--on' + (k === pk.stat ? ' sd-chip--taken' : '');
+          c.textContent = pk.allStats[k];
+          c.title = LABELS[k];
+          chips.appendChild(c);
+        });
+        info.appendChild(chips);
+      }
+      row.append(img, info);
       el.reveal.appendChild(row);
     });
   }
