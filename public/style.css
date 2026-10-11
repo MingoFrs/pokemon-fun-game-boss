@@ -5664,3 +5664,9 @@ html.large-text body { zoom: 1.12; }
 .pokedex-cell__rarity[data-rarity="pseudo_legendaire"] { color: var(--rarity-pseudo); }
 .pokedex-cell__rarity[data-rarity="mega"] { color: var(--rarity-mega); }
 .pokedex-cell__rarity[data-rarity="legendaire"] { color: var(--rarity-legendaire); }
+
+/* ---------- Mot de passe oublié / changement (cf. account-password.js) ---------- */
+.account-forgot { margin: 10px 0 0; text-align: center; }
+.account-pw-msg { margin: 12px 0 0; min-height: 18px; font-size: 13px; text-align: center; color: var(--text-muted); }
+.account-pw-msg--ok { color: var(--accent-bas); }
+.account-pw-msg--error { color: var(--danger); }

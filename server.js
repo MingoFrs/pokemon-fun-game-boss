@@ -720,6 +720,172 @@ app.post('/api/session', async (req, res) => {
   });
 });
 
+// ---------------------------------------------------------------
+// MOT DE PASSE OUBLIÉ / RÉINITIALISATION / CHANGEMENT — Supabase Auth (aucun mot de passe
+// n'est jamais stocké ni journalisé ici).
+//  1. POST /api/forgot-password : envoie l'email Supabase "Reset password". Réponse
+//     TOUJOURS identique que le compte existe ou non (pas d'énumération d'emails).
+//  2. Le lien du mail ramène sur le site avec #access_token=...&type=recovery (flux implicite) ;
+//     le client envoie alors ce jeton + le nouveau mot de passe à POST /api/reset-password.
+//  3. POST /api/profile/password : changement depuis le compte connecté (mot de passe actuel requis).
+// L'URL de retour doit être autorisée dans Supabase > Authentication > URL Configuration.
+// ---------------------------------------------------------------
+const PASSWORD_MIN_LENGTH = 6;
+const PASSWORD_MAX_LENGTH = 72; // limite bcrypt de Supabase Auth
+const passwordRateBuckets = new Map();
+
+function passwordRateLimited(key, max, windowMs) {
+  const now = Date.now();
+  const hits = (passwordRateBuckets.get(key) || []).filter(t => now - t < windowMs);
+  if (hits.length >= max) {
+    passwordRateBuckets.set(key, hits);
+    return true;
+  }
+  hits.push(now);
+  passwordRateBuckets.set(key, hits);
+  return false;
+}
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, hits] of passwordRateBuckets) {
+    const recent = hits.filter(t => now - t < 3600000);
+    if (recent.length) passwordRateBuckets.set(key, recent);
+    else passwordRateBuckets.delete(key);
+  }
+}, 10 * 60 * 1000).unref();
+
+function requestIp(req) {
+  return String(req.get('x-forwarded-for') || '').split(',')[0].trim() || req.ip || 'inconnue';
+}
+
+// Adresse publique du site (lien du mail). PUBLIC_URL (variable d'environnement) en priorité ;
+// sinon déduite de la requête. Supabase refuse de toute façon toute URL hors liste autorisée.
+function publicBaseUrl(req) {
+  if (process.env.PUBLIC_URL) return String(process.env.PUBLIC_URL).replace(/\/+$/, '');
+  const proto = String(req.get('x-forwarded-proto') || req.protocol || 'https').split(',')[0].trim();
+  return `${proto}://${req.get('host')}`;
+}
+
+function passwordProblem(password) {
+  if (typeof password !== 'string' || !password) return 'Mot de passe requis.';
+  if (password.length < PASSWORD_MIN_LENGTH) return `Le mot de passe doit faire au moins ${PASSWORD_MIN_LENGTH} caractères.`;
+  if (password.length > PASSWORD_MAX_LENGTH) return `Le mot de passe doit faire ${PASSWORD_MAX_LENGTH} caractères maximum.`;
+  return null;
+}
+
+// Un jeton issu d'une simple connexion par mot de passe ne peut pas servir à réinitialiser
+// (il faut un jeton de récupération). On ne bloque QUE ce cas clairement identifié : si le jeton
+// est illisible, getUser() l'a déjà validé et on laisse passer.
+function isPasswordLoginToken(accessToken) {
+  try {
+    const payload = JSON.parse(Buffer.from(accessToken.split('.')[1], 'base64url').toString('utf8'));
+    const methods = Array.isArray(payload.amr) ? payload.amr.map(a => a && a.method) : [];
+    return methods.length > 0 && methods.every(m => m === 'password');
+  } catch (err) {
+    return false;
+  }
+}
+
+app.post('/api/forgot-password', async (req, res) => {
+  if (!requireSupabase(res)) return;
+  const email = String((req.body || {}).email || '').trim().toLowerCase();
+  if (!email || email.length > 254 || !email.includes('@')) {
+    res.status(400).json({ error: 'Adresse email invalide.' });
+    return;
+  }
+  if (passwordRateLimited('forgot-ip:' + requestIp(req), 10, 3600000) || passwordRateLimited('forgot-mail:' + email, 3, 3600000)) {
+    res.status(429).json({ error: 'Trop de demandes : réessaie dans un moment.' });
+    return;
+  }
+  try {
+    const { error } = await createAuthClient().auth.resetPasswordForEmail(email, { redirectTo: publicBaseUrl(req) + '/' });
+    if (error) {
+      console.error('[comptes] mot de passe oublié', { status: error.status, code: error.code, message: error.message });
+      if (error.status === 429 || error.code === 'over_email_send_rate_limit') {
+        res.status(429).json({ error: "Trop d'emails envoyés pour le moment : réessaie plus tard." });
+        return;
+      }
+    }
+  } catch (err) {
+    console.error('[comptes] mot de passe oublié', err.message);
+  }
+  res.json({ ok: true }); // identique que l'email existe ou non
+});
+
+app.post('/api/reset-password', async (req, res) => {
+  if (!requireSupabase(res)) return;
+  const { accessToken, password } = req.body || {};
+  if (!accessToken || typeof accessToken !== 'string') {
+    res.status(400).json({ error: 'Lien invalide.' });
+    return;
+  }
+  const problem = passwordProblem(password);
+  if (problem) {
+    res.status(400).json({ error: problem });
+    return;
+  }
+  if (passwordRateLimited('reset-ip:' + requestIp(req), 10, 3600000)) {
+    res.status(429).json({ error: 'Trop de tentatives : réessaie dans un moment.' });
+    return;
+  }
+
+  const { data: { user }, error: userError } = await createAuthClient().auth.getUser(accessToken);
+  if (userError || !user || isPasswordLoginToken(accessToken)) {
+    res.status(401).json({ error: 'Lien expiré ou déjà utilisé : refais une demande.' });
+    return;
+  }
+  const { error: updateError } = await createAuthClient().auth.admin.updateUserById(user.id, { password });
+  if (updateError) {
+    res.status(400).json({ error: updateError.message || "Le mot de passe n'a pas pu être changé." });
+    return;
+  }
+  // Sécurité : une réinitialisation déconnecte toutes les sessions existantes de ce compte.
+  try { await createAuthClient().auth.admin.signOut(accessToken, 'global'); } catch (err) { /* best effort */ }
+  res.json({ ok: true });
+});
+
+app.post('/api/profile/password', async (req, res) => {
+  if (!requireSupabase(res)) return;
+  const { accessToken, currentPassword, newPassword } = req.body || {};
+  if (!accessToken || typeof currentPassword !== 'string' || !currentPassword) {
+    res.status(400).json({ error: 'Mot de passe actuel requis.' });
+    return;
+  }
+  const problem = passwordProblem(newPassword);
+  if (problem) {
+    res.status(400).json({ error: problem });
+    return;
+  }
+
+  const { data: { user }, error: userError } = await createAuthClient().auth.getUser(accessToken);
+  if (userError || !user || !user.email) {
+    res.status(401).json({ error: 'Session invalide : reconnecte-toi.' });
+    return;
+  }
+  if (passwordRateLimited('chgpwd:' + user.id, 5, 600000)) {
+    res.status(429).json({ error: 'Trop de tentatives : réessaie dans quelques minutes.' });
+    return;
+  }
+  if (currentPassword === newPassword) {
+    res.status(400).json({ error: 'Le nouveau mot de passe doit être différent de l\'actuel.' });
+    return;
+  }
+  // Vérifie le mot de passe actuel auprès de Supabase (instance jetable : aucune session conservée).
+  const { error: signInError } = await createAuthClient().auth.signInWithPassword({ email: user.email, password: currentPassword });
+  if (signInError) {
+    res.status(400).json({ error: 'Mot de passe actuel incorrect.' });
+    return;
+  }
+  const { error: updateError } = await createAuthClient().auth.admin.updateUserById(user.id, { password: newPassword });
+  if (updateError) {
+    res.status(400).json({ error: updateError.message || "Le mot de passe n'a pas pu être changé." });
+    return;
+  }
+  // Déconnecte les AUTRES appareils ; la session courante reste valide.
+  try { await createAuthClient().auth.admin.signOut(accessToken, 'others'); } catch (err) { /* best effort */ }
+  res.json({ ok: true });
+});
+
 // Change l'avatar du compte connecté. L'identité est vérifiée via accessToken (jamais un
 // id envoyé tel quel par le client) : un joueur ne peut modifier que SON PROPRE profil.
 app.post('/api/profile/avatar', async (req, res) => {

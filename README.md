@@ -105,6 +105,20 @@ Au démarrage, le serveur affiche le nombre de Pokémon dans la roulette et un *
 
 Route HTTP : `GET /api/statdraft/config` → `{ ready, modifiers, targets, statKeys, statLabels, rounds }`.
 
+## Comptes : mot de passe oublié et changement
+
+Les comptes passent par Supabase Auth ; le serveur ne voit ni ne stocke jamais de mot de passe.
+
+- **Mot de passe oublié :** lien « Mot de passe oublié ? » sous le formulaire de connexion (Réglages → Compte). `POST /api/forgot-password` déclenche l'email Supabase ; la réponse est identique que l'email existe ou non. Limites : 3 demandes/heure par email, 10/heure par IP.
+- **Nouveau mot de passe :** le lien du mail ramène sur le site avec `#access_token=…&type=recovery`. Le client affiche le formulaire (6 à 72 caractères), puis `POST /api/reset-password`. Toutes les sessions du compte sont déconnectées. Le jeton est effacé de la barre d'adresse.
+- **Changement connecté :** Réglages → Compte → sous-onglet **Mot de passe** (mot de passe actuel requis, `POST /api/profile/password`). Les autres appareils sont déconnectés.
+- **Pseudo visible dans Supabase :** un trigger (`supabase-display-name.sql`, déjà appliqué) copie `profiles.pseudo` dans `Authentication → Users → Display name`, pour les comptes existants et les nouveaux.
+
+À configurer côté Supabase / Render :
+1. **Authentication → URL Configuration :** Site URL = `https://pokeroute.onrender.com` et `https://pokeroute.onrender.com/**` dans Redirect URLs (sinon le lien du mail ne ramène pas sur le jeu).
+2. **Authentication → Emails → SMTP Settings :** activer un SMTP personnalisé. Le serveur d'envoi par défaut de Supabase n'écrit qu'aux membres de ton équipe Supabase et est limité à 2 emails par heure : sans SMTP personnalisé, tes amis ne recevront pas le mail.
+3. *(Optionnel)* variable d'environnement `PUBLIC_URL=https://pokeroute.onrender.com` sur Render pour fixer l'adresse mise dans le mail (sinon elle est déduite de la requête).
+
 ## Architecture
 
 ```
@@ -131,7 +145,8 @@ pokeroute/
     ├── style.css           # thème sombre
     ├── statdraft.css       # styles du mode Roulette de Stats
     ├── client.js           # logique socket côté navigateur
-    └── statdraft-client.js # client du mode Roulette de Stats (chargé après client.js)
+    ├── statdraft-client.js # client du mode Roulette de Stats (chargé après client.js)
+    └── account-password.js # mot de passe oublié / changement (chargé après client.js)
 ```
 
 ## Données serveur

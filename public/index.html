@@ -1044,6 +1044,35 @@
             <input id="account-login-password" type="password" autocomplete="current-password">
           </div>
           <button id="btn-account-login" type="button" class="btn btn--haut btn--block">Se connecter</button>
+          <p class="account-forgot"><button id="btn-account-forgot" type="button" class="link-btn">Mot de passe oublié ?</button></p>
+          <p id="account-login-msg" class="account-pw-msg" role="status"></p>
+        </div>
+
+        <!-- Mot de passe oublié : envoi du lien par email (cf. account-password.js) -->
+        <div id="account-form-forgot" class="screen--hidden">
+          <p class="account-history-hint">Entre l'email de ton compte : tu recevras un lien pour choisir un nouveau mot de passe.</p>
+          <div class="field">
+            <label for="account-forgot-email">Email</label>
+            <input id="account-forgot-email" type="email" autocomplete="username" placeholder="ton@email.com">
+          </div>
+          <button id="btn-account-forgot-send" type="button" class="btn btn--haut btn--block">Envoyer le lien</button>
+          <p class="account-forgot"><button id="btn-account-forgot-back" type="button" class="link-btn">← Retour à la connexion</button></p>
+          <p id="account-forgot-msg" class="account-pw-msg" role="status"></p>
+        </div>
+
+        <!-- Nouveau mot de passe : affiché quand on arrive depuis le lien reçu par email -->
+        <div id="account-form-reset" class="screen--hidden">
+          <p class="account-history-hint">Choisis ton nouveau mot de passe.</p>
+          <div class="field">
+            <label for="account-reset-password">Nouveau mot de passe</label>
+            <input id="account-reset-password" type="password" autocomplete="new-password">
+          </div>
+          <div class="field">
+            <label for="account-reset-confirm">Confirmer</label>
+            <input id="account-reset-confirm" type="password" autocomplete="new-password">
+          </div>
+          <button id="btn-account-reset-save" type="button" class="btn btn--haut btn--block">Enregistrer le mot de passe</button>
+          <p id="account-reset-msg" class="account-pw-msg" role="status"></p>
         </div>
 
         <div id="account-form-register" class="screen--hidden">
@@ -1083,6 +1112,7 @@
             <button type="button" class="settings-subtab" data-account-subpage="stats" role="tab" aria-selected="false">Stats</button>
             <button type="button" class="settings-subtab" data-account-subpage="friends" role="tab" aria-selected="false">Amis</button>
             <button type="button" class="settings-subtab" data-account-subpage="avatar" role="tab" aria-selected="false">Avatar</button>
+            <button type="button" class="settings-subtab" data-account-subpage="password" role="tab" aria-selected="false">Mot de passe</button>
           </div>
 
           <div class="account-subpage" data-account-subpage="history">
@@ -1142,6 +1172,24 @@
             <p class="settings-section__title">Choisir un avatar</p>
             <input id="account-avatar-search" type="text" class="account-avatar-search" placeholder="Rechercher (ex: morty, red, korrina)...">
             <div id="account-avatar-grid" class="account-avatar-grid"></div>
+          </div>
+
+          <div class="account-subpage screen--hidden" data-account-subpage="password">
+            <p class="account-history-hint">Change le mot de passe de ton compte. Les autres appareils seront déconnectés.</p>
+            <div class="field">
+              <label for="account-pw-current">Mot de passe actuel</label>
+              <input id="account-pw-current" type="password" autocomplete="current-password">
+            </div>
+            <div class="field">
+              <label for="account-pw-new">Nouveau mot de passe</label>
+              <input id="account-pw-new" type="password" autocomplete="new-password">
+            </div>
+            <div class="field">
+              <label for="account-pw-confirm">Confirmer le nouveau mot de passe</label>
+              <input id="account-pw-confirm" type="password" autocomplete="new-password">
+            </div>
+            <button id="btn-account-pw-save" type="button" class="btn btn--haut btn--block">Changer le mot de passe</button>
+            <p id="account-pw-msg" class="account-pw-msg" role="status"></p>
           </div>
         </div>
 
@@ -1261,6 +1309,7 @@
 <script src="client.js?v=17"></script>
 <script src="fly-client.js?v=3"></script>
 <script src="statdraft-client.js?v=2"></script>
+<script src="account-password.js?v=1"></script>
 <script src="share-result.js?v=1"></script>
 <script src="daily-client.js?v=6"></script>
 <script src="quests-client.js?v=1"></script>
