@@ -1,4 +1,4 @@
-# Route du Boss — MVP multijoueur
+# Pokéroute — MVP multijoueur
 
 Lobby multijoueur temps réel + partie jouable : tours, choix HAUT/BAS, Pokémon, points, équipe, route, boss Arceus.
 
@@ -38,6 +38,73 @@ npm run dev
 10. Répéter jusqu'au TOUR 6/6 → équipe complète (6 slots remplis) → écran de fin : score final, **VICTOIRE si `score >= objectif du boss affiché`**, sinon DÉFAITE. Vérifier avec un boss facile (Lugia/Ho-Oh, 1500 pts) qu'une partie sans légendaire peut gagner, et avec un boss extrême (Koraidon/Miraidon/Arceus, 3100 pts) que la victoire reste possible mais nettement plus dure.
 11. **Quitter** ramène à l'écran d'accueil.
 
+## Mode « Roulette de Stats »
+
+Un mode à part, choisi dans le lobby (bouton **Roulette de Stats**). Il n'utilise ni boss, ni route, ni équipe : on construit une **base stats**.
+
+### Principe
+- **6 tirages**, un par stat : PV, Attaque, Défense, Atq. Spé., Déf. Spé., Vitesse.
+- À chaque tirage, une **roulette** (roue de sprites animée) désigne un Pokémon, **le même pour tous les joueurs**. On voit son sprite, son nom et ses types, mais **toutes ses stats sont cachées** (« ? ») : il faut deviner où il est fort.
+- Chaque joueur choisit **une stat** du Pokémon. Elle remplit la case **du même nom** de sa base stats (l'Attaque du Pokémon va dans la case Attaque, etc.). Une case remplie est définitive. La valeur réelle est révélée une fois le choix fait, puis les 6 stats du Pokémon sont dévoilées à la fin du tirage.
+- Les choix sont secrets jusqu'à ce que tout le monde ait validé (ou que le temps soit écoulé : 30 s, sinon une case au hasard est remplie).
+- **Objectif :** total des 6 cases ≥ objectif de la difficulté choisie dans le lobby. Le classement se fait au total, ex æquo possibles. Jouable seul ou à plusieurs.
+
+| Difficulté | Objectif (total des 6 stats) |
+|---|---|
+| Facile | 500 |
+| Moyen | 550 |
+| Difficile | 625 |
+| Extrême | 700 |
+
+### Pool de tirage
+Tout le roster du jeu (`POKEMON_POOLS`), **Méga-Évolutions incluses** (y compris Z-A, ids ≥ 10000). Tirage **uniforme** (un légendaire sort aussi souvent qu'un Pokémon commun) et **sans doublon** dans une partie. Les Méga sont signalées par « ⚡ Méga-Évolution » sur la carte.
+
+### Modificateurs (au choix de l'hôte, cumulables)
+| Modificateur | Effet |
+|---|---|
+| 🔄 Relances | 2 relances de roulette par partie |
+| 🃏 Joker | 1 fois par partie : place une stat dans une autre case que la sienne |
+| 🎯 Cases typées | Chaque case a un type tiré au hasard : ×1,2 si le Pokémon tiré a ce type |
+| 🔍 Éclaireur | 2 stats sur 6, tirées au hasard, sont révélées à chaque tirage |
+| ⏱️ Éclair | 10 s pour choisir au lieu de 30 s |
+| 💎 Jackpot final | Le 6ᵉ tirage est un Pokémon du top 10 % de BST |
+| ✨ Chromatique | 20 % de chances qu'un Pokémon tiré soit chromatique : stats ×1,15 |
+| 🧬 Frankenstein | Une seule base stats pour toute l'équipe, choix à tour de rôle (2 joueurs minimum), victoire commune |
+
+Une partie **avec modificateur** est hors-classement (aucune XP), comme pour les autres modes. Sans modificateur : XP de participation + bonus de victoire si l'objectif est atteint.
+
+### Données requises
+Il faut les 6 stats de base de chaque Pokémon. Le module lit `data/pokemon-stats.json` (format tolérant : `hp/attack/defense/special-attack/special-defense/speed`, ou abréviations, ou tableau de 6 valeurs, ou format PokéAPI brut) et **vérifie que la somme des 6 stats égale le BST** de l'entrée. Si ce fichier ne contient pas les stats détaillées, le serveur le signale au démarrage (`[statdraft] Base stats par statistique introuvables`) et le mode est désactivé. Dans ce cas :
+
+```bash
+node fetch-statdraft-stats.js   # Node 18+, génère data/statdraft-stats.json (espèces + formes/Méga)
+```
+
+Au démarrage, le serveur affiche le nombre de Pokémon dans la roulette et un **calibrage** des objectifs : pourcentage de réussite par difficulté avec un choix au hasard (borne basse) et avec une vision parfaite des stats (borne haute). Les objectifs se règlent dans `TARGETS` (`statdraft-game.js`).
+
+### Limites connues
+- Pas de spectateurs : une partie de ce mode déjà lancée ne peut pas être rejointe ni observée.
+- Parties jamais persistées : un redémarrage du serveur les efface (la reconnexion d'un joueur en cours de partie fonctionne, tant que le serveur tourne).
+- Un joueur qui quitte en cours de partie est retiré, les autres terminent.
+
+### Événements Socket.IO du mode
+| Événement | Sens | Payload |
+|---|---|---|
+| `sd_set_modifiers` | client → serveur (hôte, lobby) | `{ modifiers: [clé, …] }` |
+| `sd_modifiers_updated` | serveur → salon | `{ modifiers }` |
+| `sd_started` | serveur → joueur | `{ gameId, meSid, hostId, config, players }` |
+| `sd_round` | serveur → salon | `{ round, rounds, wheel, pokemon, hidden, spinMs, pickMs, chooserSid, players }` — `pokemon.options` ne contient aucune valeur de stat pour les stats cachées |
+| `sd_choose` | serveur → salon | `{ pickMs }` (fin de la roulette, début du chrono) |
+| `sd_pick` | client → serveur | `{ stat, slot? }` — `slot` ≠ `stat` seulement avec le Joker |
+| `sd_pick_ok` | serveur → joueur | `{ item, me }` (confirmation privée) |
+| `sd_reroll` | client → serveur / serveur → joueur (salon en équipe) | — / `{ round, wheel, pokemon, rerollsLeft, spinMs }` |
+| `sd_players` | serveur → salon | `{ players, chooserSid }` (qui a validé, présence) |
+| `sd_reveal` | serveur → salon | `{ round, picks, builds, revealMs, last }` |
+| `sd_final` | serveur → salon | `{ target, difficulty, mods, team, ranked, results, winners, best }` |
+| `sd_state` | serveur → joueur | état complet pour reconstruire l'écran après reconnexion |
+
+Route HTTP : `GET /api/statdraft/config` → `{ ready, modifiers, targets, statKeys, statLabels, rounds }`.
+
 ## Architecture
 
 ```
@@ -53,14 +120,18 @@ Le serveur est seul autorité sur `score`, `players`, `status`, `turn`. Le clien
 ## Structure
 
 ```
-route-du-boss/
+pokeroute/
 ├── package.json
-├── server.js          # Express + Socket.IO + état des parties
+├── server.js               # Express + Socket.IO + état des parties
+├── statdraft-game.js       # mode Roulette de Stats (module serveur isolé)
+├── fetch-statdraft-stats.js # (secours) génère data/statdraft-stats.json depuis PokéAPI
 ├── README.md
 └── public/
-    ├── index.html      # écran accueil + lobby
-    ├── style.css        # thème sombre
-    └── client.js        # logique socket côté navigateur
+    ├── index.html          # écran accueil + lobby + écrans de jeu
+    ├── style.css           # thème sombre
+    ├── statdraft.css       # styles du mode Roulette de Stats
+    ├── client.js           # logique socket côté navigateur
+    └── statdraft-client.js # client du mode Roulette de Stats (chargé après client.js)
 ```
 
 ## Données serveur

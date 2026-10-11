@@ -304,7 +304,7 @@ function applyAvatarFrame(imgEl, frame) {
   if (frame) imgEl.classList.add(`avatar-frame--${frame}`);
 }
 
-const GAME_MODE_LABELS = { normal: 'Route du Boss', admin: 'Admin vs Joueur', guess: 'Devine le Pokémon', auction: 'Draft/Enchères' };
+const GAME_MODE_LABELS = { normal: 'Pokéroute', admin: 'Admin vs Joueur', guess: 'Devine le Pokémon', auction: 'Draft/Enchères' };
 const RESULT_LABELS = { victory: 'Victoire', defeat: 'Défaite', participation: 'Terminé' };
 
 // Détail "équipe complète" d'une ligne d'historique (cf. colonne `team` ajoutée à
@@ -983,7 +983,7 @@ accountPokedexSearchEl.addEventListener('input', () => {
 });
 
 // ---------- Stats de profil ----------
-const STATS_MODE_LABELS = { normal: 'Route du Boss', admin: 'Admin vs Joueur', guess: 'Devine le Pokémon', auction: 'Draft/Enchères' };
+const STATS_MODE_LABELS = { normal: 'Pokéroute', admin: 'Admin vs Joueur', guess: 'Devine le Pokémon', auction: 'Draft/Enchères' };
 const STATS_DIFFICULTY_LABELS = { easy: 'Facile', medium: 'Moyen', hard: 'Difficile', extreme: 'Extrême' };
 
 async function fetchAndRenderProfileStats(account) {

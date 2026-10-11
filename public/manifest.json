@@ -1,6 +1,6 @@
 {
-  "name": "Route du Boss",
-  "short_name": "Route du Boss",
+  "name": "Pokéroute",
+  "short_name": "Pokéroute",
   "description": "Choisis HAUT ou BAS à chaque tour. Capture des Pokémon. Atteins le boss.",
   "lang": "fr",
   "start_url": "/",

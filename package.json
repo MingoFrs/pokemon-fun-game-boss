@@ -1,7 +1,7 @@
 {
-  "name": "route-du-boss",
+  "name": "pokeroute",
   "version": "0.1.0",
-  "description": "Jeu multijoueur temps réel - Route du Boss (inspiré Pokémon)",
+  "description": "Jeu multijoueur temps réel - Pokéroute (inspiré Pokémon)",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

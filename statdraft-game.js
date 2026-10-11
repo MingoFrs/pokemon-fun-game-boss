@@ -149,7 +149,8 @@ function createStatDraft({ io, app, games, supabase, createAuthClient, pool, ent
   const timers = new WeakMap();
 
   // ---- données ----
-  const basePool = (pool || []).filter(p => p && Number.isInteger(p.id) && p.id < 10000);
+  // TOUT le roster : espèces de base + Méga-Évolutions (id >= 10000, y compris Z-A), comme dans POKEMON_POOLS.
+  const basePool = (pool || []).filter(p => p && Number.isInteger(p.id));
   const stats = loadStatsTable(basePool, entries || [], dataDir);
   const mons = basePool.filter(p => stats.has(p.id)).map(p => ({
     id: p.id, name: p.name, bst: STAT_KEYS.reduce((s, k) => s + stats.get(p.id)[k], 0)
@@ -168,7 +169,7 @@ function createStatDraft({ io, app, games, supabase, createAuthClient, pool, ent
     say.error(`[statdraft] ⚠ Base stats par statistique introuvables (${mons.length}/${basePool.length} Pokémon exploitables). Mode désactivé. `
       + 'Lance "node fetch-statdraft-stats.js" pour générer data/statdraft-stats.json.');
   } else {
-    say.log(`[statdraft] ${mons.length} Pokémon dans la roulette, top 10 % = BST >= ${jackpotMin}.`);
+    say.log(`[statdraft] ${mons.length} Pokémon dans la roulette (dont ${mons.filter(m => m.id >= 10000).length} Méga), top 10 % = BST >= ${jackpotMin}.`);
     try {
       const fmt = sim => 'moyenne ' + sim.avg.toFixed(0) + ' | ' + Object.keys(TARGETS).map(d => `${d} ${TARGETS[d]} : ${(sim.pass[d] * 100).toFixed(0)} %`).join(' | ');
       say.log('[statdraft] Calibrage (stats cachées, sans modificateur). Hasard pur : ' + fmt(simulate(false)));
@@ -273,7 +274,7 @@ function createStatDraft({ io, app, games, supabase, createAuthClient, pool, ent
         finalBySlot: hidden ? null : bySlot
       };
     });
-    return { id: cand.id, name: cand.name, sprite: cand.shiny ? shinySpriteUrl(cand.id) : spriteUrl(cand.id), shiny: cand.shiny, types: cand.types, options };
+    return { id: cand.id, name: cand.name, sprite: cand.shiny ? shinySpriteUrl(cand.id) : spriteUrl(cand.id), shiny: cand.shiny, mega: cand.id >= 10000, types: cand.types, options };
   }
 
   function makeWheel(cand) {

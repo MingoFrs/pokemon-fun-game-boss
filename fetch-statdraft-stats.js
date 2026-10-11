@@ -4,7 +4,9 @@
 const fs = require('fs');
 const path = require('path');
 
-const MAX_ID = 1025;      // formes de base uniquement (les Méga, id >= 10000, ne sont pas dans la roulette)
+const MAX_ID = 1025;      // espèces de base
+const FORM_MIN = 10001;   // formes PokéAPI (Méga incluses) : les ids absents (404) sont simplement ignorés
+const FORM_MAX = 10400;
 const CONCURRENCY = 8;
 const OUT = path.join(__dirname, 'data', 'statdraft-stats.json');
 const MAP = { hp: 'hp', attack: 'atk', defense: 'def', 'special-attack': 'spa', 'special-defense': 'spd', speed: 'spe' };
@@ -19,6 +21,7 @@ async function getOne(id, attempt = 1) {
     if (Object.keys(out).length !== 6) throw new Error('stats incomplètes');
     return out;
   } catch (err) {
+    if (String(err.message).includes('404')) return null; // id de forme inexistant
     if (attempt >= 4) { console.warn(`#${id} ignoré (${err.message})`); return null; }
     await new Promise(r => setTimeout(r, 500 * attempt));
     return getOne(id, attempt + 1);
@@ -27,14 +30,17 @@ async function getOne(id, attempt = 1) {
 
 (async () => {
   const result = {};
-  let next = 1;
+  const ids = [];
+  for (let i = 1; i <= MAX_ID; i++) ids.push(i);
+  for (let i = FORM_MIN; i <= FORM_MAX; i++) ids.push(i);
+  let next = 0;
   let done = 0;
   async function worker() {
-    while (next <= MAX_ID) {
-      const id = next++;
+    while (next < ids.length) {
+      const id = ids[next++];
       const stats = await getOne(id);
       if (stats) result[id] = stats;
-      if (++done % 100 === 0) console.log(`${done}/${MAX_ID}`);
+      if (++done % 100 === 0) console.log(`${done}/${ids.length}`);
     }
   }
   await Promise.all(Array.from({ length: CONCURRENCY }, worker));

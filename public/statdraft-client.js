@@ -287,8 +287,11 @@
     el.cardSprite.src = p.sprite;
     el.cardSprite.alt = p.name;
     el.cardName.textContent = p.name;
-    el.cardShiny.classList.toggle('screen--hidden', !p.shiny);
-    el.cardShiny.textContent = p.shiny ? `✨ Chromatique ×${S.config.shinyMult}` : '';
+    const tags = [];
+    if (p.mega) tags.push('⚡ Méga-Évolution');
+    if (p.shiny) tags.push(`✨ Chromatique ×${S.config.shinyMult}`);
+    el.cardShiny.classList.toggle('screen--hidden', tags.length === 0);
+    el.cardShiny.textContent = tags.join(' · ');
     renderTypeBadges(el.cardTypes, p.types);
 
     el.opts.innerHTML = '';

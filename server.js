@@ -282,7 +282,7 @@ const ACHIEVEMENTS = [
   { key: 'beat_extreme', category: 'difficile', title: "Terreur d'Arceus", label: "Chasseur d'Arceus", description: 'Bats un boss de difficulté extrême.', check: ctx => ctx.beatExtreme },
   { key: 'full_legendary_team', category: 'difficile', title: 'Roi des Légendes', label: 'Équipe de légende', description: 'Termine avec 6 Pokémon légendaires ou pseudo-légendaires.', check: ctx => ctx.fullLegendaryTeam },
   { key: 'auction_full_team', category: 'difficile', title: 'Grand Collectionneur', label: 'Collectionneur', description: 'Termine un Draft/Enchères avec une équipe complète de 6.', check: ctx => ctx.auctionFullTeam },
-  { key: 'three_modes_win', category: 'difficile', title: 'Touche-à-tout', label: 'Polyvalent', description: 'Remporte au moins une partie en Route du Boss, Admin vs Joueur ET Devine le Pokémon.', check: ctx => ['normal', 'admin', 'guess'].every(m => ctx.winModes.has(m)) },
+  { key: 'three_modes_win', category: 'difficile', title: 'Touche-à-tout', label: 'Polyvalent', description: 'Remporte au moins une partie en Pokéroute, Admin vs Joueur ET Devine le Pokémon.', check: ctx => ['normal', 'admin', 'guess'].every(m => ctx.winModes.has(m)) },
   { key: 'win_streak_3', category: 'difficile', title: 'Imparable', label: 'Sur une lancée', description: 'Enchaîne 3 victoires d\'affilée.', check: ctx => ctx.maxWinStreak >= 3 },
   { key: 'first_mega', category: 'facile', title: 'Porteur de Méga-Pierre', label: 'Éveil de Méga-Pierre', description: 'Obtiens un Pokémon en méga-évolution dans ton équipe.', check: ctx => ctx.hasMega },
   { key: 'auction_win', category: 'facile', title: 'Roi des Enchères', label: 'Grand enchérisseur', description: 'Remporte une partie de Draft/Enchères.', check: ctx => ctx.winModes.has('auction') },
@@ -292,7 +292,7 @@ const ACHIEVEMENTS = [
   { key: 'rainbow_team', category: 'difficile', title: 'Arc-en-ciel Vivant', label: 'Équipe arc-en-ciel', description: 'Termine avec une équipe couvrant au moins 5 raretés différentes.', check: ctx => ctx.rainbowTeam },
   { key: 'wins_25', category: 'difficile', title: 'Légende Vivante', label: 'Increvable', description: 'Remporte 25 parties.', check: ctx => ctx.wins >= 25 },
   { key: 'win_streak_5', category: 'difficile', title: 'Invaincu', label: 'Série parfaite', description: 'Enchaîne 5 victoires d\'affilée.', check: ctx => ctx.maxWinStreak >= 5 },
-  { key: 'four_modes_win', category: 'difficile', title: 'Maître Absolu', label: 'Maître absolu', description: 'Remporte au moins une partie dans les 4 modes de jeu (Route du Boss, Admin vs Joueur, Devine le Pokémon, Draft/Enchères).', check: ctx => ['normal', 'admin', 'guess', 'auction'].every(m => ctx.winModes.has(m)) },
+  { key: 'four_modes_win', category: 'difficile', title: 'Maître Absolu', label: 'Maître absolu', description: 'Remporte au moins une partie dans les 4 modes de jeu (Pokéroute, Admin vs Joueur, Devine le Pokémon, Draft/Enchères).', check: ctx => ['normal', 'admin', 'guess', 'auction'].every(m => ctx.winModes.has(m)) },
   { key: 'za_mega_first', category: 'facile', title: 'Pionnier Z-A', label: 'Éveil Z-A', description: 'Obtiens une Méga-Évolution de Pokémon Légendes Z-A dans ton équipe.', check: ctx => ctx.zaMegaIds.size >= 1 },
   { key: 'za_mega_10', category: 'difficile', title: 'Collectionneur Z-A', label: 'Collection Z-A', description: 'Obtiens 10 Méga-Évolutions Z-A différentes (cumul de toutes tes parties).', check: ctx => ctx.zaMegaIds.size >= 10 },
   { key: 'za_mega_all', category: 'difficile', title: 'Maître Méga Z-A', label: 'Méga-Dex Z-A complet', description: `Obtiens les ${ZA_MEGA_COUNT} Méga-Évolutions Z-A (cumul de toutes tes parties).`, check: ctx => ctx.zaMegaIds.size >= ZA_MEGA_COUNT },
@@ -6405,7 +6405,7 @@ const FLY = createFlyGame({
 const { createStatDraft } = require('./statdraft-game');
 const SD = createStatDraft({
   io, app, games, supabase, createAuthClient,
-  pool: Object.values(POKEMON_POOLS).flat(), // { id, name, bst } ; formes de base uniquement (id < 10000), filtrées dans le module
+  pool: Object.values(POKEMON_POOLS).flat(), // { id, name, bst } : tout le roster, Méga incluses (id >= 10000)
   entries: POKEMON_ENTRIES,
   getTypes: flyGetTypes,
   spriteUrl, shinySpriteUrl,
