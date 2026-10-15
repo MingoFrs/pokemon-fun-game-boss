@@ -3031,6 +3031,7 @@ const EVENT_COOLDOWN_TURNS = 2;
 // "réussit" son tirage déclenche l'événement et arrête la boucle (un seul à la fois).
 function maybeTriggerEvent(game, player) {
   if (game.status !== 'playing') return null;
+  if (player.isBot) return null; // faux joueur (cf. matchmaking-bots.js) : jamais d'événement à résoudre, sinon la partie resterait bloquée
   if (player.activeEvent) return null; // déjà un événement en cours -> jamais de cumul
   if (player.eventCooldown > 0) return null; // anti-spam : pas deux événements qui se suivent
 
@@ -3383,7 +3384,7 @@ function resolveTimeRift(game, player, action) {
 // déclenchement et pour le tirage réel au démarrage de l'événement.
 function pickEventOpponent(game, player, extraFilter) {
   const candidates = game.players.filter(p =>
-    p.id !== player.id && !p.activeEvent && (!extraFilter || extraFilter(p))
+    p.id !== player.id && !p.isBot && !p.activeEvent && (!extraFilter || extraFilter(p)) // jamais un faux joueur comme adversaire d'événement
   );
   if (candidates.length === 0) return null;
   return randomFrom(candidates);
@@ -3629,6 +3630,7 @@ function serializeGameForPersistence(game) {
 
 async function persistGame(game) {
   if (!supabase || game.status !== 'playing' || game.gameMode === 'fly' || game.gameMode === 'statdraft') return;
+  if (game.players.some(p => p.isBot)) return; // partie avec faux joueurs : jamais restaurée après un redémarrage
   try {
     await supabase.from('active_games').upsert({
       game_id: game.id,
@@ -4341,6 +4343,12 @@ function finalizePlayerRemoval(game, gameId, leavingPlayer) {
           io.to(partner.id).emit('rare_event_cancelled', { type: shared.type });
         }
       });
+  }
+
+  // Plus aucun humain (il ne reste que des faux joueurs, cf. matchmaking-bots.js) : la partie n'a plus de raison d'exister.
+  if (game.players.length > 0 && game.players.every(p => p.isBot)) {
+    MM.dispose(game);
+    game.players = [];
   }
 
   if (game.players.length === 0) {
@@ -6578,6 +6586,17 @@ const SD = createStatDraft({
   dataDir: path.join(__dirname, 'data'),
   xpParticipation: XP_PARTICIPATION, xpVictoryBonus: XP_VICTORY_BONUS,
   broadcastPlayers: g => broadcastPlayers(g),
+  log: console
+});
+
+// ---- MATCHMAKING + FAUX JOUEURS (bots) : lobby seul -> adversaires simulés qui jouent au hasard, tous modes sauf 'fly' ----
+const { createMatchmaking } = require('./matchmaking-bots');
+const MM = createMatchmaking({
+  io, app, games,
+  avatars: AVATARS,
+  auctionMinBid: AUCTION_MIN_BID,
+  sd: SD,
+  botLabel: process.env.MATCHMAKING_BOT_LABEL === 'off' ? '' : undefined, // 'off' : bots sans le suffixe 🤖
   log: console
 });
 

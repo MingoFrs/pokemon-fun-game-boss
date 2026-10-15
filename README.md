@@ -105,6 +105,27 @@ Au démarrage, le serveur affiche le nombre de Pokémon dans la roulette et un *
 
 Route HTTP : `GET /api/statdraft/config` → `{ ready, modifiers, targets, statKeys, statLabels, rounds }`.
 
+## Matchmaking et faux joueurs
+
+Pour les joueurs seuls : dans son lobby, l'hôte clique sur **🔍 Trouver des adversaires** (visible uniquement s'il est seul, dans un mode compatible). Le serveur simule une recherche de quelques secondes, fait « arriver » des joueurs un par un dans le lobby (avec leur avatar), puis **lance la partie tout seul**. Annulation possible à tout moment ; la recherche s'annule aussi si un autre humain rejoint le lobby ou si le mode change.
+
+| Mode | Bots ajoutés | Rôle du bot |
+|---|---|---|
+| Pokéroute (normal) | 1 à 3 | joue HAUT/BAS au hasard, choisit un objet de départ au hasard |
+| Coop | 1 à 3 | idem |
+| Roulette de Stats | 1 à 3 | choisit une stat au hasard dans une case vide |
+| Admin vs Joueur | 1 | **est l'Admin** (il observe, comme le veut le mode), l'humain joue |
+| Devine le Pokémon | 1 | choisit un Pokémon secret, finit son tour ou tente une réponse au hasard (de plus en plus souvent) |
+| Enchères | 1 | mise au hasard (multiples de 0,5 M, dans son budget) ou passe |
+| Humanité vs Mouche | — | se joue seul par conception : pas de matchmaking |
+
+- **Comment ça marche :** chaque bot est un faux socket qui passe par **exactement les mêmes handlers que les humains** (`join_game`, `player_choice`, `guess_attempt`, `auction_bid`, `sd_pick`…). Aucune règle n'est dupliquée et un bot ne peut pas tricher : il joue à partir de l'état serveur, au hasard, après un délai de « réflexion » aléatoire.
+- **Transparence :** le nom des bots se termine par 🤖. Variable d'environnement `MATCHMAKING_BOT_LABEL=off` pour retirer ce suffixe.
+- **Hors classement :** les bots n'ont pas de compte (aucune XP, aucun historique pour eux). Aucun événement rare ne les cible ni ne les implique (sinon la partie attendrait une réponse qu'ils ne donneraient pas).
+- **Nettoyage :** si l'humain quitte, la partie (et ses bots) est supprimée ; une partie avec bots n'est jamais restaurée après un redémarrage du serveur.
+- **Évolution prévue :** un vrai matchmaking (file d'attente entre humains) pourra remplacer `startSearch()` dans `matchmaking-bots.js` ; les bots ne serviront alors que de remplissage.
+- Événements : `mm_search` / `mm_cancel` (client → serveur), `mm_state` `{ state: 'searching' | 'ready' | 'idle', total, found, reason?, started? }` (serveur → hôte). Route : `GET /api/matchmaking/config` → `{ modes }`.
+
 ## Comptes : mot de passe oublié et changement
 
 Les comptes passent par Supabase Auth ; le serveur ne voit ni ne stocke jamais de mot de passe.
@@ -138,6 +159,7 @@ pokeroute/
 ├── package.json
 ├── server.js               # Express + Socket.IO + état des parties
 ├── statdraft-game.js       # mode Roulette de Stats (module serveur isolé)
+├── matchmaking-bots.js     # matchmaking simulé + faux joueurs (module serveur isolé)
 ├── fetch-statdraft-stats.js # (secours) génère data/statdraft-stats.json depuis PokéAPI
 ├── README.md
 └── public/
@@ -146,7 +168,8 @@ pokeroute/
     ├── statdraft.css       # styles du mode Roulette de Stats
     ├── client.js           # logique socket côté navigateur
     ├── statdraft-client.js # client du mode Roulette de Stats (chargé après client.js)
-    └── account-password.js # mot de passe oublié / changement (chargé après client.js)
+    ├── account-password.js # mot de passe oublié / changement (chargé après client.js)
+    └── matchmaking-client.js # bouton et écran de recherche d'adversaires (chargé après client.js)
 ```
 
 ## Données serveur

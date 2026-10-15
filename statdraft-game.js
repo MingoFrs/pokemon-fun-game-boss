@@ -596,6 +596,24 @@ function createStatDraft({ io, app, games, supabase, createAuthClient, pool, ent
     if (sd.phase === 'choosing') maybeResolve(game);
   }
 
+  // Coup d'un joueur simulé (cf. matchmaking-bots.js) : une stat au hasard dans une case vide.
+  // Joué ensuite via le vrai handler 'sd_pick' : mêmes validations que pour un humain.
+  function botMove(game, player) {
+    const sd = game.sd;
+    if (!sd || game.status !== 'playing' || sd.phase !== 'choosing') return null;
+    if (!activePlayers(game).includes(player)) return null;
+    const b = buildOf(game, player);
+    if (!b || b.locked) return null;
+    const empty = STAT_KEYS.filter(k => !b.slots[k]);
+    if (!empty.length) return null;
+    return {
+      key: `sd:${sd.round}`,
+      event: 'sd_pick',
+      payload: { stat: empty[randomInt(empty.length)] },
+      maxDelayMs: Math.max(1500, sd.pickMs - 5000) // jamais trop près de la fin du chrono (mode Éclair compris)
+    };
+  }
+
   // ---- sockets ----
   function attach(socket) {
     const ctx = () => {
@@ -674,7 +692,7 @@ function createStatDraft({ io, app, games, supabase, createAuthClient, pool, ent
     });
   }
 
-  return { ready, validateStart, begin, resync, syncLobby, carry, dispose, broadcastPresence, onPlayerRemoved, _internals: { normalizeStats, loadStatsTable, placeValue, STAT_KEYS, TARGETS } };
+  return { ready, validateStart, begin, resync, syncLobby, carry, dispose, broadcastPresence, onPlayerRemoved, botMove, _internals: { normalizeStats, loadStatsTable, placeValue, STAT_KEYS, TARGETS, TIMING } };
 }
 
 module.exports = { createStatDraft, normalizeStats, STAT_KEYS, TARGETS, MODIFIERS };
