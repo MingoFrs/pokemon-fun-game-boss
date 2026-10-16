@@ -107,7 +107,13 @@ Route HTTP : `GET /api/statdraft/config` → `{ ready, modifiers, targets, statK
 
 ## Matchmaking et faux joueurs
 
-Pour les joueurs seuls : dans son lobby, l'hôte clique sur **🔍 Trouver des adversaires** (visible uniquement s'il est seul, dans un mode compatible). Le serveur simule une recherche de quelques secondes, fait « arriver » des joueurs un par un dans le lobby (avec leur avatar), puis **lance la partie tout seul**. Annulation possible à tout moment ; la recherche s'annule aussi si un autre humain rejoint le lobby ou si le mode change.
+Pour les joueurs seuls : dans son lobby, l'hôte clique sur **🔍 Trouver des adversaires** (visible uniquement s'il est seul, dans un mode compatible).
+
+1. **Vrai matchmaking (30 s) :** les lobbies solos qui cherchent la **même chose** (même mode, même difficulté, mêmes modificateurs) sont regroupés dans le lobby le plus ancien. Le joueur déplacé passe par le vrai `join_game` (comme s'il avait saisi un code : pseudo, compte et jeton de reconnexion conservés, son ancien lobby est supprimé). Le type d'enchères et la durée de tour sont ceux de la salle.
+2. **Démarrage :** salle pleine (4 joueurs en Pokéroute / Coop / Roulette de Stats, 2 en Admin / Devine / Enchères) → la partie démarre aussitôt. Avec au moins 2 humains, elle démarre 10 s après la dernière arrivée, ou à la fin des 30 s : **aucun bot quand de vrais joueurs sont là**.
+3. **Personne au bout de 30 s :** des bots (joueurs simulés) arrivent un par un dans le lobby, puis la partie se lance toute seule.
+
+Un ami qui rejoint avec le code pendant la recherche est compté comme un vrai joueur. L'hôte peut annuler (les humains déjà réunis restent ensemble dans le lobby, sans bots) ; un invité qui annule quitte le lobby. La recherche s'annule aussi si le mode, la difficulté ou les modificateurs changent.
 
 | Mode | Bots ajoutés | Rôle du bot |
 |---|---|---|
@@ -123,8 +129,8 @@ Pour les joueurs seuls : dans son lobby, l'hôte clique sur **🔍 Trouver des a
 - **Transparence :** le nom des bots se termine par 🤖. Variable d'environnement `MATCHMAKING_BOT_LABEL=off` pour retirer ce suffixe.
 - **Hors classement :** les bots n'ont pas de compte (aucune XP, aucun historique pour eux). Aucun événement rare ne les cible ni ne les implique (sinon la partie attendrait une réponse qu'ils ne donneraient pas).
 - **Nettoyage :** si l'humain quitte, la partie (et ses bots) est supprimée ; une partie avec bots n'est jamais restaurée après un redémarrage du serveur.
-- **Évolution prévue :** un vrai matchmaking (file d'attente entre humains) pourra remplacer `startSearch()` dans `matchmaking-bots.js` ; les bots ne serviront alors que de remplissage.
-- Événements : `mm_search` / `mm_cancel` (client → serveur), `mm_state` `{ state: 'searching' | 'ready' | 'idle', total, found, reason?, started? }` (serveur → hôte). Route : `GET /api/matchmaking/config` → `{ modes }`.
+- **Réglages :** `WAIT_MS` (30 s), `GROUP_WAIT_MS` (10 s), `MODE_PLAN` (taille des salles, nombre de bots, temps de réflexion) en haut de `matchmaking-bots.js`.
+- Événements : `mm_search` / `mm_cancel` (client → serveur), `mm_state` `{ state: 'searching' | 'ready' | 'idle', phase: 'humans' | 'bots' | 'ready', total, count, found: [{ name, avatar, bot }], endsInMs, isHost, reason?, started?, left? }` (serveur → chaque humain de la salle). Route : `GET /api/matchmaking/config` → `{ modes }`.
 
 ## Comptes : mot de passe oublié et changement
 

@@ -3,8 +3,13 @@
 // MATCHMAKING + FAUX JOUEURS (bots) — pour les joueurs seuls dans un lobby.
 //
 // Principe : depuis un lobby où il est seul, l'hôte clique sur "Trouver des adversaires".
-// Le serveur simule une recherche (quelques secondes), fait "arriver" des joueurs simulés un à un
-// dans le lobby, puis lance la partie automatiquement. Les bots jouent AU HASARD.
+//  1. VRAI MATCHMAKING (30 s) : les lobbies solos qui cherchent la MÊME chose (mode, difficulté,
+//     modificateurs) sont regroupés dans le lobby le plus ancien (la "salle"). Le joueur déplacé
+//     passe par le vrai handler 'join_game' (identique à rejoindre avec un code).
+//  2. Quand la salle est pleine (4 en multi, 2 pour admin/devine/enchères) elle démarre. Avec au
+//     moins 2 humains, elle démarre 10 s après la dernière arrivée (ou à la fin des 30 s).
+//  3. Si personne n'est venu au bout de 30 s : des bots complètent le lobby un à un, puis la partie
+//     se lance toute seule. Les bots jouent AU HASARD.
 //
 // Les bots passent par EXACTEMENT les mêmes handlers que les humains : chaque bot est un faux socket
 // (id, data, on, emit, join, leave) sur lequel on rejoue les listeners 'connection' du serveur. Ils
@@ -12,26 +17,29 @@
 // => aucune règle dupliquée, mêmes validations que pour un humain, aucune triche possible.
 // Les bots ne lisent jamais rien : ils décident à partir de l'état serveur (ils jouent au hasard).
 //
-// Plus tard : un vrai matchmaking (file d'attente entre humains) pourra remplacer/compléter
-// startSearch() sans toucher au reste : les bots ne serviront alors que de remplissage.
+// Deux lobbies sont "la même recherche" s'ils ont le même mode, la même difficulté et les mêmes
+// modificateurs (cf. keyOf). Le type d'enchères et la durée de tour sont ceux de la salle.
 // =====================================================================
 const crypto = require('crypto');
 
 const TICK_MS = 700;
-const FIRST_FOUND_MS = [2000, 4500]; // délai avant le 1er joueur "trouvé"
-const NEXT_FOUND_MS = [1200, 3000];  // délai entre deux joueurs trouvés
+const WAIT_MS = 30000;               // attente de VRAIS joueurs avant de passer aux bots
+const GROUP_WAIT_MS = 10000;         // avec >= 2 humains : attente max après la dernière arrivée
+const FIRST_FOUND_MS = [1500, 3000]; // une fois les 30 s écoulées : délai avant le 1er bot "trouvé"
+const NEXT_FOUND_MS = [1000, 2200];  // délai entre deux bots trouvés
 const READY_DELAY_MS = 1800;         // pause entre "tous trouvés" et le lancement
 const RETRY_AFTER_MS = 8000;         // un coup de bot sans effet est retenté (3 fois max)
 
 // Un seul humain + N bots. Délais de réflexion en millisecondes [min, max].
 const pickBotCount = () => pickWeighted([1, 2, 3], [3, 4, 3]); // 2 à 4 joueurs au total
+// max = nombre MAXIMUM de joueurs d'une salle ; bots = bots ajoutés à un humain seul ; think = délai de réflexion.
 const MODE_PLAN = {
-  normal:    { bots: pickBotCount, think: [1200, 4500] },
-  coop:      { bots: pickBotCount, think: [1200, 4500] },
-  statdraft: { bots: pickBotCount, think: [2000, 8000] },
-  admin:     { bots: () => 1,      think: [1200, 4500] }, // le bot est l'ADMIN (il observe), l'humain joue
-  guess:     { bots: () => 1,      think: [3000, 9000] },
-  auction:   { bots: () => 1,      think: [2500, 7000] }
+  normal:    { max: 4, bots: pickBotCount, think: [1200, 4500] },
+  coop:      { max: 4, bots: pickBotCount, think: [1200, 4500] },
+  statdraft: { max: 4, bots: pickBotCount, think: [2000, 8000] },
+  admin:     { max: 2, bots: () => 1,      think: [1200, 4500] }, // seul : le bot est l'ADMIN (il observe), l'humain joue
+  guess:     { max: 2, bots: () => 1,      think: [3000, 9000] },
+  auction:   { max: 2, bots: () => 1,      think: [2500, 7000] }
 };
 // 'fly' (Humanité vs Mouche) se joue seul par conception : jamais de matchmaking.
 
@@ -60,11 +68,14 @@ function createMatchmaking({ io, app, games, avatars, auctionMinBid, sd, botLabe
   const T = ms => ms * (timeScale || 1); // 1 en production ; réduit uniquement par les tests
   const label = botLabel === undefined ? ' 🤖' : botLabel; // '' = bots indiscernables des humains (cf. MATCHMAKING_BOT_LABEL)
   const botSockets = new Map(); // id du bot -> faux socket
-  const searches = new Map();   // id de partie -> recherche en cours
+  const rooms = new Map();      // id de partie (lobby-salle) -> recherche en cours
   const brains = new WeakMap(); // joueur bot -> { key, dueAt, acted, attempts, actedAt, turns }
 
   const humansOf = game => game.players.filter(p => !p.isBot);
-  const hostSocket = search => io.sockets.sockets.get(search.hostId) || null;
+  const keyOf = game => JSON.stringify([
+    game.gameMode, game.selectedDifficulty,
+    [...(game.modifiers || [])].sort(), [...(game.sdMods || [])].sort()
+  ]);
 
   // ------------------------------------------------------------------
   // Faux socket : même interface que les handlers du serveur attendent.
@@ -118,59 +129,108 @@ function createMatchmaking({ io, app, games, avatars, auctionMinBid, sd, botLabe
   }
 
   // ------------------------------------------------------------------
-  // Recherche d'adversaires (simulée)
+  // Salles de recherche
+  //   room = { gameId, mode, key, max, createdAt, endsAt, phase, humanCount, bots[], needed, timers[] }
+  //   phase : 'humans' (30 s à chercher de vrais joueurs) -> 'bots' (ajout des bots) -> 'ready' -> lancement
+  // L'état "humains présents / hôte" est TOUJOURS relu dans la partie (jamais copié) : un joueur qui
+  // part, un nouvel hôte ou un ami arrivé avec le code sont pris en compte sans cas particulier.
   // ------------------------------------------------------------------
-  const statePayload = (search, state, extra) => ({
-    state,
-    mode: search.mode,
-    total: search.needed + 1,
-    found: search.found.map(f => ({ name: f.name, avatar: f.avatar })),
-    ...(extra || {})
-  });
-  const emitHost = (search, state, extra) => io.to(search.hostId).emit('mm_state', statePayload(search, state, extra));
-
-  function clearTimers(search) {
-    search.timers.forEach(t => clearTimeout(t));
-    search.timers = [];
+  function emitState(room, state, extra) {
+    const game = games[room.gameId];
+    if (!game) return;
+    const now = Date.now();
+    humansOf(game).forEach(me => {
+      io.to(me.id).emit('mm_state', {
+        state: state || (room.phase === 'ready' ? 'ready' : 'searching'),
+        phase: room.phase,
+        mode: room.mode,
+        total: room.phase === 'humans' ? room.max : game.players.length + Math.max(0, room.needed - room.bots.length),
+        count: game.players.length,
+        found: game.players.filter(q => q.id !== me.id).map(q => ({ name: q.name, avatar: q.avatar, bot: !!q.isBot })),
+        endsInMs: room.phase === 'humans' ? Math.max(0, room.endsAt - now) : 0,
+        isHost: me.id === game.hostId,
+        ...(extra || {})
+      });
+    });
   }
-  function later(search, ms, fn) {
+
+  function clearTimers(room) {
+    room.timers.forEach(t => clearTimeout(t));
+    room.timers = [];
+  }
+  function later(room, ms, fn) {
     const t = setTimeout(() => {
-      search.timers = search.timers.filter(x => x !== t);
+      room.timers = room.timers.filter(x => x !== t);
       try { fn(); } catch (err) { say.error('[matchmaking]', err); }
     }, ms);
-    search.timers.push(t);
+    room.timers.push(t);
   }
 
-  // La recherche reste valable tant que le lobby est exactement dans l'état où elle a démarré.
-  function stillValid(game, search) {
+  // La salle reste valable tant que le lobby est exactement dans l'état où la recherche l'a mis.
+  function stillValid(game, room) {
     return !!game
-      && searches.get(game.id) === search
+      && rooms.get(game.id) === room
       && game.status === 'waiting'
-      && game.gameMode === search.mode
-      && game.hostId === search.hostId
-      && humansOf(game).length === 1
-      && game.players.length === 1 + search.found.length;
+      && game.gameMode === room.mode
+      && keyOf(game) === room.key
+      && game.players.filter(p => p.isBot).length === room.bots.length
+      && humansOf(game).length >= 1;
   }
 
   // Retire les bots ajoutés pendant la recherche (comme s'ils quittaient le lobby).
-  function removeBots(search) {
-    search.found.forEach(f => {
-      const sock = botSockets.get(f.id);
+  function removeBots(room) {
+    room.bots.forEach(b => {
+      const sock = botSockets.get(b.id);
       if (sock) sock.trigger('leave_game');
-      botSockets.delete(f.id);
+      botSockets.delete(b.id);
     });
-    search.found = [];
+    room.bots = [];
   }
 
-  function abort(search, reason) {
-    clearTimers(search);
-    searches.delete(search.gameId);
-    const game = games[search.gameId];
-    if (game && game.status === 'waiting') removeBots(search);
-    emitHost(search, 'idle', { reason: reason || null });
+  function finishRoom(room, extra) {
+    clearTimers(room);
+    rooms.delete(room.gameId);
+    const game = games[room.gameId];
+    if (game) humansOf(game).forEach(p => io.to(p.id).emit('mm_state', { state: 'idle', mode: room.mode, ...(extra || {}) }));
   }
 
-  function addBot(game, search) {
+  function abort(room, reason) {
+    const game = games[room.gameId];
+    clearTimers(room);
+    rooms.delete(room.gameId);
+    if (game && game.status === 'waiting') removeBots(room);
+    if (game) humansOf(game).forEach(p => io.to(p.id).emit('mm_state', { state: 'idle', mode: room.mode, reason: reason || null }));
+  }
+
+  // Calendrier de la phase "humains" : salle pleine -> prête ; >= 2 humains -> 10 s après la dernière
+  // arrivée (au plus tard à la fin des 30 s) ; sinon fin des 30 s.
+  function reschedule(room) {
+    clearTimers(room);
+    const n = room.humanCount;
+    if (n >= room.max) { becomeReady(room); return; }
+    const deadline = room.createdAt + T(WAIT_MS);
+    room.endsAt = n >= 2 ? Math.min(deadline, Date.now() + T(GROUP_WAIT_MS)) : deadline;
+    later(room, Math.max(0, room.endsAt - Date.now()), () => onDeadline(room));
+  }
+
+  function becomeReady(room) {
+    clearTimers(room);
+    room.phase = 'ready';
+    emitState(room, 'ready');
+    later(room, T(READY_DELAY_MS), () => launch(room));
+  }
+
+  function onDeadline(room) {
+    const game = games[room.gameId];
+    if (!stillValid(game, room)) { abort(room, 'Recherche interrompue.'); return; }
+    if (humansOf(game).length >= 2) { becomeReady(room); return; } // de vrais joueurs ont été trouvés : pas de bots
+    room.phase = 'bots';
+    room.needed = MODE_PLAN[room.mode].bots();
+    emitState(room);
+    later(room, T(rand(...FIRST_FOUND_MS)), () => stepBot(room));
+  }
+
+  function addBot(game, room) {
     const { name, avatar } = randomIdentity(game);
     const id = 'bot_' + crypto.randomBytes(6).toString('hex');
     const sock = makeBotSocket(id);
@@ -179,38 +239,61 @@ function createMatchmaking({ io, app, games, avatars, auctionMinBid, sd, botLabe
     if (!player) return false; // join_game a refusé : on n'insiste pas
     player.isBot = true;
     botSockets.set(id, sock);
-    search.found.push({ id, name: player.name, avatar: player.avatar });
+    room.bots.push({ id, name: player.name, avatar: player.avatar });
     return true;
   }
 
-  function step(search) {
-    const game = games[search.gameId];
-    if (!stillValid(game, search)) { abort(search, 'Recherche interrompue.'); return; }
-    if (!addBot(game, search)) { abort(search, "Impossible d'ajouter un adversaire."); return; }
-    if (search.found.length < search.needed) {
-      emitHost(search, 'searching');
-      later(search, T(rand(...NEXT_FOUND_MS)), () => step(search));
+  function stepBot(room) {
+    const game = games[room.gameId];
+    if (!stillValid(game, room)) { abort(room, 'Recherche interrompue.'); return; }
+    if (!addBot(game, room)) { abort(room, "Impossible d'ajouter un adversaire."); return; }
+    if (room.bots.length < room.needed) {
+      emitState(room);
+      later(room, T(rand(...NEXT_FOUND_MS)), () => stepBot(room));
       return;
     }
-    emitHost(search, 'ready');
-    later(search, T(READY_DELAY_MS), () => launch(search));
+    becomeReady(room);
   }
 
-  function launch(search) {
-    const game = games[search.gameId];
-    if (!stillValid(game, search)) { abort(search, 'Recherche interrompue.'); return; }
-    const host = hostSocket(search);
-    if (!host) { abort(search, 'Connexion perdue.'); return; }
+  function launch(room) {
+    const game = games[room.gameId];
+    if (!stillValid(game, room)) { abort(room, 'Recherche interrompue.'); return; }
+    const host = io.sockets.sockets.get(game.hostId);
+    if (!host) { abort(room, 'Connexion perdue.'); return; }
 
     // Réglages propres à chaque mode, passés par les vrais handlers de l'hôte (mêmes validations).
-    if (game.gameMode === 'admin') callHandler(host, 'set_admin_role', { adminId: search.found[0].id });
+    // Admin : le bot s'il y en a un (l'humain joue), sinon un des deux humains tiré au sort.
+    if (game.gameMode === 'admin') {
+      const adminId = room.bots.length ? room.bots[0].id : pick(humansOf(game)).id;
+      callHandler(host, 'set_admin_role', { adminId });
+    }
     if (game.gameMode === 'auction' && !game.auctionType) callHandler(host, 'set_auction_type', { auctionType: pick(['complete', 'semi_blind']) });
     callHandler(host, 'start_game');
 
-    if (game.status === 'waiting') { abort(search, 'La partie n\'a pas pu démarrer.'); return; }
-    clearTimers(search);
-    searches.delete(search.gameId);
-    emitHost(search, 'idle', { started: true });
+    if (game.status === 'waiting') { abort(room, "La partie n'a pas pu démarrer."); return; }
+    finishRoom(room, { started: true });
+  }
+
+  // Reconcilie la salle avec la réalité du lobby (arrivée/départ d'un humain, y compris via un code).
+  function syncRoom(room) {
+    const game = games[room.gameId];
+    if (!game) { clearTimers(room); rooms.delete(room.gameId); return; }
+    const n = humansOf(game).length;
+    if (n === room.humanCount) return;
+    room.humanCount = n;
+    if (room.phase === 'humans') reschedule(room); // recalcule l'échéance (arrivée ou départ d'un humain)
+    emitState(room);
+  }
+
+  // Déplace un joueur seul dans le lobby d'une salle existante : mêmes règles que rejoindre avec un code
+  // ('join_game' quitte lui-même l'ancien lobby, qui est supprimé car il n'avait que ce joueur).
+  function joinRoom(room, socket) {
+    const source = games[socket.data.gameId];
+    const me = source && source.players.find(p => p.id === socket.id);
+    if (!me) return;
+    callHandler(socket, 'join_game', { name: me.name, gameId: room.gameId, token: me.token, avatar: me.avatar, accessToken: me.accountAccessToken });
+    if (socket.data.gameId !== room.gameId) { socket.emit('error_message', 'Impossible de rejoindre la partie trouvée.'); return; }
+    syncRoom(room);
   }
 
   function startSearch(socket) {
@@ -221,19 +304,30 @@ function createMatchmaking({ io, app, games, avatars, auctionMinBid, sd, botLabe
     const plan = MODE_PLAN[game.gameMode];
     if (!plan) { socket.emit('error_message', 'Ce mode se joue seul : pas de matchmaking.'); return; }
     if (game.players.length !== 1 || humansOf(game).length !== 1) { socket.emit('error_message', "Le matchmaking est réservé aux joueurs seuls dans leur lobby."); return; }
-    if (searches.has(game.id)) return; // déjà en cours : on ignore le double clic
+    if (rooms.has(game.id)) return; // déjà en cours : on ignore le double clic
 
-    const search = { gameId: game.id, hostId: socket.id, mode: game.gameMode, needed: plan.bots(), found: [], timers: [] };
-    searches.set(game.id, search);
-    emitHost(search, 'searching');
-    later(search, T(rand(...FIRST_FOUND_MS)), () => step(search));
+    // 1) Une salle compatible existe déjà : on la rejoint (vrai matchmaking).
+    const key = keyOf(game);
+    const candidate = [...rooms.values()].find(r =>
+      r.key === key && r.phase === 'humans' && r.humanCount < r.max && r.gameId !== game.id && stillValid(games[r.gameId], r));
+    if (candidate) { joinRoom(candidate, socket); return; }
+
+    // 2) Sinon, ce lobby devient une salle : 30 s pour trouver de vrais joueurs, puis des bots.
+    const room = { gameId: game.id, mode: game.gameMode, key, max: plan.max, createdAt: Date.now(), endsAt: 0, phase: 'humans', humanCount: 1, bots: [], needed: 0, timers: [] };
+    rooms.set(game.id, room);
+    reschedule(room);
+    emitState(room);
   }
 
   function cancelSearch(socket) {
     const game = games[socket.data.gameId];
-    const search = game && searches.get(game.id);
-    if (!search || search.hostId !== socket.id) return;
-    abort(search, null);
+    const room = game && rooms.get(game.id);
+    if (!room) return;
+    if (game.hostId === socket.id) { abort(room, null); return; } // l'hôte annule : les humains déjà réunis restent dans le lobby
+    // Un invité qui annule quitte simplement le lobby.
+    callHandler(socket, 'leave_game');
+    io.to(socket.id).emit('mm_state', { state: 'idle', mode: room.mode, left: true });
+    syncRoom(room);
   }
 
   // ------------------------------------------------------------------
@@ -326,8 +420,11 @@ function createMatchmaking({ io, app, games, avatars, auctionMinBid, sd, botLabe
       const g = games[sock.data.gameId];
       if (!g || !g.players.some(p => p.id === id)) botSockets.delete(id);
     }
-    for (const search of [...searches.values()]) {
-      if (!games[search.gameId]) { clearTimers(search); searches.delete(search.gameId); }
+    for (const room of [...rooms.values()]) {
+      const g = games[room.gameId];
+      if (!g || !humansOf(g).length) { clearTimers(room); rooms.delete(room.gameId); continue; }
+      if (!stillValid(g, room)) { abort(room, 'Recherche interrompue.'); continue; }
+      syncRoom(room);
     }
     for (const game of Object.values(games)) {
       if (game.status === 'waiting' || game.status === 'finished') continue;
@@ -371,12 +468,12 @@ function createMatchmaking({ io, app, games, avatars, auctionMinBid, sd, botLabe
 
   // Appelé quand une partie est supprimée ou ne contient plus que des bots.
   function dispose(game) {
-    const search = searches.get(game.id);
-    if (search) { clearTimers(search); searches.delete(game.id); }
+    const room = rooms.get(game.id);
+    if (room) { clearTimers(room); rooms.delete(game.id); }
     game.players.filter(p => p.isBot).forEach(p => botSockets.delete(p.id));
   }
 
-  return { dispose, _internals: { tick, searches, botSockets, MODE_PLAN } };
+  return { dispose, _internals: { tick, rooms, botSockets, MODE_PLAN, keyOf } };
 }
 
 module.exports = { createMatchmaking, MODE_PLAN };

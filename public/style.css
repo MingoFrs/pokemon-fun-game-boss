@@ -5699,3 +5699,4 @@ html.large-text body { zoom: 1.12; }
 .mm-found__avatar img { width: 100%; height: 100%; object-fit: cover; }
 /* Pendant la recherche, les réglages du lobby sont figés (le serveur annule aussi si le lobby change). */
 .mm-busy .gamemode-btn, .mm-busy .difficulty-btn, .mm-busy .modifier-chip, .mm-busy .admin-role-btn { pointer-events: none; opacity: 0.55; }
+.mm-found__tag { margin-left: auto; padding: 2px 8px; font-size: 11px; font-weight: 700; color: var(--bg-void); background: var(--accent-bas); border-radius: 999px; }
