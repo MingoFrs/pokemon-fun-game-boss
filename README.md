@@ -105,12 +105,35 @@ Au démarrage, le serveur affiche le nombre de Pokémon dans la roulette et un *
 
 Route HTTP : `GET /api/statdraft/config` → `{ ready, modifiers, targets, statKeys, statLabels, rounds }`.
 
+## Mode « Quiz Pokémon »
+
+Choisi dans le lobby (bouton **Quiz Pokémon**). 1 joueur ou plus ; seul, le matchmaking peut te trouver des adversaires. Pas de boss, de route ni d'équipe.
+
+- **Questions** (5, 10 ou 15 au choix de l'hôte), de 3 types activables : **🕶️ silhouette** (« Qui est ce Pokémon ? »), **🧬 types** (« Quel Pokémon a ces types ? »), **📊 stats** (« Quel Pokémon a ces stats de base ? »). Jamais 2 fois le même type de suite quand plusieurs sont actifs, jamais deux fois le même Pokémon dans une partie. 4 réponses, **une seule tentative**. Pour les types, les 3 mauvaises réponses n'ont jamais la même combinaison de types que la bonne (une seule réponse possible).
+- **Points :** 100 + jusqu'à 100 de **bonus de vitesse** (temps restant sur 15 s), **+25** pour la bonne réponse la plus rapide de la question, **−25** si on répond après l'**indice** (qui apparaît à mi-temps : types pour la silhouette et les stats, génération pour les types). Mauvaise réponse ou pas de réponse : 0. La question se termine dès que tous les joueurs présents ont répondu.
+- **Fin :** classement au total (ex æquo départagés par le nombre de bonnes réponses), avec bonnes réponses et temps moyen.
+
+| Modificateur | Effet |
+|---|---|
+| ⏱️ Éclair | 8 s par question au lieu de 15 s |
+| 🙈 Sans indice | plus d'indice, mais tous les points ×1,25 |
+| 🔥 Série | +10 % de points par bonne réponse consécutive (jusqu'à +50 %) |
+| ⚠️ Pénalité | mauvaise réponse : −50 points (ne pas répondre ne coûte rien) |
+| 🗺️ Kanto | seulement les 151 premiers Pokémon |
+
+- **Pool :** espèces de base uniquement (pas de Méga). Les types de questions dont les données manquent (sprites, types ou stats) sont désactivés automatiquement ; le log serveur indique les catégories disponibles. Les stats viennent des mêmes données que la Roulette de Stats (`data/pokemon-stats.json` ou `data/statdraft-stats.json`).
+- **Anti-triche :** la bonne réponse n'est **jamais** envoyée avant la révélation (ni pendant la question, ni dans l'état de reconnexion). L'image de silhouette passe par une adresse opaque (`/api/quiz/image/<jeton>`, valable le temps de la question), pour que l'URL ne révèle pas le Pokémon. **Limite assumée :** l'image elle-même est servie en couleurs et la silhouette est faite par CSS ; quelqu'un qui ouvre cette adresse dans un onglet voit le Pokémon.
+- **XP :** uniquement sans modificateur et avec 10 questions (réglages par défaut). Le bonus de victoire n'est donné que s'il y a au moins **2 joueurs humains** (un humain seul contre des bots ne le fait pas gagner). Pas de ligne d'historique.
+- **Bots :** ils répondent après un délai aléatoire (2 à 11 s) ; chacun « connaît » la bonne réponse 4 fois sur 10 et répond au hasard sinon (≈ 55 % de réussite au total).
+- **Limites :** pas de spectateurs ; partie jamais persistée (le serveur redémarré l'efface).
+- **Événements :** `quiz_set_config` `{ kinds, rounds, modifiers }` (hôte, lobby) → `quiz_config_updated` ; `quiz_started`, `quiz_countdown`, `quiz_question` (jamais de correction), `quiz_hint`, `quiz_answer` `{ index }` → `quiz_answer_ok` (sans correction), `quiz_players`, `quiz_reveal` (avec la correction), `quiz_final`, `quiz_state` (reconnexion). Routes : `GET /api/quiz/config`, `GET /api/quiz/image/:token`.
+
 ## Matchmaking et faux joueurs
 
 Pour les joueurs seuls : dans son lobby, l'hôte clique sur **🔍 Trouver des adversaires** (visible uniquement s'il est seul, dans un mode compatible).
 
-1. **Vrai matchmaking (30 s) :** les lobbies solos qui cherchent la **même chose** (même mode, même difficulté, mêmes modificateurs) sont regroupés dans le lobby le plus ancien. Le joueur déplacé passe par le vrai `join_game` (comme s'il avait saisi un code : pseudo, compte et jeton de reconnexion conservés, son ancien lobby est supprimé). Le type d'enchères et la durée de tour sont ceux de la salle.
-2. **Démarrage :** salle pleine (4 joueurs en Pokéroute / Coop / Roulette de Stats, 2 en Admin / Devine / Enchères) → la partie démarre aussitôt. Avec au moins 2 humains, elle démarre 10 s après la dernière arrivée, ou à la fin des 30 s : **aucun bot quand de vrais joueurs sont là**.
+1. **Vrai matchmaking (30 s) :** les lobbies solos qui cherchent la **même chose** (même mode, même difficulté, mêmes modificateurs ; au Quiz : mêmes types de questions et même nombre de questions) sont regroupés dans le lobby le plus ancien. Le joueur déplacé passe par le vrai `join_game` (comme s'il avait saisi un code : pseudo, compte et jeton de reconnexion conservés, son ancien lobby est supprimé). Le type d'enchères et la durée de tour sont ceux de la salle.
+2. **Démarrage :** salle pleine (4 joueurs en Pokéroute / Coop / Roulette de Stats, 6 au Quiz, 2 en Admin / Devine / Enchères) → la partie démarre aussitôt. Avec au moins 2 humains, elle démarre 10 s après la dernière arrivée, ou à la fin des 30 s : **aucun bot quand de vrais joueurs sont là**.
 3. **Personne au bout de 30 s :** des bots (joueurs simulés) arrivent un par un dans le lobby, puis la partie se lance toute seule.
 
 Un ami qui rejoint avec le code pendant la recherche est compté comme un vrai joueur. L'hôte peut annuler (les humains déjà réunis restent ensemble dans le lobby, sans bots) ; un invité qui annule quitte le lobby. La recherche s'annule aussi si le mode, la difficulté ou les modificateurs changent.
@@ -120,6 +143,7 @@ Un ami qui rejoint avec le code pendant la recherche est compté comme un vrai j
 | Pokéroute (normal) | 1 à 3 | joue HAUT/BAS au hasard, choisit un objet de départ au hasard |
 | Coop | 1 à 3 | idem |
 | Roulette de Stats | 1 à 3 | choisit une stat au hasard dans une case vide |
+| Quiz Pokémon | 1 à 3 | répond après un délai aléatoire (40 % de connaissance, sinon au hasard) |
 | Admin vs Joueur | 1 | **est l'Admin** (il observe, comme le veut le mode), l'humain joue |
 | Devine le Pokémon | 1 | choisit un Pokémon secret, finit son tour ou tente une réponse au hasard (de plus en plus souvent) |
 | Enchères | 1 | mise au hasard (multiples de 0,5 M, dans son budget) ou passe |
@@ -165,7 +189,8 @@ pokeroute/
 ├── package.json
 ├── server.js               # Express + Socket.IO + état des parties
 ├── statdraft-game.js       # mode Roulette de Stats (module serveur isolé)
-├── matchmaking-bots.js     # matchmaking simulé + faux joueurs (module serveur isolé)
+├── quiz-game.js            # mode Quiz Pokémon (module serveur isolé)
+├── matchmaking-bots.js     # matchmaking + faux joueurs (module serveur isolé)
 ├── fetch-statdraft-stats.js # (secours) génère data/statdraft-stats.json depuis PokéAPI
 ├── README.md
 └── public/
@@ -174,6 +199,8 @@ pokeroute/
     ├── statdraft.css       # styles du mode Roulette de Stats
     ├── client.js           # logique socket côté navigateur
     ├── statdraft-client.js # client du mode Roulette de Stats (chargé après client.js)
+    ├── quiz.css            # styles du mode Quiz Pokémon
+    ├── quiz-client.js      # client du mode Quiz Pokémon (chargé après client.js)
     ├── account-password.js # mot de passe oublié / changement (chargé après client.js)
     └── matchmaking-client.js # bouton et écran de recherche d'adversaires (chargé après client.js)
 ```

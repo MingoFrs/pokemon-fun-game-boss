@@ -695,4 +695,4 @@ function createStatDraft({ io, app, games, supabase, createAuthClient, pool, ent
   return { ready, validateStart, begin, resync, syncLobby, carry, dispose, broadcastPresence, onPlayerRemoved, botMove, _internals: { normalizeStats, loadStatsTable, placeValue, STAT_KEYS, TARGETS, TIMING } };
 }
 
-module.exports = { createStatDraft, normalizeStats, STAT_KEYS, TARGETS, MODIFIERS };
+module.exports = { createStatDraft, normalizeStats, loadStatsTable, STAT_KEYS, TARGETS, MODIFIERS };

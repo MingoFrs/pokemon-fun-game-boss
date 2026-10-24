@@ -3896,8 +3896,8 @@ socket.on('rejoin_success', (payload) => {
   rememberActiveGame(payload.gameId);
   loadChatHistory(payload.chatMessages); // reprend la discussion en cours, jamais un reset (cf. resetChatPanel)
 
-  // Mode "Roulette de Stats" : en partie, l'écran est reconstruit par sd_state (statdraft-client.js).
-  if (payload.gameMode === 'statdraft') {
+  // Modes "Roulette de Stats" / "Quiz Pokémon" : en partie, l'écran est reconstruit par sd_state / quiz_state (statdraft-client.js, quiz-client.js).
+  if (payload.gameMode === 'statdraft' || payload.gameMode === 'quiz') {
     if (payload.status === 'waiting') {
       resetGameUI();
       gameCodeEl.textContent = payload.gameId;

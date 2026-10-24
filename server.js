@@ -3629,7 +3629,7 @@ function serializeGameForPersistence(game) {
 }
 
 async function persistGame(game) {
-  if (!supabase || game.status !== 'playing' || game.gameMode === 'fly' || game.gameMode === 'statdraft') return;
+  if (!supabase || game.status !== 'playing' || game.gameMode === 'fly' || game.gameMode === 'statdraft' || game.gameMode === 'quiz') return;
   if (game.players.some(p => p.isBot)) return; // partie avec faux joueurs : jamais restaurée après un redémarrage
   try {
     await supabase.from('active_games').upsert({
@@ -3744,7 +3744,7 @@ async function loadPersistedGames() {
 // mode admin sera ajoutée aux étapes suivantes (génération des options, diffusion
 // différenciée admin/joueur, interfaces dédiées).
 // -----------------------------------------------------------------
-const GAME_MODES = ['normal', 'admin', 'guess', 'auction', 'coop', 'fly', 'statdraft'];
+const GAME_MODES = ['normal', 'admin', 'guess', 'auction', 'coop', 'fly', 'statdraft', 'quiz'];
 
 // Objectif D'ÉQUIPE en mode Coop (cf. finishGame) : la vie de base du boss (100%, déjà
 // buffée dans BOSSES comme en mode normal) PLUS +50% de cette vie de base pour CHAQUE
@@ -3929,6 +3929,7 @@ function broadcastPlayers(game) {
 
 function broadcastGameUpdated(game) {
   if (game.gameMode === 'statdraft') { SD.broadcastPresence(game); return; } // mode isolé : ses propres événements sd_*
+  if (game.gameMode === 'quiz') { QZ.broadcastPresence(game); return; } // mode isolé : ses propres événements quiz_*
   const payload = {
     status: game.status,
     turn: game.turn,
@@ -4357,6 +4358,7 @@ function finalizePlayerRemoval(game, gameId, leavingPlayer) {
     clearSpectators(game, gameId);
     FLY.dispose(game); // mode fly : abandon = aucun apprentissage
     SD.dispose(game); // mode Roulette de Stats : timer de tirage
+    QZ.dispose(game); // mode Quiz Pokémon : timers et jetons d'images
     delete games[gameId];
     deletePersistedGame(gameId);
     return;
@@ -4409,6 +4411,12 @@ function finalizePlayerRemoval(game, gameId, leavingPlayer) {
   // Mode ROULETTE DE STATS : la partie continue avec les joueurs restants (cf. statdraft-game.js).
   if (game.status === 'playing' && game.gameMode === 'statdraft') {
     SD.onPlayerRemoved(game, leavingPlayer);
+    return;
+  }
+
+  // Mode QUIZ POKÉMON : idem, la partie continue avec les joueurs restants (cf. quiz-game.js).
+  if (game.status === 'playing' && game.gameMode === 'quiz') {
+    QZ.onPlayerRemoved(game, leavingPlayer);
     return;
   }
 
@@ -4778,6 +4786,10 @@ io.on('connection', (socket) => {
       socket.emit('error_message', 'Roulette de Stats : partie en cours, elle ne peut pas être rejointe ni observée.');
       return;
     }
+    if (game.gameMode === 'quiz' && game.status !== 'waiting' && socket.data.gameId !== id) {
+      socket.emit('error_message', 'Quiz Pokémon : partie en cours, elle ne peut pas être rejointe ni observée.');
+      return;
+    }
     if (game.status !== 'waiting') {
       // Partie déjà démarrée : mode spectateur, tous modes confondus. Un spectateur
       // n'entre JAMAIS dans game.players : voir clearSpectators/removeSpectator plus
@@ -4855,6 +4867,7 @@ io.on('connection', (socket) => {
       modifiers: game.modifiers || []
     });
     if (game.gameMode === 'statdraft') SD.syncLobby(game, socket); // modificateurs du mode Roulette de Stats
+    if (game.gameMode === 'quiz') QZ.syncLobby(game, socket); // réglages du mode Quiz Pokémon
 
     broadcastPlayers(game);
   });
@@ -5014,6 +5027,16 @@ io.on('connection', (socket) => {
         return;
       }
       SD.begin(game); // passe la partie en 'playing' et lance le 1er tirage
+      return;
+    }
+    // Mode Quiz Pokémon : 1 joueur minimum, aucun boss/route/objet — cf. quiz-game.js.
+    if (game.gameMode === 'quiz') {
+      const quizError = QZ.validateStart(game);
+      if (quizError) {
+        socket.emit('error_message', quizError);
+        return;
+      }
+      QZ.begin(game); // passe la partie en 'playing' : compte à rebours puis 1re question
       return;
     }
 
@@ -5449,6 +5472,8 @@ io.on('connection', (socket) => {
     FLY.dispose(oldGame);
     SD.carry(oldGame, newGame); // modificateurs Roulette de Stats conservés
     SD.dispose(oldGame);
+    QZ.carry(oldGame, newGame); // réglages du Quiz Pokémon conservés
+    QZ.dispose(oldGame);
     if (oldGame.turnTimer) clearTimeout(oldGame.turnTimer); // filet de sécurité : status 'finished' devrait déjà l'avoir nettoyé
     if (oldGame.guessTurnTimer) clearTimeout(oldGame.guessTurnTimer);
     delete games[oldGameId];
@@ -5467,6 +5492,7 @@ io.on('connection', (socket) => {
       modifiers: newGame.modifiers || []
     });
     if (newGame.gameMode === 'statdraft') SD.syncLobby(newGame);
+    if (newGame.gameMode === 'quiz') QZ.syncLobby(newGame);
   });
 
   // Choix de la difficulté du boss dans le lobby. Réservé à l'hôte, uniquement avant
@@ -5570,6 +5596,7 @@ io.on('connection', (socket) => {
     game.auctionType = null; // repart de zéro si l'hôte change de mode puis revient sur "auction"
     io.to(gameId).emit('game_mode_updated', { gameMode: game.gameMode, adminId: game.adminId, activePlayerIds: game.activePlayerIds, auctionType: game.auctionType });
     if (game.gameMode === 'statdraft') SD.syncLobby(game);
+    if (game.gameMode === 'quiz') QZ.syncLobby(game);
   });
 
   // Choix du type d'enchère (mode "auction" uniquement), avant le lancement. Cf.
@@ -6471,6 +6498,7 @@ io.on('connection', (socket) => {
     });
     if (game.gameMode === 'fly') FLY.resyncTurn(game, socket.id);
     if (game.gameMode === 'statdraft') { SD.syncLobby(game, socket); SD.resync(game, socket, player); }
+    if (game.gameMode === 'quiz') { QZ.syncLobby(game, socket); QZ.resync(game, socket, player); }
 
     // Mode "auction" : renvoie le lot en cours à CE seul joueur, avec la même règle de
     // visibilité que broadcastAuctionLot (jamais le Pokémon s'il ne doit pas le voir).
@@ -6589,6 +6617,21 @@ const SD = createStatDraft({
   log: console
 });
 
+// ---- MODE 'quiz' (Quiz Pokémon) : silhouette / types / stats à deviner, 4 choix, le plus rapide marque le plus ----
+const { createQuiz } = require('./quiz-game');
+const QZ = createQuiz({
+  io, app, games, supabase, createAuthClient,
+  pool: Object.values(POKEMON_POOLS).flat(), // { id, name, bst } : espèces de base uniquement (filtrées dans le module)
+  entries: POKEMON_ENTRIES,
+  getTypes: flyGetTypes,
+  spriteUrl,
+  spritesDir: path.join(__dirname, 'public', 'sprites'),
+  dataDir: path.join(__dirname, 'data'),
+  xpParticipation: XP_PARTICIPATION, xpVictoryBonus: XP_VICTORY_BONUS,
+  broadcastPlayers: g => broadcastPlayers(g),
+  log: console
+});
+
 // ---- MATCHMAKING + FAUX JOUEURS (bots) : lobby seul -> adversaires simulés qui jouent au hasard, tous modes sauf 'fly' ----
 const { createMatchmaking } = require('./matchmaking-bots');
 const MM = createMatchmaking({
@@ -6596,6 +6639,7 @@ const MM = createMatchmaking({
   avatars: AVATARS,
   auctionMinBid: AUCTION_MIN_BID,
   sd: SD,
+  qz: QZ,
   botLabel: process.env.MATCHMAKING_BOT_LABEL === 'off' ? '' : undefined, // 'off' : bots sans le suffixe 🤖
   log: console
 });

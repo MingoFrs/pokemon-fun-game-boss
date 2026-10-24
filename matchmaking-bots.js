@@ -37,6 +37,7 @@ const MODE_PLAN = {
   normal:    { max: 4, bots: pickBotCount, think: [1200, 4500] },
   coop:      { max: 4, bots: pickBotCount, think: [1200, 4500] },
   statdraft: { max: 4, bots: pickBotCount, think: [2000, 8000] },
+  quiz:      { max: 6, bots: pickBotCount, think: [2000, 11000] }, // les bots répondent au hasard (40 % de connaissance)
   admin:     { max: 2, bots: () => 1,      think: [1200, 4500] }, // seul : le bot est l'ADMIN (il observe), l'humain joue
   guess:     { max: 2, bots: () => 1,      think: [3000, 9000] },
   auction:   { max: 2, bots: () => 1,      think: [2500, 7000] }
@@ -63,7 +64,7 @@ function pickWeighted(values, weights) {
   return values[values.length - 1];
 }
 
-function createMatchmaking({ io, app, games, avatars, auctionMinBid, sd, botLabel, log, timeScale }) {
+function createMatchmaking({ io, app, games, avatars, auctionMinBid, sd, qz, botLabel, log, timeScale }) {
   const say = log || console;
   const T = ms => ms * (timeScale || 1); // 1 en production ; réduit uniquement par les tests
   const label = botLabel === undefined ? ' 🤖' : botLabel; // '' = bots indiscernables des humains (cf. MATCHMAKING_BOT_LABEL)
@@ -74,7 +75,8 @@ function createMatchmaking({ io, app, games, avatars, auctionMinBid, sd, botLabe
   const humansOf = game => game.players.filter(p => !p.isBot);
   const keyOf = game => JSON.stringify([
     game.gameMode, game.selectedDifficulty,
-    [...(game.modifiers || [])].sort(), [...(game.sdMods || [])].sort()
+    [...(game.modifiers || [])].sort(), [...(game.sdMods || [])].sort(),
+    game.gameMode === 'quiz' && qz ? qz.configKey(game) : null // même quiz = mêmes types de questions, même nombre, mêmes modificateurs
   ]);
 
   // ------------------------------------------------------------------
@@ -401,6 +403,11 @@ function createMatchmaking({ io, app, games, avatars, auctionMinBid, sd, botLabe
       case 'auction': return decideAuction(game, bot, plan);
       case 'statdraft': {
         const move = sd && sd.botMove(game, bot);
+        if (!move) return null;
+        return { key: move.key, delay: [plan.think[0], Math.max(plan.think[0], Math.min(plan.think[1], move.maxDelayMs))], run: () => ({ event: move.event, payload: move.payload }) };
+      }
+      case 'quiz': {
+        const move = qz && qz.botMove(game, bot);
         if (!move) return null;
         return { key: move.key, delay: [plan.think[0], Math.max(plan.think[0], Math.min(plan.think[1], move.maxDelayMs))], run: () => ({ event: move.event, payload: move.payload }) };
       }

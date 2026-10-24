@@ -20,6 +20,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css?v=16">
 <link rel="stylesheet" href="statdraft.css?v=2">
+<link rel="stylesheet" href="quiz.css?v=1">
 <!-- Applique thème de fond + réduction d'animations AVANT le premier rendu, pour
      éviter un flash visuel (contenu défini par le panneau Réglages, cf. client.js). -->
 <script>
@@ -291,7 +292,7 @@
       </div>
 
       <div class="lobby-col lobby-col--config">
-        <div class="difficulty-panel">
+        <div id="difficulty-panel" class="difficulty-panel">
           <p class="eyebrow">Difficulté du boss</p>
           <div id="difficulty-options" class="difficulty-options">
             <button type="button" class="difficulty-btn" data-difficulty="easy">Facile</button>
@@ -311,6 +312,7 @@
             <button type="button" class="gamemode-btn" data-mode="coop">Coop</button>
             <button type="button" class="gamemode-btn" data-mode="fly">Humanité vs Mouche</button>
             <button type="button" class="gamemode-btn" data-mode="statdraft">Roulette de Stats</button>
+            <button type="button" class="gamemode-btn" data-mode="quiz">Quiz Pokémon</button>
           </div>
         </div>
 
@@ -324,6 +326,18 @@
           <div id="modifiers-options" class="modifiers-options"></div>
           <ul id="modifiers-active-list" class="modifiers-active-list"></ul>
           <p id="modifiers-note" class="modifiers-note screen--hidden">Partie hors-classement : aucune XP, aucun succès, stats et Pokédex inchangés.</p>
+        </div>
+
+        <!-- Mode "Quiz Pokémon" uniquement (cf. quiz-client.js) : types de questions, nombre de questions, modificateurs. -->
+        <div id="qz-lobby-panel" class="modifiers-panel screen--hidden">
+          <p class="eyebrow">Quiz Pokémon · types de questions</p>
+          <div id="qz-kinds" class="modifiers-options"></div>
+          <p class="eyebrow">Nombre de questions</p>
+          <div id="qz-rounds" class="modifiers-options"></div>
+          <p class="eyebrow">Modificateurs de partie</p>
+          <div id="qz-mod-options" class="modifiers-options"></div>
+          <ul id="qz-mod-active" class="modifiers-active-list"></ul>
+          <p id="qz-mod-note" class="modifiers-note screen--hidden">Partie hors-classement : aucune XP.</p>
         </div>
 
         <!-- Mode "Roulette de Stats" uniquement (cf. statdraft-client.js) : objectifs par difficulté + modificateurs propres au mode. -->
@@ -655,6 +669,46 @@
   </section>
 
   <!-- ============ MODE "DEVINE LE POKÉMON" ============ -->
+
+  <section id="screen-quiz" class="screen screen--hidden">
+    <div class="qz-top">
+      <div class="qz-top__info">
+        <p id="qz-round" class="qz-round">Quiz Pokémon</p>
+        <p class="qz-me">Score <strong id="qz-my-score">0</strong></p>
+      </div>
+      <div id="qz-mods" class="qz-mods"></div>
+      <button id="qz-btn-leave" type="button" class="btn btn--ghost">Quitter</button>
+    </div>
+    <div id="qz-timer" class="qz-timer screen--hidden" aria-hidden="true">
+      <div id="qz-timer-bar" class="qz-timer__bar"></div>
+      <span id="qz-timer-text" class="qz-timer__text"></span>
+    </div>
+
+    <div class="qz-grid">
+      <div id="qz-stage" class="qz-stage">
+        <div id="qz-countdown" class="qz-countdown screen--hidden" role="status" aria-live="assertive"></div>
+        <div id="qz-card" class="qz-card screen--hidden">
+          <p id="qz-kind" class="qz-kind"></p>
+          <div id="qz-clue" class="qz-clue"></div>
+          <p id="qz-hint" class="qz-hint screen--hidden"></p>
+          <div id="qz-options" class="qz-options" role="group" aria-label="Réponses"></div>
+          <p id="qz-status" class="qz-status" role="status" aria-live="polite"></p>
+        </div>
+        <div id="qz-reveal" class="qz-reveal screen--hidden"></div>
+      </div>
+      <aside id="qz-side" class="qz-side">
+        <div id="qz-board" class="qz-board"></div>
+      </aside>
+    </div>
+
+    <div id="qz-final" class="qz-final screen--hidden">
+      <p id="qz-final-outcome" class="finished-outcome"></p>
+      <div id="qz-final-list" class="qz-final-list"></div>
+      <button id="qz-btn-replay" type="button" class="btn btn--haut btn--block screen--hidden">Rejouer</button>
+      <p id="qz-final-wait" class="lobby-status screen--hidden">L'hôte peut relancer une partie.</p>
+      <button id="qz-btn-final-leave" type="button" class="btn btn--ghost btn--block">Quitter</button>
+    </div>
+  </section>
 
   <section id="screen-statdraft" class="screen screen--hidden">
     <div class="sd-top">
@@ -1321,6 +1375,7 @@
 <script src="client.js?v=17"></script>
 <script src="fly-client.js?v=3"></script>
 <script src="statdraft-client.js?v=2"></script>
+<script src="quiz-client.js?v=1"></script>
 <script src="account-password.js?v=1"></script>
 <script src="matchmaking-client.js?v=1"></script>
 <script src="share-result.js?v=1"></script>
